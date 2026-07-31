@@ -22,6 +22,7 @@
 | 8 | [Risks & Technical Challenges](docs/08-risks.md) | Ranked risks with mitigations |
 | 9 | [Six-Month Development Plan](docs/09-six-month-plan.md) | Week-by-week plan, team shape, exit criteria |
 | 10 | [UI Mockups & Design Language](docs/10-ui-mockups.md) | Visual identity spec + interactive mockups |
+| 11 | [Running a model server](docs/11-model-server.md) | Point the app at Ollama/llama.cpp on your own machine for a much bigger model |
 
 ## Try It — Web & Android
 

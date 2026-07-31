@@ -270,10 +270,14 @@
   .modelrow .nm{font-size:14px;font-weight:700}
   .modelrow .nm .sz{color:var(--mist);font-weight:600;font-size:12px;margin-left:6px}
   .modelrow .ds{font-size:12px;color:var(--mist);margin-top:1px}
-  .modelrow .use{background:var(--acc);color:#fff;border:none;border-radius:999px;
+  .use{background:var(--acc);color:#fff;border:none;border-radius:999px;
     padding:7px 16px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0}
   .modelrow .active{color:var(--acc-deep);font-weight:800;font-size:13px;flex-shrink:0}
   .modelrow .dl{color:var(--mist);font-size:11.5px;max-width:130px;text-align:right;flex-shrink:0}
+  .srvinput{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:10px;
+    padding:10px 12px;font-size:14px;font-family:inherit;color:var(--ink);outline:none}
+  .srvinput:focus{border-color:var(--acc)}
+  .srvbtns{display:flex;align-items:center;gap:10px;margin-top:8px}
   .progbar{height:5px;border-radius:3px;background:var(--card2);margin-top:8px;overflow:hidden}
   .progbar i{display:block;height:100%;border-radius:3px;background:var(--acc);width:0%;transition:width .3s}
 
@@ -546,7 +550,7 @@
 <script>
 "use strict";
 /* ================= platform & version ================= */
-var WEB_VN = "0.3.5";
+var WEB_VN = "0.3.6";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -781,18 +785,101 @@ var MODELS = [
 ];
 function modelById(id){ for (var i=0;i<MODELS.length;i++) if (MODELS[i].id===id) return MODELS[i]; return null; }
 function matureActive(){
+  if (S.model === "remote") return !!S.adult;   // your box, your rules
   var m = modelById(S.model);
   return !!(m && m.tier === "mature" && S.adult);
 }
 var LLM = {engine:null, id:null, state:"idle", prog:"", pct:0, err:""};
 function webgpuOK(){ return typeof navigator !== "undefined" && !!navigator.gpu; }
-function useLLM(){ return S.model !== "scripted" && webgpuOK(); }
+
+/* ================= remote server (OpenAI-compatible) =================
+   Ollama, llama.cpp server, LM Studio and vLLM all expose
+   /v1/chat/completions with SSE streaming — the same shape WebLLM uses,
+   so the prompt and streaming code below are shared. Runs a far bigger
+   model than the phone can hold; falls back to the scripted engine
+   whenever the box is asleep or off the network. */
+var REMOTE = {remote:true};
+function srv(){
+  if (!S.server) S.server = {url:"", model:"", models:[], err:""};
+  return S.server;
+}
+function srvBase(){
+  var u = (srv().url || "").trim().replace(/\s/g, "").replace(/\/+$/, "");
+  if (!u) return "";
+  if (!/^https?:\/\//i.test(u)) u = "http://" + u;
+  return u.replace(/\/v1$/, "");
+}
+function srvHost(){
+  var b = srvBase();
+  return b ? b.replace(/^https?:\/\//, "") : "";
+}
+function isRemote(){ return S.model === "remote"; }
+function remoteReady(){ return !!(isRemote() && srvBase() && srv().model); }
+/* ask the server which models it has loaded */
+function srvProbe(cb){
+  var base = srvBase();
+  if (!base) { cb("Enter the server address first"); return; }
+  fetch(base + "/v1/models", {method:"GET"}).then(function(r){
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }).then(function(j){
+    var list = (j && j.data || []).map(function(m){ return m.id; }).filter(Boolean);
+    srv().models = list; srv().err = "";
+    if (!list.length) { cb("Connected, but the server has no models loaded"); return; }
+    if (!srv().model || list.indexOf(srv().model) < 0) srv().model = list[0];
+    save(); cb(null, list);
+  }).catch(function(e){
+    srv().models = [];
+    srv().err = String(e && e.message || e);
+    save(); cb(srv().err);
+  });
+}
+/* stream a completion from the server */
+async function remoteGenerate(messages, onDelta){
+  var r = await fetch(srvBase() + "/v1/chat/completions", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      model: srv().model, messages: messages, stream: true,
+      temperature: 0.85, top_p: 0.95, max_tokens: 512,
+      presence_penalty: 0.3, frequency_penalty: 0.3
+    })
+  });
+  if (!r.ok) throw new Error("server returned HTTP " + r.status);
+  var reader = r.body.getReader(), dec = new TextDecoder(), buf = "";
+  for (;;) {
+    var chunk = await reader.read();
+    if (chunk.done) break;
+    buf += dec.decode(chunk.value, {stream:true});
+    var lines = buf.split("\n");
+    buf = lines.pop();
+    for (var i = 0; i < lines.length; i++) {
+      var ln = lines[i].trim();
+      if (ln.indexOf("data:") !== 0) continue;
+      var payload = ln.slice(5).trim();
+      if (payload === "[DONE]") return;
+      var j;
+      try { j = JSON.parse(payload); } catch (e) { continue; }
+      var d = j.choices && j.choices[0] && j.choices[0].delta &&
+              j.choices[0].delta.content;
+      if (d) onDelta(d);
+    }
+  }
+}
+
+function useLLM(){
+  if (isRemote()) return remoteReady();
+  return S.model !== "scripted" && webgpuOK();
+}
 function friendlyModel(){
+  if (isRemote())
+    return remoteReady() ? srv().model + " · " + srvHost() : "Remote server · not configured";
   for (var i=0;i<MODELS.length;i++) if (MODELS[i].id===S.model)
     return MODELS[i].id==="scripted" ? "Scripted persona · prototype" : MODELS[i].name + " · on-device";
   return S.model;
 }
 function ensureEngine(cb){
+  if (isRemote()) { remoteReady() ? cb(null, REMOTE) : cb("unavailable"); return; }
   if (!useLLM()) { cb("unavailable"); return; }
   if (LLM.engine && LLM.id === S.model) { cb(null, LLM.engine); return; }
   if (LLM.state === "loading") { cb("busy"); return; }
@@ -909,24 +996,31 @@ async function runGeneration(engine, convo, ch, done){
     if (open >= 0) t = t.slice(0, open);
     return t.replace(/^\s+/, "");
   }
+  function onDelta(delta){
+    if (!delta) return;
+    txt += delta;
+    var shown = visible(txt);
+    if (!shown) return;              // still inside a think block — keep typing dots
+    ensureLive();
+    if (liveEl) {
+      liveEl.querySelector(".txt").textContent = shown;
+      $("stream").scrollTop = 1e9;
+    }
+  }
   try {
-    var req = {
-      messages: buildMessages(ch, convo),
-      stream: true, temperature: 0.85, top_p: 0.95, max_tokens: 256
-    };
-    if (/^Qwen3/.test(LLM.id || "")) req.extra_body = {enable_thinking: false};
-    var chunks = await engine.chat.completions.create(req);
-    for await (var chunk of chunks) {
-      var delta = chunk.choices && chunk.choices[0] && chunk.choices[0].delta &&
-                  chunk.choices[0].delta.content;
-      if (!delta) continue;
-      txt += delta;
-      var shown = visible(txt);
-      if (!shown) continue;          // still inside a think block — keep typing dots
-      ensureLive();
-      if (liveEl) {
-        liveEl.querySelector(".txt").textContent = shown;
-        $("stream").scrollTop = 1e9;
+    var msgs = buildMessages(ch, convo);
+    if (engine === REMOTE) {
+      await remoteGenerate(msgs, onDelta);
+    } else {
+      var req = {
+        messages: msgs,
+        stream: true, temperature: 0.85, top_p: 0.95, max_tokens: 512
+      };
+      if (/^Qwen3/.test(LLM.id || "")) req.extra_body = {enable_thinking: false};
+      var chunks = await engine.chat.completions.create(req);
+      for await (var chunk of chunks) {
+        onDelta(chunk.choices && chunk.choices[0] && chunk.choices[0].delta &&
+                chunk.choices[0].delta.content);
       }
     }
     txt = visible(txt).trim();
@@ -938,7 +1032,11 @@ async function runGeneration(engine, convo, ch, done){
   } catch(e) {
     if (liveEl) liveEl.remove();
     deliver(convo, think(ch, txt || "hi"), ch.id);
-    toast("Model error — used scripted reply");
+    if (engine === REMOTE) {
+      srv().err = String(e && e.message || e); save();
+      toast("Server unreachable — used scripted reply");
+      renderModelUI();
+    } else toast("Model error — used scripted reply");
   }
   done();
 }
@@ -968,10 +1066,56 @@ function modelRowHTML(mo){
     '<div class="nm">' + mo.name + '<span class="sz">' + mo.size + '</span></div>' +
     '<div class="ds">' + mo.desc + '</div></div>' + right + '</div>';
 }
+/* the "run it on my own box" section of the model picker */
+function serverSectionHTML(){
+  var s = srv(), h = "";
+  h += '<div class="ds" style="padding:2px 0 6px;font-weight:800;letter-spacing:.5px">MY SERVER</div>';
+  h += '<div class="ds" style="padding-bottom:8px">Point this at a machine running Ollama, llama.cpp, ' +
+       'LM Studio or vLLM and it will use that instead — big model, real conversation, still your hardware.</div>';
+  h += '<input id="srv-url" class="srvinput" placeholder="192.168.1.50:11434" value="' + esc(s.url || "") + '">';
+  h += '<div class="srvbtns"><button class="use" id="srv-connect">Connect</button>' +
+       (s.models && s.models.length
+          ? '<span class="dl">' + s.models.length + ' model' + (s.models.length>1?'s':'') + ' available</span>'
+          : '') + '</div>';
+  if (s.err)
+    h += '<div class="ds" style="color:var(--danger);padding-top:6px">' + esc(s.err).slice(0,160) + '</div>';
+  (s.models || []).forEach(function(id){
+    var on = isRemote() && s.model === id;
+    h += '<div class="modelrow"><div class="mi"><div class="nm">' + esc(id) + '</div>' +
+         '<div class="ds">on ' + esc(srvHost()) + '</div></div>' +
+         (on ? '<span class="active"><span class="msr" style="font-size:14px">check</span> Active</span>'
+             : '<button class="use" data-srvmodel="' + esc(id) + '">Use</button>') + '</div>';
+  });
+  return h;
+}
+function wireServerUI(card){
+  var input = card.querySelector("#srv-url");
+  if (input) input.oninput = function(){ srv().url = input.value; srv().err = ""; save(); };
+  var conn = card.querySelector("#srv-connect");
+  if (conn) conn.onclick = function(){
+    conn.textContent = "Connecting…";
+    srvProbe(function(err, list){
+      renderModelUI();
+      toast(err ? "Couldn't reach the server" : "Connected — " + list.length + " model" + (list.length>1?"s":""));
+    });
+  };
+  var picks = card.querySelectorAll(".use[data-srvmodel]");
+  for (var i=0;i<picks.length;i++) (function(b){
+    b.onclick = function(){
+      srv().model = b.dataset.srvmodel;
+      S.model = "remote";
+      LLM.engine = null; LLM.id = null; LLM.state = "idle";   // free the on-device model
+      save(); initSettings(); renderModelUI(); updateChatStat();
+      toast("Now talking to " + srv().model);
+    };
+  })(picks[i]);
+}
 function renderModelUI(){
   var card = $("modelcard");
   if (!card.classList.contains("on")) return;
   var html = "";
+  html += serverSectionHTML();
+  html += '<div class="ds" style="padding:16px 0 6px;font-weight:800;letter-spacing:.5px">ON THIS DEVICE</div>';
   if (!webgpuOK())
     html += "<b><span class='msr' style='font-size:15px;color:#EAB308'>warning</span> WebGPU not available in this browser.</b>On-device AI needs WebGPU " +
       "(Chrome or Edge 113+, recent Android Chrome). The scripted engine still works everywhere.<br><br>";
@@ -998,6 +1142,7 @@ function renderModelUI(){
     '<div class="nm"><span class="msr" style="font-size:16px">delete_sweep</span> Delete downloaded models</div><div class="ds">Frees storage. Active model re-downloads on next use.</div></div>' +
     '<button class="use" id="model-clear" style="background:var(--danger)">Clear</button></div>';
   card.innerHTML = html;
+  wireServerUI(card);
   var btns = card.querySelectorAll(".use[data-model]");
   for (var i=0;i<btns.length;i++) (function(b){
     b.onclick = function(){
@@ -1040,6 +1185,8 @@ function updateChatStat(){
   var el = $("chat-stat");
   if (LLM.state === "loading")
     el.innerHTML = '<span class="on">downloading model · ' + LLM.pct + '%</span>';
+  else if (remoteReady())
+    el.innerHTML = '<span class="on">online</span> · via ' + esc(srvHost());
   else
     el.innerHTML = '<span class="on">online</span> · ' + esc(c.status);
 }
@@ -1397,11 +1544,12 @@ function openChat(id){
   c.unread = 0; save();
   $("chat-av").innerHTML = avIcon(c); $("chat-av").style.setProperty("--ring", c.ring);
   $("chat-name").textContent = c.name;
-  $("chat-stat").innerHTML = c.grp
-    ? esc(c.members.map(function(m){ var x=getChar(m); return x?x.name:""; }).filter(Boolean).join(", "))
-    : '<span class="on">online</span> · ' + esc(c.status);
+  if (c.grp)
+    $("chat-stat").innerHTML = esc(c.members.map(function(m){ var x=getChar(m); return x?x.name:""; }).filter(Boolean).join(", "));
+  else
+    $("chat-stat").innerHTML = '<span class="on">online</span> · ' + esc(c.status);
   $("chat-call").style.display = c.grp ? "none" : "flex";
-  renderStream(); show("v-chat");
+  renderStream(); show("v-chat"); updateChatStat();
   if (!(S.msgs[id] && S.msgs[id].length)) {
     if (c.grp) seedGroupChat(c);
     else setTimeout(function(){ deliver(c, greetingOf(c)); }, 600);
@@ -1409,7 +1557,8 @@ function openChat(id){
 }
 function renderStream(){
   var st = $("stream"); var c = getConvo(cur);
-  st.innerHTML = '<div class="day"><span class="msr" style="font-size:12px">lock</span> On-device · private</div>';
+  st.innerHTML = '<div class="day"><span class="msr" style="font-size:12px">lock</span> ' +
+    (remoteReady() ? esc(srvHost()) + " · your server" : "On-device · private") + '</div>';
   (S.msgs[cur]||[]).forEach(function(msg){
     var out = msg.who === "me";
     var rw = document.createElement("div");

@@ -154,7 +154,10 @@ def build_manifest(package, version_code, version_name):
           Elem("uses-sdk", [A("minSdkVersion", 24), A("targetSdkVersion", 28)]),
           Elem("uses-permission", [A("name", "android.permission.INTERNET")]),
           Elem("application",
-            [A("label", "PocketAI"), A("hardwareAccelerated", True)],
+            # cleartext: reach a LAN model server at http://192.168.x.x — targetSdk 28
+            # blocks plain HTTP otherwise
+            [A("label", "PocketAI"), A("hardwareAccelerated", True),
+             A("usesCleartextTraffic", True)],
             [
               Elem("activity",
                 [A("name", package + ".MainActivity"), A("exported", True),

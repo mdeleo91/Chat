@@ -1,6 +1,6 @@
 {
-  "versionCode": 6,
-  "versionName": "0.3.5",
+  "versionCode": 7,
+  "versionName": "0.3.6",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Character profiles now drive behaviour. Add a description and personality and the character answers in that voice — blunt, warm, formal, dramatic, playful, curious or excitable — and reacts to the subjects you gave it. Edits to the six built-in characters finally stick instead of resetting on restart."
+  "notes": "Run the model on your own machine. Settings → Change model → My server: point it at Ollama, llama.cpp, LM Studio or vLLM on your network and characters answer from a model far bigger than the phone can hold. Falls back to the scripted engine whenever the server is asleep. Setup notes: docs/11-model-server.md"
 }
