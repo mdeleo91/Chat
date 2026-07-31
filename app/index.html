@@ -526,7 +526,7 @@
 <script>
 "use strict";
 /* ================= platform & version ================= */
-var WEB_VN = "0.3.0";
+var WEB_VN = "0.3.1";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -565,6 +565,7 @@ function load(){
   if (!S.removed) S.removed = {};
   if (!S.groups)  S.groups = [];
   if (!S.model)   S.model  = "scripted";
+  if (S.adult === undefined) S.adult = false;
 }
 function save(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e){} }
 
@@ -721,8 +722,21 @@ var MODELS = [
   {id:"Qwen2.5-1.5B-Instruct-q4f16_1-MLC", name:"Qwen2.5 1.5B", size:"~1.6 GB",
    desc:"Stronger conversation quality."},
   {id:"gemma-2-2b-it-q4f16_1-MLC", name:"Gemma 2 2B", size:"~1.9 GB",
-   desc:"Best quality here. Needs a capable device."}
+   desc:"Best quality here. Needs a capable device."},
+  {id:"Hermes-3-Llama-3.2-3B-q4f16_1-MLC", name:"Hermes 3 · 3B", size:"~2.3 GB", tier:"mature",
+   desc:"Steerable, minimal refusals, follows character prompts loyally. Lightest mature option."},
+  {id:"Hermes-3-Llama-3.1-8B-q4f16_1-MLC", name:"Hermes 3 · 8B", size:"~4.9 GB", tier:"mature",
+   desc:"Best roleplay quality in the catalog. Needs a desktop-class GPU."},
+  {id:"Hermes-2-Pro-Mistral-7B-q4f16_1-MLC", name:"Hermes 2 Pro · 7B", size:"~4.0 GB", tier:"mature",
+   desc:"Mistral-based, roleplay-friendly. Desktop GPU."},
+  {id:"Mistral-7B-Instruct-v0.3-q4f16_1-MLC", name:"Mistral 7B v0.3", size:"~4.6 GB", tier:"mature",
+   desc:"Famously light alignment. Desktop GPU."}
 ];
+function modelById(id){ for (var i=0;i<MODELS.length;i++) if (MODELS[i].id===id) return MODELS[i]; return null; }
+function matureActive(){
+  var m = modelById(S.model);
+  return !!(m && m.tier === "mature" && S.adult);
+}
 var LLM = {engine:null, id:null, state:"idle", prog:"", pct:0, err:""};
 function webgpuOK(){ return typeof navigator !== "undefined" && !!navigator.gpu; }
 function useLLM(){ return S.model !== "scripted" && webgpuOK(); }
@@ -777,6 +791,10 @@ function sysPrompt(ch, convo){
       "Other characters' messages appear prefixed with their name. Reply only as " + ch.name +
       " and never prefix your own name or speak for others.\n";
   }
+  if (matureActive())
+    p += "Mature mode — the user has confirmed they are an adult: romantic and explicit adult " +
+      "roleplay is permitted when the user invites it. All characters are consenting adults. " +
+      "Always decline anything involving minors, real people, or non-consent.\n";
   p += "Reply like a text message: short (1-3 sentences unless the user asks for more), natural, " +
     "in character, plain text without markdown. Never mention being a language model.";
   return p;
@@ -878,6 +896,20 @@ function extractFacts(ch, text){
   if ((m = t.match(/i (?:work|live) (?:as|in|at) ([^.!?]{2,60})/i)))
     remember(ch, "They " + (t.indexOf("work")>=0?"work":"live") + " " + m[0].replace(/^i /i,"").trim());
 }
+function modelRowHTML(mo){
+  var right;
+  if (mo.id !== "scripted" && !webgpuOK())
+    right = '<span class="dl">needs WebGPU</span>';
+  else if (S.model === mo.id && LLM.state === "loading")
+    right = '<span class="dl">' + esc(LLM.prog).slice(0, 60) + '</span>';
+  else if (S.model === mo.id)
+    right = '<span class="active">✓ Active</span>';
+  else
+    right = '<button class="use" data-model="' + mo.id + '">Use</button>';
+  return '<div class="modelrow"><div class="mi">' +
+    '<div class="nm">' + mo.name + '<span class="sz">' + mo.size + '</span></div>' +
+    '<div class="ds">' + mo.desc + '</div></div>' + right + '</div>';
+}
 function renderModelUI(){
   var card = $("modelcard");
   if (!card.classList.contains("on")) return;
@@ -885,20 +917,19 @@ function renderModelUI(){
   if (!webgpuOK())
     html += "<b>⚠️ WebGPU not available in this browser.</b>On-device AI needs WebGPU " +
       "(Chrome or Edge 113+, recent Android Chrome). The scripted engine still works everywhere.<br><br>";
-  MODELS.forEach(function(mo){
-    var right;
-    if (mo.id !== "scripted" && !webgpuOK())
-      right = '<span class="dl">needs WebGPU</span>';
-    else if (S.model === mo.id && LLM.state === "loading")
-      right = '<span class="dl">' + esc(LLM.prog).slice(0, 60) + '</span>';
-    else if (S.model === mo.id)
-      right = '<span class="active">✓ Active</span>';
-    else
-      right = '<button class="use" data-model="' + mo.id + '">Use</button>';
-    html += '<div class="modelrow"><div class="mi">' +
-      '<div class="nm">' + mo.name + '<span class="sz">' + mo.size + '</span></div>' +
-      '<div class="ds">' + mo.desc + '</div></div>' + right + '</div>';
-  });
+  MODELS.forEach(function(mo){ if (!mo.tier) html += modelRowHTML(mo); });
+  html += '<div class="ds" style="padding:14px 0 4px;font-weight:800;letter-spacing:.5px">MATURE ROLEPLAY · 18+</div>';
+  if (!S.adult) {
+    html += '<div class="ds" style="padding-bottom:8px">Steerable models with minimal content filtering, ' +
+      'for adult roleplay. Hidden until you confirm your age.</div>' +
+      '<button class="use" id="adult-unlock" style="margin-bottom:6px">I\'m 18 or older — show mature models</button>';
+  } else {
+    MODELS.forEach(function(mo){ if (mo.tier === "mature") html += modelRowHTML(mo); });
+    html += '<div class="ds" style="padding-top:6px">These are the least-filtered models runnable in the ' +
+      'browser (Hermes, Mistral). With a mature model active, characters allow adult themes when you ' +
+      'invite them — everything still runs and stays on this device. ' +
+      '<a href="#" id="adult-hide" style="color:var(--mist)">Hide mature models</a></div>';
+  }
   if (LLM.state === "loading")
     html += '<div class="progbar"><i style="width:' + LLM.pct + '%"></i></div>';
   if (LLM.state === "error")
@@ -916,6 +947,22 @@ function renderModelUI(){
       if (S.model !== "scripted") ensureEngine(function(){});
     };
   })(btns[i]);
+  var unlock = card.querySelector("#adult-unlock");
+  if (unlock) unlock.onclick = function(){
+    if (confirm("Mature models allow explicit adult roleplay. Confirm you are 18 or older.")) {
+      S.adult = true; save(); renderModelUI();
+    }
+  };
+  var hideA = card.querySelector("#adult-hide");
+  if (hideA) hideA.onclick = function(e){
+    e.preventDefault();
+    S.adult = false;
+    if (modelById(S.model) && modelById(S.model).tier === "mature") {
+      S.model = "scripted"; LLM.engine = null; LLM.id = null; LLM.state = "idle";
+      initSettings();
+    }
+    save(); renderModelUI();
+  };
   var clr = card.querySelector("#model-clear");
   if (clr) clr.onclick = function(){
     if (!window.caches) { toast("Nothing to clear"); return; }
