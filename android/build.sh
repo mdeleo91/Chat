@@ -14,7 +14,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 AND="$ROOT/android"
 TOOLS="${TOOLS:-/opt/android-build}"     # dx.jar, android-stub.jar, apksig.jar
 OUT="$AND/out"
-rm -rf "$OUT"; mkdir -p "$OUT/classes" "$OUT/apk/assets"
+rm -rf "$OUT"; mkdir -p "$OUT/classes" "$OUT/stubs" "$OUT/apk/assets"
 
 # 1) Version constants shared by Java and the manifest
 mkdir -p "$OUT/gen/com/pocketai/app"
@@ -28,8 +28,16 @@ public final class BuildVersion {
 EOF
 
 # 2) Compile Java -> dex
+#    android-stub.jar is API 16 (newest android.jar on Maven Central), so
+#    framework classes added later are hand-stubbed in android/stubs. They go to
+#    a separate output dir: on the compile classpath, never dexed, so the real
+#    framework class wins at runtime.
 javac -source 8 -target 8 -nowarn \
   -classpath "$TOOLS/android-stub.jar" \
+  -d "$OUT/stubs" \
+  $(find "$AND/stubs" -name '*.java')
+javac -source 8 -target 8 -nowarn \
+  -classpath "$TOOLS/android-stub.jar:$OUT/stubs" \
   -d "$OUT/classes" \
   "$AND/src/com/pocketai/app/MainActivity.java" \
   "$OUT/gen/com/pocketai/app/BuildVersion.java"

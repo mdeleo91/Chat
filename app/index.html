@@ -583,13 +583,18 @@ var LOGKEY = "chat.logs.v1";
 var LOGS = [];
 try { LOGS = JSON.parse(localStorage.getItem(LOGKEY)) || []; } catch(e){ LOGS = []; }
 var logFlushT = null;
-function L(tag, msg){
+function flushLogs(){
+  clearTimeout(logFlushT);
+  try { localStorage.setItem(LOGKEY, JSON.stringify(LOGS)); } catch(e){}
+}
+/* now=true writes through immediately: anything logged right before a risky
+   operation has to survive the process being killed mid-operation. */
+function L(tag, msg, now){
   LOGS.push({t:Date.now(), g:tag, m:String(msg).slice(0,500)});
   if (LOGS.length > 600) LOGS = LOGS.slice(-500);
+  if (now) { flushLogs(); return; }
   clearTimeout(logFlushT);
-  logFlushT = setTimeout(function(){
-    try { localStorage.setItem(LOGKEY, JSON.stringify(LOGS)); } catch(e){}
-  }, 400);
+  logFlushT = setTimeout(flushLogs, 400);
 }
 function logText(){
   return LOGS.map(function(x){
@@ -604,7 +609,7 @@ window.addEventListener("unhandledrejection", function(e){
 });
 
 /* ================= platform & version ================= */
-var WEB_VN = "0.4.0";
+var WEB_VN = "0.4.1";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -846,6 +851,81 @@ function matureActive(){
 var LLM = {engine:null, id:null, state:"idle", prog:"", pct:0, err:""};
 function webgpuOK(){ return typeof navigator !== "undefined" && !!navigator.gpu; }
 
+/* ================= device memory budget =================
+   WebLLM holds the entire model in GPU/host memory for as long as it's active.
+   A phone has no swap for that: Android's low-memory killer takes out the
+   WebView renderer process long before the browser ever reports a failed
+   allocation, and the app dies with no JS error to log. There is no API that
+   reports the real limit, so the only defence is refusing to start a load the
+   device plainly cannot finish. navigator.deviceMemory is Chromium-only and
+   coarse (capped at 8, rounded to a power of two) — when it's missing we don't
+   guess, we just let the load run. */
+var IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+function deviceRAM(){ return navigator.deviceMemory || 0; }          // GB, 0 = unknown
+function memBudgetGB(){
+  var ram = deviceRAM();
+  if (!ram) return 0;
+  /* The OS, the browser and the rest of the page want their share too, and a
+     phone keeps far less of its RAM available to one process than a desktop. */
+  return Math.round(ram * (IS_MOBILE ? 0.28 : 0.55) * 10) / 10;
+}
+function modelGB(mo){
+  var s = (mo && mo.size) || "";
+  var g = /([\d.]+)\s*GB/i.exec(s);   if (g)  return parseFloat(g[1]);
+  var m = /([\d.]+)\s*MB/i.exec(s);   if (m)  return parseFloat(m[1]) / 1024;
+  return 0;
+}
+function tooBig(mo){
+  var b = memBudgetGB();
+  if (!b || !mo || mo.id === "scripted") return false;
+  return modelGB(mo) > b;
+}
+function memNote(mo){
+  var b = memBudgetGB();
+  return modelGB(mo) + " GB model · this device reports " + deviceRAM() +
+         " GB RAM (~" + b + " GB usable for a model)";
+}
+/* Models the user chose to load anyway after being warned. */
+function bigOK(id){ return !!(S.bigok && S.bigok[id]); }
+
+/* ---- crash breadcrumb ----
+   Written synchronously before a load starts and removed when it finishes
+   either way. Finding one at boot means the process died mid-load. */
+var PENDKEY = "chat.modelload.v1";
+function markLoading(id){
+  try { localStorage.setItem(PENDKEY, JSON.stringify({m:id, t:Date.now()})); } catch(e){}
+}
+function clearLoading(){ try { localStorage.removeItem(PENDKEY); } catch(e){} }
+function pendingLoad(){
+  try { return JSON.parse(localStorage.getItem(PENDKEY)); } catch(e){ return null; }
+}
+/* Runs once at boot, before anything can start a load. A breadcrumb still
+   sitting there means the last run died with a model half-loaded; ?rcrash=
+   means the Android shell caught the renderer process going away. Either way
+   the same model is still selected, so the very next message would repeat the
+   crash — fall back to the scripted engine and say why. */
+function crashGuard(){
+  var pend = pendingLoad(), why = Q.rcrash || "";
+  if (!pend && !why) return "";
+  clearLoading();
+  var how = why === "oom"   ? "Android killed the WebView renderer — out of memory"
+          : why === "crash" ? "the WebView renderer process crashed"
+          : "the app restarted before the model finished loading";
+  L("crash", "recovered: " + how + (pend ? " (loading " + pend.m + ")" : ""), true);
+  if (!pend || pend.m === "scripted") return "";
+
+  var mo = modelById(pend.m), name = mo ? mo.name : pend.m;
+  S.crash = {model:pend.m, name:name, t:Date.now(), how:how};
+  if (S.bigok) delete S.bigok[pend.m];      // the crash settles the argument
+  if (S.model === pend.m) {
+    S.model = "scripted";
+    LLM.engine = null; LLM.id = null; LLM.state = "idle";
+    L("model", "switched to the scripted engine after " + pend.m + " failed to load", true);
+  }
+  save();
+  return name + " couldn't load on this device — switched to scripted replies";
+}
+
 /* ================= remote server (OpenAI-compatible) =================
    Ollama, llama.cpp server, LM Studio and vLLM all expose
    /v1/chat/completions with SSE streaming — the same shape WebLLM uses,
@@ -937,10 +1017,20 @@ function ensureEngine(cb){
   if (!useLLM()) { cb("unavailable"); return; }
   if (LLM.engine && LLM.id === S.model) { cb(null, LLM.engine); return; }
   if (LLM.state === "loading") { cb("busy"); return; }
+  var wanted = S.model, mo = modelById(wanted);
+  /* Refuse rather than let the OS kill the app mid-load (see memBudgetGB). */
+  if (tooBig(mo) && !bigOK(wanted)) {
+    LLM.state = "error";
+    LLM.err = mo.name + " needs about " + modelGB(mo) + " GB and this device has roughly " +
+      memBudgetGB() + " GB to spare. Pick a smaller model, or use your own server.";
+    L("model", "refused " + wanted + " — " + memNote(mo), true);
+    renderModelUI(); updateChatStat();
+    cb("toobig"); return;
+  }
   LLM.state = "loading"; LLM.prog = "Starting…"; LLM.pct = 0; LLM.err = "";
   renderModelUI(); updateChatStat();
-  var wanted = S.model;
-  L("model", "load start: " + wanted);
+  markLoading(wanted);
+  L("model", "load start: " + wanted + " · " + memNote(mo), true);
   import(WEBLLM_URL).then(function(webllm){
     return webllm.CreateMLCEngine(wanted, {
       initProgressCallback: function(p){
@@ -950,14 +1040,17 @@ function ensureEngine(cb){
       }
     });
   }).then(function(engine){
+    clearLoading();
+    if (S.crash) { delete S.crash; save(); }   // something loads here after all
     LLM.engine = engine; LLM.id = wanted; LLM.state = "ready";
-    L("model", "ready: " + wanted);
+    L("model", "ready: " + wanted, true);
     renderModelUI(); updateChatStat(); initSettings();
     toast("Model ready — " + friendlyModel());
     cb(null, engine);
   }).catch(function(e){
+    clearLoading();
     LLM.state = "error"; LLM.err = String(e && e.message || e);
-    L("model", "load FAILED: " + wanted + " — " + LLM.err.slice(0,200));
+    L("model", "load FAILED: " + wanted + " — " + LLM.err.slice(0,200), true);
     renderModelUI(); updateChatStat();
     cb(e);
   });
@@ -1027,7 +1120,8 @@ function aiDeliver(convo, ch, userText, nudge){
     ensureEngine(function(err, engine){
       if (err) {
         deliver(convo, nudge ? pick(ch.fall) : think(ch, userText || "hi"), ch.id);
-        if (err !== "busy" && err !== "unavailable") toast("Model error — used scripted reply");
+        if (err === "toobig") toast("Model too large for this device — used scripted reply");
+        else if (err !== "busy" && err !== "unavailable") toast("Model error — used scripted reply");
         done(); return;
       }
       runGeneration(engine, convo, ch, nudge, done);
@@ -1120,7 +1214,7 @@ function extractFacts(ch, text){
     remember(ch, "They " + (t.indexOf("work")>=0?"work":"live") + " " + m[0].replace(/^i /i,"").trim());
 }
 function modelRowHTML(mo){
-  var right;
+  var right, big = tooBig(mo) && !bigOK(mo.id);
   if (mo.id !== "scripted" && !webgpuOK())
     right = '<span class="dl">needs WebGPU</span>';
   else if (S.model === mo.id && LLM.state === "loading")
@@ -1128,10 +1222,15 @@ function modelRowHTML(mo){
   else if (S.model === mo.id)
     right = '<span class="active"><span class="msr" style="font-size:14px">check</span> Active</span>';
   else
-    right = '<button class="use" data-model="' + mo.id + '">Use</button>';
+    right = '<button class="use" data-model="' + mo.id + '"' + (big ? ' data-big="1"' : '') +
+      (big ? ' style="background:var(--mist)"' : '') + '>Use</button>';
+  var warn = big
+    ? '<div class="ds" style="color:#EAB308"><span class="msr" style="font-size:14px;vertical-align:-2px">warning</span> ' +
+      'Too large for this device — needs ~' + modelGB(mo) + ' GB, about ' + memBudgetGB() + ' GB is usable here.</div>'
+    : '';
   return '<div class="modelrow"><div class="mi">' +
     '<div class="nm">' + mo.name + '<span class="sz">' + mo.size + '</span></div>' +
-    '<div class="ds">' + mo.desc + '</div></div>' + right + '</div>';
+    '<div class="ds">' + mo.desc + '</div>' + warn + '</div>' + right + '</div>';
 }
 /* the "run it on my own box" section of the model picker */
 function serverSectionHTML(){
@@ -1183,6 +1282,12 @@ function renderModelUI(){
   var html = "";
   html += serverSectionHTML();
   html += '<div class="ds" style="padding:16px 0 6px;font-weight:800;letter-spacing:.5px">ON THIS DEVICE</div>';
+  if (S.crash)
+    html += '<div class="ds" style="color:#EAB308;padding-bottom:10px">' +
+      "<span class='msr' style='font-size:15px;vertical-align:-2px'>warning</span> <b>" +
+      esc(S.crash.name) + " closed the app while loading</b> — " + esc(S.crash.how) +
+      ". Scripted replies are active. A model this size needs a desktop GPU, or run it on " +
+      "your own machine with My Server above.</div>";
   if (!webgpuOK())
     html += "<b><span class='msr' style='font-size:15px;color:#EAB308'>warning</span> WebGPU not available in this browser.</b>On-device AI needs WebGPU " +
       "(Chrome or Edge 113+, recent Android Chrome). The scripted engine still works everywhere.<br><br>";
@@ -1213,7 +1318,15 @@ function renderModelUI(){
   var btns = card.querySelectorAll(".use[data-model]");
   for (var i=0;i<btns.length;i++) (function(b){
     b.onclick = function(){
-      S.model = b.dataset.model; save(); initSettings(); renderModelUI();
+      var id = b.dataset.model, mo = modelById(id);
+      if (b.dataset.big) {
+        if (!confirm(mo.name + " needs about " + modelGB(mo) + " GB of memory. This device reports " +
+              deviceRAM() + " GB of RAM, so loading it will most likely make the app close itself " +
+              "part-way through the download.\n\nTry it anyway?")) return;
+        (S.bigok = S.bigok || {})[id] = true;
+        L("model", "user overrode the memory warning for " + id + " · " + memNote(mo), true);
+      }
+      S.model = id; save(); initSettings(); renderModelUI();
       if (S.model !== "scripted") ensureEngine(function(){});
     };
   })(btns[i]);
@@ -2171,8 +2284,11 @@ else {
 if (!S.gseeded) { S.groups.push(JSON.parse(JSON.stringify(SEED_GROUP))); S.gseeded = true; save(); }
 applyTheme();
 L("boot", "v" + MY_VN + " " + (IS_APK ? "apk build " + MY_VC : "web") +
-  " · webgpu=" + webgpuOK() + " · model=" + S.model + " · " + navigator.userAgent.slice(0,120));
+  " · webgpu=" + webgpuOK() + " · ram=" + (deviceRAM() || "?") + "GB · model=" + S.model +
+  " · " + navigator.userAgent.slice(0,120), true);
+var crashMsg = crashGuard();
 renderHome(); initSettings(); silentUpdateCheck();
+if (crashMsg) setTimeout(function(){ toast(crashMsg); }, 600);
 if (S.onboarded) { $("v-ob").classList.add("right"); }
 if (window.matchMedia) {
   var mq = window.matchMedia("(prefers-color-scheme: dark)");

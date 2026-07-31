@@ -32,6 +32,11 @@ VERSION_CODE=2 VERSION_NAME=0.2.0 ./android/build.sh
 - `src/…/MainActivity.java` — full-screen WebView loading
   `assets/index.html?platform=apk&vc=<versionCode>&vn=<versionName>`.
   Non-`file:` URLs open in the system browser (that's how APK downloads work).
+- `stubs/` — hand-written, compile-only declarations for framework classes newer
+  than the API 16 `android-stub.jar` (currently `RenderProcessGoneDetail`, API
+  26). `build.sh` compiles them to `out/stubs` and puts that on the javac
+  classpath **but never dexes it**, so the real framework class is used at
+  runtime. Methods that touch them are guarded by `Build.VERSION.SDK_INT`.
 - `app/index.html` (repo root) is the **single source** for both the web app and
   the APK asset — the page reads the query string to decide whether to show
   "Download APK" (web) or "Check for updates" (APK).

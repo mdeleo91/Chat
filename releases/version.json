@@ -1,6 +1,6 @@
 {
-  "versionCode": 8,
-  "versionName": "0.4.0",
+  "versionCode": 9,
+  "versionName": "0.4.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Long-press any message to copy, edit, rewind, regenerate, or delete. Tap send with an empty box and the character keeps talking. Adds downloadable troubleshooting logs in Settings."
+  "notes": "Fixes the app closing itself while loading a large model. It now survives an out-of-memory kill instead of dying, warns before you pick a model this device can't hold, and falls back to scripted replies after a failed load instead of crashing again."
 }
