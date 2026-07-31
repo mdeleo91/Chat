@@ -1,6 +1,6 @@
 {
-  "versionCode": 7,
-  "versionName": "0.3.6",
+  "versionCode": 8,
+  "versionName": "0.4.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Run the model on your own machine. Settings → Change model → My server: point it at Ollama, llama.cpp, LM Studio or vLLM on your network and characters answer from a model far bigger than the phone can hold. Falls back to the scripted engine whenever the server is asleep. Setup notes: docs/11-model-server.md"
+  "notes": "Long-press any message to copy, edit, rewind, regenerate, or delete. Tap send with an empty box and the character keeps talking. Adds downloadable troubleshooting logs in Settings."
 }
