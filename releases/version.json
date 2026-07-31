@@ -1,6 +1,6 @@
 {
-  "versionCode": 1,
-  "versionName": "0.1.0",
-  "apkUrl": "https://github.com/mdeleo91/Chat/raw/main/releases/PocketAI.apk",
-  "notes": "First PocketAI prototype build: Dusk messaging UI, six starter characters, on-device memories, character creation, and repo-based updates."
+  "versionCode": 2,
+  "versionName": "0.3.0",
+  "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
+  "notes": "Complete redesign: light green messenger UI, bottom tabs, contacts, group chat, voice calls, memories hub, themes — plus optional real on-device AI models (WebLLM) on devices with WebGPU."
 }
