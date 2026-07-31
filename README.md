@@ -27,7 +27,7 @@
 
 | | |
 |---|---|
-| 🌐 **Web version** | Open [`app/index.html`](app/index.html) in any browser (or serve it statically). Includes a **Download APK** link in Settings. |
+| 🌐 **Web version** | Open [`app/index.html`](app/index.html) in any browser (or serve it statically). Includes a **Download APK** link in Settings. Deployed on Vercel at the site root — see [Deployment](#deployment). |
 | 🤖 **Android APK** | [`releases/PocketAI.apk`](releases/PocketAI.apk) — Android 7.0+, ~18 KB, sideload-installable. Includes **Check for updates** in Settings, which reads [`releases/version.json`](releases/version.json) from this repo's `main` branch and links the newest APK. |
 
 Both are the same single-file app (`app/index.html`): the working Dusk messaging UI with six starter characters, on-device memories (localStorage), character creation, and themes. This prototype build uses a scripted persona engine as a stand-in brain; the llama.cpp runtime from the tech-stack doc drops in behind the same interface in a later milestone. Build pipeline: [`android/README.md`](android/README.md) — the APK is built without the Android SDK (blocked network) using Maven Central tooling and a hand-rolled binary-manifest encoder.
@@ -35,6 +35,18 @@ Both are the same single-file app (`app/index.html`): the working Dusk messaging
 ## Interactive Mockups
 
 Open [`mockups/pocketai-mockups.html`](mockups/pocketai-mockups.html) in any browser — a self-contained, dependency-free page showing the conversation list, chat screen, group chat, character editor, and voice call screens in the PocketAI design language ("Dusk"), in both light and dark themes.
+
+## Deployment
+
+The repo deploys to Vercel as a static site — no build step, no framework preset ("Other"), no environment variables. [`vercel.json`](vercel.json) maps the routes:
+
+| Route | Serves |
+|---|---|
+| `/` | `app/index.html` — the working app |
+| `/about` | Landing page and index of the design docs |
+| `/mockups` | `mockups/pocketai-mockups.html` |
+| `/docs/*.md` | Design docs, served as `text/plain` so they render in-browser |
+| `/releases/PocketAI.apk` | The APK, with the correct Android content type |
 
 ## The One-Paragraph Pitch
 
