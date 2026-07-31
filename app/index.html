@@ -526,7 +526,7 @@
 <script>
 "use strict";
 /* ================= platform & version ================= */
-var WEB_VN = "0.3.1";
+var WEB_VN = "0.3.2";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -722,7 +722,13 @@ var MODELS = [
   {id:"Qwen2.5-1.5B-Instruct-q4f16_1-MLC", name:"Qwen2.5 1.5B", size:"~1.6 GB",
    desc:"Stronger conversation quality."},
   {id:"gemma-2-2b-it-q4f16_1-MLC", name:"Gemma 2 2B", size:"~1.9 GB",
-   desc:"Best quality here. Needs a capable device."},
+   desc:"Solid quality on modest hardware."},
+  {id:"Qwen3.5-2B-q4f16_1-MLC", name:"Qwen3.5 2B", size:"~2.2 GB",
+   desc:"Newest Qwen generation — punchy for its size."},
+  {id:"Qwen3-4B-q4f16_1-MLC", name:"Qwen3 4B", size:"~3.4 GB",
+   desc:"Big quality step up. Good laptops and better."},
+  {id:"Qwen3-8B-q4f16_1-MLC", name:"Qwen3 8B", size:"~5.7 GB",
+   desc:"Best standard model here. Desktop-class GPU."},
   {id:"Hermes-3-Llama-3.2-3B-q4f16_1-MLC", name:"Hermes 3 · 3B", size:"~2.3 GB", tier:"mature",
    desc:"Steerable, minimal refusals, follows character prompts loyally. Lightest mature option."},
   {id:"Hermes-3-Llama-3.1-8B-q4f16_1-MLC", name:"Hermes 3 · 8B", size:"~4.9 GB", tier:"mature",
@@ -855,23 +861,34 @@ async function runGeneration(engine, convo, ch, done){
     if (ty) st.insertBefore(rw, ty); else st.appendChild(rw);
     liveEl = rw;
   }
+  /* hide chain-of-thought from hybrid reasoning models (Qwen3 etc.) */
+  function visible(raw){
+    var t = raw.replace(/<think>[\s\S]*?<\/think>/g, "");
+    var open = t.lastIndexOf("<think>");
+    if (open >= 0) t = t.slice(0, open);
+    return t.replace(/^\s+/, "");
+  }
   try {
-    var chunks = await engine.chat.completions.create({
+    var req = {
       messages: buildMessages(ch, convo),
       stream: true, temperature: 0.85, top_p: 0.95, max_tokens: 256
-    });
+    };
+    if (/^Qwen3/.test(LLM.id || "")) req.extra_body = {enable_thinking: false};
+    var chunks = await engine.chat.completions.create(req);
     for await (var chunk of chunks) {
       var delta = chunk.choices && chunk.choices[0] && chunk.choices[0].delta &&
                   chunk.choices[0].delta.content;
       if (!delta) continue;
       txt += delta;
+      var shown = visible(txt);
+      if (!shown) continue;          // still inside a think block — keep typing dots
       ensureLive();
       if (liveEl) {
-        liveEl.querySelector(".txt").textContent = txt;
+        liveEl.querySelector(".txt").textContent = shown;
         $("stream").scrollTop = 1e9;
       }
     }
-    txt = txt.trim();
+    txt = visible(txt).trim();
     if (!txt) txt = pick(ch.fall);
     pushMsg(convo.id, "them", txt, ch.id);
     if (cur === convo.id) renderStream();
