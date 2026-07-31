@@ -1,6 +1,6 @@
 {
-  "versionCode": 4,
-  "versionName": "0.3.3",
+  "versionCode": 5,
+  "versionName": "0.3.4",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Fixes confirmation dialogs on Android (18+ gate, clear chat, delete character, erase data did nothing when tapped). Also includes Qwen3/Qwen3.5 models and the gated mature tier."
+  "notes": "New icon set: every emoji in the app is now a Google Material Symbols icon, bundled with the app so it renders offline. Avatars, reactions and characters saved by older versions are upgraded automatically."
 }
