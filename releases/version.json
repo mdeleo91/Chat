@@ -1,6 +1,6 @@
 {
-  "versionCode": 2,
-  "versionName": "0.3.0",
+  "versionCode": 3,
+  "versionName": "0.3.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Complete redesign: light green messenger UI, bottom tabs, contacts, group chat, voice calls, memories hub, themes — plus optional real on-device AI models (WebLLM) on devices with WebGPU."
+  "notes": "Green messenger redesign with tabs, groups, voice calls, memories and themes; on-device AI models (WebLLM) including Qwen3/Qwen3.5 and a gated mature tier — on devices whose browser has WebGPU."
 }
