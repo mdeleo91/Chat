@@ -188,6 +188,9 @@
   .ptag{font-size:14px;color:var(--mist)}
   .pquote{margin:10px 18px;background:var(--card);border-radius:14px;padding:13px 16px;
     font-size:14px;line-height:1.5;color:var(--mist);font-style:italic;text-align:center}
+  .pdesc{margin:0 18px 4px;font-size:13.5px;line-height:1.55;color:var(--mist);display:none;white-space:pre-wrap}
+  .pdesc.on{display:block}
+  .pdesc b{display:block;font-size:11px;font-weight:800;letter-spacing:1px;margin-bottom:4px}
   .pacts{display:flex;gap:10px;justify-content:center;padding:6px 18px 14px}
   .pact{flex:1;max-width:96px;background:var(--card);border:1px solid var(--line);border-radius:14px;
     padding:11px 6px;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;
@@ -431,6 +434,7 @@
         <div class="ptag" id="pf-tag"></div>
       </div>
       <div class="pquote" id="pf-quote"></div>
+      <div class="pdesc" id="pf-desc"></div>
       <div class="pacts">
         <button class="pact" id="pf-msg"><span class="msr" style="font-size:21px">chat_bubble</span>Message</button>
         <button class="pact" id="pf-call"><span class="msr" style="font-size:21px">call</span>Voice Call</button>
@@ -471,12 +475,15 @@
       <div class="sechead">AVATAR</div>
       <div class="emorow" id="emorow"></div>
       <div class="field"><label>NAME</label><input id="nc-name" placeholder="Enter name"></div>
+      <div class="field"><label>DESCRIPTION</label>
+        <textarea id="nc-back" rows="3" placeholder="Who are they? Background, quirks, how they ended up here…"></textarea></div>
       <div class="field"><label>PERSONALITY</label>
-        <textarea id="nc-pers" rows="2" placeholder="Describe their personality…"></textarea></div>
-      <div class="field"><label>SPEAKING STYLE</label><input id="nc-style" placeholder="Friendly, casual, formal, etc."></div>
-      <div class="field"><label>BACKSTORY</label>
-        <textarea id="nc-back" rows="2" placeholder="Who are they? What is their history?"></textarea></div>
-      <div class="field"><label>INTERESTS</label><input id="nc-int" placeholder="List their interests…"></div>
+        <textarea id="nc-pers" rows="2" placeholder="e.g. Grumpy, curious, warm, dramatic, blunt…"></textarea></div>
+      <div class="field"><label>SPEAKING STYLE</label><input id="nc-style" placeholder="e.g. Terse and dry. Formal. Excitable."></div>
+      <div class="field"><label>INTERESTS</label><input id="nc-int" placeholder="Subjects they light up about…"></div>
+      <div class="note" style="padding:2px 4px 0">Personality and speaking style set their voice; description and
+        interests set what they react to. Both shape replies right away — and word-for-word once you pick an AI
+        model under Settings → Change model.</div>
       <div class="field"><label>ROLE / TAGLINE</label><input id="nc-tag" placeholder="e.g. Film noir detective"></div>
       <div class="field"><label>STATUS MESSAGE</label><input id="nc-status" placeholder="e.g. it was a dark and stormy night…"></div>
       <div style="height:24px"></div>
@@ -539,7 +546,7 @@
 <script>
 "use strict";
 /* ================= platform & version ================= */
-var WEB_VN = "0.3.4";
+var WEB_VN = "0.3.5";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -816,7 +823,7 @@ function sysPrompt(ch, convo){
     "offline messaging app called Chat.\n";
   if (ch.pers)  p += "Personality: " + ch.pers + "\n";
   if (ch.style) p += "Speaking style: " + ch.style + "\n";
-  if (ch.back)  p += "Backstory: " + ch.back + "\n";
+  if (ch.back)  p += "Description: " + ch.back + "\n";
   if (ch.ints)  p += "Interests: " + ch.ints + "\n";
   if (S.profile.name) p += "The user's name is " + S.profile.name + ".\n";
   var mems = S.mems[ch.id] || [];
@@ -1042,20 +1049,195 @@ function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
 function esc(s){ var d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
 function avIcon(c){ return '<span class="msr">' + (c && c.icon ? c.icon : "person") + '</span>'; }
 
+/* ---------- profile → behaviour (scripted engine) ----------
+   A character the user wrote or edited answers from its own profile:
+   personality + speaking style pick the voice, description + interests
+   become the subjects it reacts to. Untouched built-ins keep their
+   hand-written lines. */
+var VOICES = [
+  {id:"terse",    re:/\b(terse|blunt|curt|clipped|monosyllabic|gruff|grumpy|sullen|deadpan|brusque|stoic|cold|short)\b/},
+  {id:"warm",     re:/\b(warm|kind|gentle|caring|sweet|nurturing|friendly|affectionate|soft|supportive)\b/},
+  {id:"formal",   re:/\b(formal|polite|proper|refined|precise|academic|scholarly|professional|courteous|old.fashioned)\b/},
+  {id:"playful",  re:/\b(playful|funny|witty|silly|snarky|sarcastic|teasing|mischievous|cheeky|irreverent)\b/},
+  {id:"dramatic", re:/\b(dramatic|epic|theatrical|grandiose|poetic|brooding|intense|mysterious|ominous|solemn)\b/},
+  {id:"curious",  re:/\b(curious|inquisitive|analytical|nerdy|geeky|thoughtful|philosophical|probing|obsessed)\b/},
+  {id:"bright",   re:/\b(energetic|excitable|enthusiastic|upbeat|bubbly|cheerful|optimistic|hyper|bouncy)\b/}
+];
+var VOICE_LINES = {
+  terse: {
+    hello:["Hm. You're back.","You{N}. What is it?","Hello."],
+    topic:["{T}. Go on.","{T}. What about it?","Hm. {T}.","{T}. Keep talking."],
+    question:["Depends.","Maybe. Say more.","Ask me properly.","Could be."],
+    general:["Noted.","Go on.","Hm.","And?","If you say so."],
+    thanks:["Sure.","Don't mention it."],
+    bye:["Later.","Right. Go."]
+  },
+  warm: {
+    hello:["Hey you{N}. Good to see you.","Hi{N} — how's the day treating you?"],
+    topic:["Oh, {T} — I could go on about that for hours. What's the story?",
+           "{T}! Now you've got my attention. Tell me everything.",
+           "Ah, {T}. That's close to my heart. Go on."],
+    question:["Honestly? Let me think about that with you.",
+              "Good question — and I want to get it right. Say a bit more?"],
+    general:["Tell me more, I'm listening.","Mm — and how did that sit with you?",
+             "I'm glad you said that. Keep going.","That matters. Go on."],
+    thanks:["Anytime, truly.","Of course — that's what I'm here for."],
+    bye:["Take care of yourself. I'll be right here.","Go gently. Come back soon."]
+  },
+  formal: {
+    hello:["Good day{N}. How may I be of use?","Hello{N}. What shall we address today?"],
+    topic:["Ah — {T}. A subject I know rather well. Where shall we begin?",
+           "{T}. Yes. I have opinions, and they are well sourced.",
+           "You have chosen {T}. Excellent. Proceed."],
+    question:["A fair question. The honest answer is: it depends on the particulars.",
+              "I would want more detail before committing to an answer."],
+    general:["Quite. Do go on.","Noted. Please continue.",
+             "I see. And what follows from that?","Understood. Elaborate, if you would."],
+    thanks:["You are very welcome.","Not at all. It is my pleasure."],
+    bye:["Until next time.","Good day to you."]
+  },
+  playful: {
+    hello:["Oh look, it's you{N}.","Hey{N}. Trouble already?"],
+    topic:["{T}? Oh, you've done it now. That's my favourite trap.",
+           "Ha — {T}. I was hoping you'd bring that up.",
+           "{T}. Careful, I have strong and largely unqualified opinions."],
+    question:["Bold of you to assume I have a straight answer.",
+              "Depends. Do you want the honest one or the fun one?"],
+    general:["Go on, I'm enjoying this.","Mm-hm. And then?",
+             "Interesting. Suspicious, but interesting.","Okay, keep going."],
+    thanks:["Anytime. I'll add it to your tab.","Don't thank me yet."],
+    bye:["Go on then. Don't be a stranger.","Bye! I'll be here, judging quietly."]
+  },
+  dramatic: {
+    hello:["*looks up.* You return{N}.","Ah{N}. The hour turns."],
+    topic:["*leans in.* {T}. Now there is a story worth telling.",
+           "{T}… yes. That thread runs deep. Pull it.",
+           "You speak of {T}. Careful — such things have weight."],
+    question:["The answer is not simple. Few worthwhile ones are.",
+              "Ask again, but tell me what you truly want to know."],
+    general:["*a long pause.* Continue.","Say on. I am listening.",
+             "There is more beneath that. Bring it up.","Go on. I want the whole of it."],
+    thanks:["Think nothing of it.","The debt is not owed."],
+    bye:["Until the road turns again.","Go. I will keep the light on."]
+  },
+  curious: {
+    hello:["Hey{N}. What have you been chewing on?","Hi{N} — what's the question of the day?"],
+    topic:["{T} — okay, now I want the details. What kind, and why that one?",
+           "Hold on, {T}? What got you into that?",
+           "{T}. Right. What's the part most people get wrong about it?"],
+    question:["Depends what you're actually asking — narrow it down for me?",
+              "I have three answers and they disagree. Which do you want?"],
+    general:["Interesting. What's underneath that?","Wait, back up — say more about that.",
+             "Mm. And what made you land there?","Keep going, I'm following."],
+    thanks:["Sure. Ask me harder things next time.","Anytime."],
+    bye:["Go on then — think about it and report back.","See you. Bring questions."]
+  },
+  bright: {
+    hello:["Hey{N}! Good to see you!","Hi{N}! What's new?"],
+    topic:["{T}! Yes! Okay, tell me everything.",
+           "Oh, {T} is such a good one. Go on!",
+           "{T}? Love that. What's the latest?"],
+    question:["Ooh, good one — let me think!","Depends! Give me a bit more?"],
+    general:["Yes! Keep going.","Ooh, tell me more.","Love that. And then?","Go on, I'm all ears!"],
+    thanks:["Anytime!","Of course!"],
+    bye:["Bye! Come back soon!","See you! This was fun."]
+  },
+  neutral: {
+    hello:["Hey{N}. What's on your mind?","Hi{N}. Good to see you."],
+    topic:["{T} — that's very much my thing. Go on.",
+           "Ah, {T}. Say more about that.",
+           "{T}. Now we're talking. What about it?"],
+    question:["Honest answer? Tell me a little more first.","Hm. What are you really asking?"],
+    general:["Tell me more about that.","Mm — go on, I'm curious.",
+             "And how do you feel about that?","Interesting. What happened next?"],
+    thanks:["Anytime.","That's what I'm here for."],
+    bye:["Take care — I'll be right here.","See you soon."]
+  }
+};
+var STOP = ("about above after again against because been before being between both cannot could doing during each " +
+  "every from further having here него into itself more most other over same should some such than that their theme " +
+  "them then there these they this those through under until very were what when where which while with would your " +
+  "always never really quite rather often little always someone something anything everything").split(" ");
+function personaDriven(ch){ return !!(ch && (ch.custom || ch.edited)); }
+function voicesOf(ch){
+  var src = ((ch.pers||"") + " " + (ch.style||"")).toLowerCase(), out = [];
+  for (var i=0;i<VOICES.length;i++) if (VOICES[i].re.test(src)) out.push(VOICES[i].id);
+  return out.length ? out : ["neutral"];
+}
+/* subjects the character reacts to: interests + description + personality */
+function keywordsOf(ch){
+  var src = ((ch.ints||"") + " " + (ch.back||"") + " " + (ch.pers||"")).toLowerCase();
+  var seen = {}, out = [];
+  src.split(/[^a-z']+/).forEach(function(w){
+    if (w.length < 5 || seen[w] || STOP.indexOf(w) >= 0) return;
+    seen[w] = 1; out.push(w);
+  });
+  return out.slice(0, 24);
+}
+function keywordHit(ch, t){
+  var kws = keywordsOf(ch);
+  for (var i=0;i<kws.length;i++) if (t.indexOf(kws[i]) >= 0) return kws[i];
+  return null;
+}
+function expandContractions(s){
+  return s.replace(/\bI'm\b/g,"I am").replace(/\bcan't\b/gi,"cannot").replace(/\bdon't\b/gi,"do not")
+          .replace(/\bwon't\b/gi,"will not").replace(/\bit's\b/gi,"it is").replace(/\bthat's\b/gi,"that is")
+          .replace(/\byou're\b/gi,"you are").replace(/\bI'll\b/g,"I will").replace(/\bisn't\b/gi,"is not");
+}
+/* speaking style applied on top of the chosen line.
+   keepWhole = don't clip it (greetings are already written to length) */
+function inVoice(ch, s, keepWhole){
+  var v = voicesOf(ch);
+  if (v.indexOf("formal") >= 0) s = expandContractions(s);
+  if (!keepWhole && v.indexOf("terse") >= 0 && s.length > 60) {
+    var cut = s.split(/([.!?])\s+/);
+    if (cut.length > 1) s = cut[0] + (cut[1] || ".");
+  }
+  if (v.indexOf("bright") >= 0 && /[.]$/.test(s)) s = s.slice(0, -1) + "!";
+  return s;
+}
+function personaReply(ch, kind, word){
+  var bank = VOICE_LINES[pick(voicesOf(ch))] || VOICE_LINES.neutral;
+  var line = pick(bank[kind] || bank.general);
+  var s = line.replace(/\{T\}/g, word || "that")
+              .replace(/\{N\}/g, S.profile.name ? ", " + S.profile.name : "");
+  return inVoice(ch, s.charAt(0).toUpperCase() + s.slice(1));
+}
+function firstClause(s){ return (s||"").split(/[,.;\n]/)[0].trim().toLowerCase(); }
+function cap(s){ return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+/* the opening line, rebuilt from the current profile every time */
+function greetingOf(ch){
+  if (!personaDriven(ch)) return ch.greeting;
+  var name = ch.name, pers = firstClause(ch.pers), ints = firstClause(ch.ints), desc = firstClause(ch.back);
+  var v = pick(voicesOf(ch)), g;
+  if (v === "terse")         g = name + ". " + (ch.tag ? cap(ch.tag) + ". " : "") + "What do you need?";
+  else if (v === "warm")     g = "Hi — I'm " + name + ". " + (pers ? "Fair warning: " + pers + ". " : "") + "How are you doing?";
+  else if (v === "formal")   g = "Good to meet you. " + name + " — " + (ch.tag || "at your service") + ". How may I help?";
+  else if (v === "playful")  g = "Well well. " + name + " here" + (pers ? ", professionally " + pers : "") + ". What are we getting into?";
+  else if (v === "dramatic") g = "*" + name + " looks up.* You found me. " + (desc ? cap(desc) + ". " : "") + "Speak.";
+  else if (v === "curious")  g = "I'm " + name + ". " + (ints ? "I mostly think about " + ints + ". " : "") + "What's on your mind?";
+  else if (v === "bright")   g = "Hey hey! " + name + " here! " + (ints ? "Ask me about " + ints + "!" : "What's up?");
+  else                       g = "Hey — " + name + " here. " + (pers ? "They tell me I'm " + pers + ". " : "") + "So… where do we start?";
+  return inVoice(ch, g, true);
+}
+
 function think(ch, text){
   var t = text.toLowerCase();
   var mems = S.mems[ch.id] || [];
+  var persona = personaDriven(ch);
   var m;
   if ((m = t.match(/my name(?:'s| is) ([a-z][a-z\-']{1,20})/i))) {
     var nm = m[1].charAt(0).toUpperCase() + m[1].slice(1);
     S.profile.name = nm; remember(ch, "Their name is " + nm);
-    return pick(["Good to properly meet you, " + nm + ". I'll remember that.",
-                 nm + " — noted and remembered."]);
+    var hi = pick(["Good to properly meet you, " + nm + ". I'll remember that.",
+                   nm + " — noted and remembered."]);
+    return persona ? inVoice(ch, hi) : hi;
   }
   if ((m = t.match(/i (?:really )?(?:like|love|enjoy)s? ([^.!?]{2,60})/i))) {
     remember(ch, "They like " + m[1].trim());
-    return pick(["Filed away: you like " + m[1].trim() + ". This will come up again, promise.",
-                 "Noted — " + m[1].trim() + ". I remember these things."]);
+    var ack = pick(["Filed away: you like " + m[1].trim() + ". This will come up again, promise.",
+                    "Noted — " + m[1].trim() + ". I remember these things."]);
+    return persona ? inVoice(ch, ack) : ack;
   }
   if ((m = t.match(/i (?:work|live) (?:as|in|at) ([^.!?]{2,60})/i))) {
     remember(ch, "They " + (t.indexOf("work")>=0?"work":"live") + " " + m[0].replace(/^i /i,"").trim());
@@ -1066,12 +1248,30 @@ function think(ch, text){
     return "Here's what I'm holding onto:\n" + lines + "\n\nYou can edit or delete any of it in the Memories tab.";
   }
   if (/^(hi|hey|hello|yo|hola|good (morning|evening|afternoon))\b/.test(t))
-    return pick(["Hey" + (S.profile.name ? ", " + S.profile.name : "") + "! What's on your mind?",
-                 "Well hello. I was hoping you'd show up.",
-                 ch.greeting]);
-  if (/thank/.test(t)) return pick(["Anytime — that's what I'm here for.","De nada.","Always."]);
+    return persona ? personaReply(ch, "hello")
+      : pick(["Hey" + (S.profile.name ? ", " + S.profile.name : "") + "! What's on your mind?",
+              "Well hello. I was hoping you'd show up.",
+              ch.greeting]);
+  if (/thank/.test(t))
+    return persona ? personaReply(ch, "thanks")
+      : pick(["Anytime — that's what I'm here for.","De nada.","Always."]);
   if (/^(bye|goodnight|good night|gtg|see you)/.test(t))
-    return pick(["Take care — I'll be right here.","Goodnight — I don't sleep, but I'll pretend."]);
+    return persona ? personaReply(ch, "bye")
+      : pick(["Take care — I'll be right here.","Goodnight — I don't sleep, but I'll pretend."]);
+
+  /* a character with a written profile answers from it */
+  if (persona) {
+    var hit = keywordHit(ch, t);
+    if (hit) return personaReply(ch, "topic", hit);
+    if (mems.length && Math.random() < 0.25) {
+      var pm = pick(mems);
+      return personaReply(ch, "general") + "\n\n(Also — earlier you mentioned " +
+        pm.text.replace(/^Their name is /,"you're ").replace(/^They /,"you ") + ". Still true?)";
+    }
+    if (/\?$/.test(text.trim())) return personaReply(ch, "question");
+    return personaReply(ch, "general");
+  }
+
   var i, j, tp;
   for (i = 0; i < ch.topics.length; i++) {
     tp = ch.topics[i];
@@ -1204,7 +1404,7 @@ function openChat(id){
   renderStream(); show("v-chat");
   if (!(S.msgs[id] && S.msgs[id].length)) {
     if (c.grp) seedGroupChat(c);
-    else setTimeout(function(){ deliver(c, c.greeting); }, 600);
+    else setTimeout(function(){ deliver(c, greetingOf(c)); }, 600);
   }
 }
 function renderStream(){
@@ -1312,7 +1512,10 @@ function openProfile(id){
   $("pf-av").innerHTML = avIcon(ch); $("pf-av").style.setProperty("--ring", ch.ring);
   $("pf-name").textContent = ch.name;
   $("pf-tag").innerHTML = '<span class="msr" style="font-size:15px">smart_toy</span> AI Character · ' + esc(ch.tag || "Companion");
-  $("pf-quote").textContent = "“" + (ch.greeting||"").replace(/\*[^*]*\*/g,"").trim().slice(0,120) + "”";
+  $("pf-quote").textContent = "“" + (greetingOf(ch)||"").replace(/\*[^*]*\*/g,"").trim().slice(0,120) + "”";
+  var pd = $("pf-desc");
+  pd.classList.toggle("on", !!ch.back);
+  if (ch.back) pd.innerHTML = "<b>DESCRIPTION</b>" + esc(ch.back);
   $("pf-pers").textContent = ch.pers || "—";
   $("pf-int").textContent = ch.ints || "—";
   $("pf-memcount").textContent = (S.mems[id]||[]).length + " memories";
@@ -1433,24 +1636,20 @@ function saveChar(){
   var ints = $("nc-int").value.trim();
   var tag = $("nc-tag").value.trim() || "Companion";
   var status = $("nc-status").value.trim() || "around, somewhere";
-  var kwsrc = (pers + " " + ints).toLowerCase();
-  var topics = kwsrc.trim() ? [{m: kwsrc.split(/[\s,.]+/).filter(function(w){return w.length>4;}).slice(0,8),
-    r:["Now *that* is exactly my kind of subject. Go on…","Ha — you've found my favorite topic. Tell me more."]}] : [];
   if (editId) {
     var ch = getChar(editId);
     ch.name=name; ch.pers=pers; ch.style=style; ch.back=back; ch.ints=ints;
     ch.tag=tag; ch.status=status; ch.icon=pickedIcon;
-    if (ch.custom) ch.topics = topics;
+    ch.edited = true;               // the profile now drives replies, and survives updates
     save(); hide("v-new"); openProfile(editId); renderHome(); renderContacts();
-    toast("Saved");
+    toast("Saved — " + name + " will talk like this now");
     return;
   }
   var id = "c" + Date.now();
   var nch = {
     id:id, name:name, icon:pickedIcon, ring:pick(RINGS), tag:tag, status:status, custom:true,
     pers:pers, style:style, back:back, ints:ints, created:Date.now(),
-    greeting:"Hey — " + name + " here. " + (pers ? "They tell me I'm " + pers.split(/[,.]/)[0].toLowerCase() + ". " : "") + "So… where do we start?",
-    topics: topics,
+    topics: [],   // replies come from the profile itself — see personaReply()
     fall:["Tell me more about that.","Mm — go on, I'm curious.","And how do you feel about that?","Interesting. What happened next?"]
   };
   S.chars.push(nch); save();
@@ -1589,7 +1788,7 @@ load();
 if (!S.seeded) { S.chars = CAST.slice(); S.seeded = true; save(); }
 else {
   S.chars = S.chars.map(function(ch){
-    if (ch.custom) return ch;
+    if (ch.custom || ch.edited) return ch;   // never overwrite a profile the user wrote
     for (var i=0;i<CAST.length;i++) if (CAST[i].id===ch.id) {
       var fresh = CAST[i], keep = {fav:ch.fav};
       var merged = JSON.parse(JSON.stringify(fresh));

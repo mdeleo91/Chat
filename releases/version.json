@@ -1,6 +1,6 @@
 {
-  "versionCode": 5,
-  "versionName": "0.3.4",
+  "versionCode": 6,
+  "versionName": "0.3.5",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "New icon set: every emoji in the app is now a Google Material Symbols icon, bundled with the app so it renders offline. Avatars, reactions and characters saved by older versions are upgraded automatically."
+  "notes": "Character profiles now drive behaviour. Add a description and personality and the character answers in that voice — blunt, warm, formal, dramatic, playful, curious or excitable — and reacts to the subjects you gave it. Edits to the six built-in characters finally stick instead of resetting on restart."
 }
