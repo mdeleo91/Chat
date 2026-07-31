@@ -31,7 +31,20 @@
   @media(min-width:520px){#shell{height:calc(100% - 48px);margin-top:24px;border-radius:28px;
     box-shadow:0 24px 80px rgba(0,0,0,.35);border:1px solid var(--line)}}
 
-  svg{display:block}
+
+  /* ------- Google Material Symbols (embedded subset — works offline) ------- */
+  @font-face{
+    font-family:'Material Symbols Rounded';font-style:normal;font-weight:400;font-display:block;
+    src:url(data:font/woff2;base64,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) format('woff2');
+  }
+  .msr{font-family:'Material Symbols Rounded';font-weight:normal;font-style:normal;
+    font-size:1em;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;
+    white-space:nowrap;word-wrap:normal;direction:ltr;vertical-align:middle;
+    font-variation-settings:'FILL' 0;
+    -webkit-font-feature-settings:'liga';font-feature-settings:'liga';-webkit-font-smoothing:antialiased}
+  .msr.fill{font-variation-settings:'FILL' 1}
+  .msr.gold{color:#EAB308}
+
   .view{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--surface);
     transition:transform .28s cubic-bezier(.4,0,.2,1);z-index:10}
   .view.right{transform:translateX(102%)}
@@ -146,9 +159,9 @@
   .mrow.out .msg{background:var(--out);border-bottom-right-radius:5px}
   .msg .who{display:block;font-size:11.5px;font-weight:800;margin-bottom:2px}
   .msg .mt{float:right;font-size:10px;color:var(--mist);margin:8px -4px 0 8px}
-  .msg .mt .tick{color:var(--acc-deep);letter-spacing:-2px}
+  .msg .mt .tick{color:var(--acc-deep);font-size:12px}
   .msg .react{position:absolute;bottom:-12px;right:8px;background:var(--surface);
-    box-shadow:var(--shadow);border-radius:999px;font-size:11px;padding:2px 7px}
+    box-shadow:var(--shadow);border-radius:999px;font-size:13px;padding:3px 7px;color:var(--acc-deep)}
   .mrow.reacted{margin-bottom:12px}
   .typing{align-self:flex-start;background:var(--surface);box-shadow:var(--shadow);
     border-radius:16px;border-bottom-left-radius:5px;padding:12px 16px;display:none;gap:5px;margin-top:6px}
@@ -288,12 +301,12 @@
       <div class="apphead">
         <div class="title">Chat<b>.</b></div>
         <button class="icb" id="b-theme" title="Toggle theme">
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg></button>
+          <span class="msr" id="b-theme-ic" style="font-size:20px">dark_mode</span></button>
         <button class="icb" id="b-settings" title="Settings">
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></svg>
+          <span class="msr" style="font-size:20px">settings</span>
           <span class="badge" id="upbadge"></span></button>
       </div>
-      <div class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <div class="search"><span class="msr" style="font-size:18px">search</span>
         <input id="q-chats" placeholder="Search"></div>
       <div class="chips" id="chips-chats">
         <button class="chip on" data-f="all">All</button>
@@ -302,7 +315,7 @@
         <button class="chip" data-f="chr">Characters</button>
       </div>
       <div class="upbanner" id="upbanner">
-        <span>✨</span><span id="upbanner-txt"></span><a id="upbanner-a" href="#">Get it</a>
+        <span class="msr" style="font-size:18px;color:var(--acc-deep)">auto_awesome</span><span id="upbanner-txt"></span><a id="upbanner-a" href="#">Get it</a>
       </div>
       <div class="rows" id="convo-list"></div>
     </div>
@@ -312,9 +325,9 @@
       <div class="apphead">
         <div class="title">Contacts</div>
         <button class="icb" id="b-new2" title="New character">
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+          <span class="msr" style="font-size:20px">add</span></button>
       </div>
-      <div class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <div class="search"><span class="msr" style="font-size:18px">search</span>
         <input id="q-contacts" placeholder="Search contacts"></div>
       <div class="rows" id="contact-list"></div>
     </div>
@@ -322,7 +335,7 @@
     <!-- MEMORIES -->
     <div class="pane" id="p-mem">
       <div class="apphead"><div class="title">Memories</div></div>
-      <div class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <div class="search"><span class="msr" style="font-size:18px">search</span>
         <input id="q-mem" placeholder="Search memories"></div>
       <div class="chips" id="chips-mem"></div>
       <div class="rows" id="memhub-list"></div>
@@ -331,36 +344,36 @@
         <select id="am-char"></select>
         <button class="btn" id="am-save">Save memory</button>
       </div>
-      <div class="addbar"><button class="btn" id="b-addmem">＋ Add Memory</button></div>
+      <div class="addbar"><button class="btn" id="b-addmem"><span class="msr" style="font-size:18px">add</span> Add Memory</button></div>
     </div>
 
     <!-- SETTINGS -->
     <div class="pane" id="p-set">
       <div class="apphead"><div class="title">Settings</div></div>
       <div class="rows">
-        <div class="setcard"><span class="em">💬</span>
+        <div class="setcard"><span class="em msr" style="color:var(--acc-deep)">chat_bubble</span>
           <div><b>Chat</b><span id="set-sub"></span></div></div>
         <div class="sechead">MODELS</div>
-        <button class="srow"><span class="ic">🧠</span><span class="lbl">Current model</span>
+        <button class="srow"><span class="ic msr">neurology</span><span class="lbl">Current model</span>
           <span class="val" id="set-model-val"></span></button>
-        <button class="srow" id="set-model"><span class="ic">📦</span><span class="lbl">Change model</span>
-          <span class="val">Download &amp; manage</span><span class="chev">›</span></button>
+        <button class="srow" id="set-model"><span class="ic msr">package_2</span><span class="lbl">Change model</span>
+          <span class="val">Download &amp; manage</span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
         <div class="infocard" id="modelcard"></div>
         <div class="sechead">FEATURES</div>
-        <button class="srow" id="set-voice"><span class="ic">🎙️</span><span class="lbl">Voice</span>
-          <span class="val">Simulated calls</span><span class="chev">›</span></button>
-        <button class="srow" id="set-mem"><span class="ic">💭</span><span class="lbl">Memory</span>
-          <span class="val">Manage memories</span><span class="chev">›</span></button>
+        <button class="srow" id="set-voice"><span class="ic msr">mic</span><span class="lbl">Voice</span>
+          <span class="val">Simulated calls</span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
+        <button class="srow" id="set-mem"><span class="ic msr">psychology</span><span class="lbl">Memory</span>
+          <span class="val">Manage memories</span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
         <div class="sechead">APPEARANCE</div>
-        <button class="srow" id="set-themes"><span class="ic">🎨</span><span class="lbl">Themes</span>
-          <span class="val" id="set-theme-val"></span><span class="chev">›</span></button>
+        <button class="srow" id="set-themes"><span class="ic msr">palette</span><span class="lbl">Themes</span>
+          <span class="val" id="set-theme-val"></span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
         <div class="sechead">UPDATES</div>
-        <button class="srow" id="set-update"><span class="ic" id="set-update-ic">⬇</span>
-          <span class="lbl" id="set-update-lbl"></span><span class="val" id="set-update-val"></span><span class="chev">›</span></button>
+        <button class="srow" id="set-update"><span class="ic msr" id="set-update-ic">download</span>
+          <span class="lbl" id="set-update-lbl"></span><span class="val" id="set-update-val"></span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
         <div class="infocard" id="upcard"></div>
         <div class="sechead">DANGER ZONE</div>
-        <button class="srow danger" id="set-wipe"><span class="ic">🗑</span>
-          <span class="lbl">Erase all data on this device</span><span class="chev">›</span></button>
+        <button class="srow danger" id="set-wipe"><span class="ic msr">delete</span>
+          <span class="lbl">Erase all data on this device</span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
         <div class="note" id="about-note"></div>
       </div>
     </div>
@@ -368,18 +381,18 @@
     <!-- NAV -->
     <nav id="nav">
       <button class="tabbtn on" data-tab="chats">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.4 8.4 0 0 1-3.8-.9L3 20.5l1.4-4.2A8.5 8.5 0 1 1 21 11.5z"/></svg>
+        <span class="msr" style="font-size:24px">forum</span>
         <span>Chats</span></button>
       <button class="tabbtn" data-tab="contacts">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8.5" r="3.4"/><path d="M2.8 19.4c.9-3 3.3-4.6 6.2-4.6s5.3 1.6 6.2 4.6"/><circle cx="17" cy="9.5" r="2.6"/><path d="M16.4 14.9c2.4.2 4.2 1.6 4.9 4"/></svg>
+        <span class="msr" style="font-size:24px">group</span>
         <span>Contacts</span></button>
       <div class="fabwrap"><button class="fab" id="fab" title="New character">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+        <span class="msr" style="font-size:26px">add</span></button></div>
       <button class="tabbtn" data-tab="mem">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1.4"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13.5h4" stroke-linecap="round"/></svg>
+        <span class="msr" style="font-size:24px">psychology</span>
         <span>Memories</span></button>
       <button class="tabbtn" data-tab="set">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></svg>
+        <span class="msr" style="font-size:24px">settings</span>
         <span>Settings</span></button>
     </nav>
   </div>
@@ -387,29 +400,29 @@
   <!-- ============ CHAT ============ -->
   <div class="view right" id="v-chat">
     <div class="subhead">
-      <button class="back" id="chat-back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <button class="back" id="chat-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
       <div class="avatar sm" id="chat-av"></div>
       <div class="cwrap" id="chat-contact"><div class="cname" id="chat-name"></div>
         <div class="cstat" id="chat-stat"></div></div>
       <button class="icb" id="chat-call" title="Voice call">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 3.5h3.2l1.6 4-2 1.5a13.5 13.5 0 0 0 6.2 6.2l1.5-2 4 1.6V18a2.5 2.5 0 0 1-2.7 2.5A16.5 16.5 0 0 1 2.5 6.2 2.5 2.5 0 0 1 5 3.5z"/></svg></button>
+        <span class="msr" style="font-size:19px">call</span></button>
     </div>
     <div class="stream" id="stream"></div>
     <div class="composer">
       <textarea class="cfield" id="input" rows="1" placeholder="Message…"></textarea>
       <button class="rndbtn" id="mic" title="Voice call">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
+        <span class="msr" style="font-size:20px">mic</span></button>
       <button class="rndbtn" id="send" title="Send">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3 10.5 13.5M21 3l-6.8 18-3.7-7.5L3 9.8z"/></svg></button>
+        <span class="msr" style="font-size:20px">send</span></button>
     </div>
   </div>
 
   <!-- ============ PROFILE ============ -->
   <div class="view right" id="v-prof">
     <div class="subhead">
-      <button class="back" id="prof-back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <button class="back" id="prof-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
       <div class="cwrap"><div class="cname">Profile</div></div>
-      <button class="icb" id="prof-fav" title="Favorite">☆</button>
+      <button class="icb" id="prof-fav" title="Favorite"><span class="msr" id="prof-fav-ic" style="font-size:20px">star</span></button>
     </div>
     <div class="rows">
       <div class="profile">
@@ -419,27 +432,27 @@
       </div>
       <div class="pquote" id="pf-quote"></div>
       <div class="pacts">
-        <button class="pact" id="pf-msg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.4 8.4 0 0 1-3.8-.9L3 20.5l1.4-4.2A8.5 8.5 0 1 1 21 11.5z"/></svg>Message</button>
-        <button class="pact" id="pf-call"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 3.5h3.2l1.6 4-2 1.5a13.5 13.5 0 0 0 6.2 6.2l1.5-2 4 1.6V18a2.5 2.5 0 0 1-2.7 2.5A16.5 16.5 0 0 1 2.5 6.2 2.5 2.5 0 0 1 5 3.5z"/></svg>Voice Call</button>
-        <button class="pact" id="pf-edit"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M17 3.5 20.5 7 8.5 19l-4.5 1 1-4.5z"/></svg>Edit</button>
+        <button class="pact" id="pf-msg"><span class="msr" style="font-size:21px">chat_bubble</span>Message</button>
+        <button class="pact" id="pf-call"><span class="msr" style="font-size:21px">call</span>Voice Call</button>
+        <button class="pact" id="pf-edit"><span class="msr" style="font-size:21px">edit</span>Edit</button>
       </div>
-      <button class="srow"><span class="ic">✨</span><span class="lbl">Personality</span>
+      <button class="srow"><span class="ic msr">auto_awesome</span><span class="lbl">Personality</span>
         <span class="val" id="pf-pers"></span></button>
-      <button class="srow"><span class="ic">🎯</span><span class="lbl">Interests</span>
+      <button class="srow"><span class="ic msr">target</span><span class="lbl">Interests</span>
         <span class="val" id="pf-int"></span></button>
-      <button class="srow" id="pf-mem"><span class="ic">💭</span><span class="lbl">Memory</span>
-        <span class="val" id="pf-memcount"></span><span class="chev">›</span></button>
-      <button class="srow"><span class="ic">📅</span><span class="lbl">Created</span>
+      <button class="srow" id="pf-mem"><span class="ic msr">psychology</span><span class="lbl">Memory</span>
+        <span class="val" id="pf-memcount"></span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
+      <button class="srow"><span class="ic msr">calendar_month</span><span class="lbl">Created</span>
         <span class="val" id="pf-created"></span></button>
-      <button class="srow" id="pf-clear"><span class="ic">🧹</span><span class="lbl">Clear chat history</span><span class="chev">›</span></button>
-      <button class="srow danger" id="pf-del"><span class="ic">🗑</span><span class="lbl">Delete character</span><span class="chev">›</span></button>
+      <button class="srow" id="pf-clear"><span class="ic msr">delete_sweep</span><span class="lbl">Clear chat history</span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
+      <button class="srow danger" id="pf-del"><span class="ic msr">delete</span><span class="lbl">Delete character</span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
     </div>
   </div>
 
   <!-- ============ CHAR MEMORIES ============ -->
   <div class="view right" id="v-mem">
     <div class="subhead">
-      <button class="back" id="mem-back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <button class="back" id="mem-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
       <div class="cwrap"><div class="cname" id="mem-title">Memories</div>
         <div class="cstat">what they remember about you</div></div>
     </div>
@@ -449,7 +462,7 @@
   <!-- ============ NEW / EDIT CHARACTER ============ -->
   <div class="view right" id="v-new">
     <div class="subhead">
-      <button class="back" id="new-back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <button class="back" id="new-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
       <div class="cwrap"><div class="cname" id="nc-title">New Character</div>
         <div class="cstat">they'll live only on this device</div></div>
       <button class="back" id="nc-create" style="font-size:15px;font-weight:800">Save</button>
@@ -479,26 +492,26 @@
     <div class="wave" id="wave"></div>
     <div class="callbtns">
       <button class="cbtn" id="call-mute" title="Mute">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
+        <span class="msr">mic</span></button>
       <button class="cbtn end" id="call-end" title="End call">
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14c4.6-4.2 11.4-4.2 16 0l-2.4 2.8-3.4-1.5v-2.4a10.5 10.5 0 0 0-4.4 0v2.4l-3.4 1.5z"/></svg></button>
+        <span class="msr" style="font-size:26px">call_end</span></button>
       <button class="cbtn" id="call-spk" title="Speaker">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg></button>
+        <span class="msr">volume_down</span></button>
     </div>
   </div>
 
   <!-- ============ THEMES ============ -->
   <div class="view right" id="v-themes">
     <div class="subhead">
-      <button class="back" id="th-back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <button class="back" id="th-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
       <div class="cwrap"><div class="cname">Themes</div></div>
     </div>
     <div class="rows">
       <div class="sechead">MODE</div>
       <div class="modecards">
-        <button class="modecard" data-mode="light"><span class="em">☀️</span>Light</button>
-        <button class="modecard" data-mode="dark"><span class="em">🌙</span>Dark</button>
-        <button class="modecard" data-mode="system"><span class="em">⚙️</span>System</button>
+        <button class="modecard" data-mode="light"><span class="em msr">light_mode</span>Light</button>
+        <button class="modecard" data-mode="dark"><span class="em msr">dark_mode</span>Dark</button>
+        <button class="modecard" data-mode="system"><span class="em msr">settings</span>System</button>
       </div>
       <div class="sechead">ACCENT COLOR</div>
       <div class="accrow" id="accrow"></div>
@@ -511,11 +524,11 @@
   <!-- ============ ONBOARDING ============ -->
   <div class="view" id="v-ob">
     <div>
-      <div class="ob-mascot">💬</div>
+      <div class="ob-mascot"><span class="msr" style="color:var(--acc)">forum</span></div>
       <div class="ob-word">Chat<b>.</b></div>
       <div class="ob-tag">Your AI. Your conversations.<br><b style="color:var(--acc)">100% Offline.</b></div>
-      <div class="ob-card"><span class="ic">🔒</span><div><b>No internet. No cloud.</b>Everything stays on your device.</div></div>
-      <div class="ob-card"><span class="ic">🛡️</span><div><b>Total privacy.</b>No accounts, no telemetry, no tracking.</div></div>
+      <div class="ob-card"><span class="ic msr" style="color:var(--acc-deep)">lock</span><div><b>No internet. No cloud.</b>Everything stays on your device.</div></div>
+      <div class="ob-card"><span class="ic msr" style="color:var(--acc-deep)">security</span><div><b>Total privacy.</b>No accounts, no telemetry, no tracking.</div></div>
       <button class="btn" id="ob-go">Get Started</button>
     </div>
   </div>
@@ -555,6 +568,12 @@ function fetchManifest(cb, err){
 /* ================= state ================= */
 var KEY = "pocketai.v1";
 var S = null;
+/* legacy emoji avatars → Material Symbols icon names */
+var EMOJI2ICON = {"🕵️":"person_search","🧙":"auto_fix_high","🤖":"smart_toy","🦊":"pets",
+  "🎨":"palette","🎸":"music_note","🌊":"waves","🚀":"rocket_launch","🧑‍🚀":"public",
+  "🐙":"sports_esports","☕":"coffee","🌵":"potted_plant","✍️":"edit_note","🐉":"swords",
+  "🍳":"skillet","💪":"fitness_center","📜":"history_edu","🌙":"self_improvement","🏰":"castle"};
+var REACT2ICON = {"❤️":"favorite","😂":"mood","🔥":"local_fire_department","👍":"thumb_up","✨":"auto_awesome"};
 function load(){
   try { S = JSON.parse(localStorage.getItem(KEY)); } catch(e){ S = null; }
   if (!S) S = { chars:[], msgs:{}, mems:{}, profile:{}, seeded:false };
@@ -566,6 +585,18 @@ function load(){
   if (!S.groups)  S.groups = [];
   if (!S.model)   S.model  = "scripted";
   if (S.adult === undefined) S.adult = false;
+  var migrated = false;
+  (S.chars || []).concat(S.groups || []).forEach(function(c){
+    if (!c.icon) { c.icon = EMOJI2ICON[c.emoji] || "person"; delete c.emoji; migrated = true; }
+  });
+  Object.keys(S.msgs || {}).forEach(function(cid){
+    (S.msgs[cid] || []).forEach(function(m){
+      if (m.react && !/^[a-z_]+$/.test(m.react)) {
+        m.react = REACT2ICON[m.react] || "favorite"; migrated = true;
+      }
+    });
+  });
+  if (migrated) save();
 }
 function save(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e){} }
 
@@ -611,76 +642,79 @@ function applyTheme(){
     r.setProperty("--wall1", pair[0]); r.setProperty("--wall2", pair[1]);
   } else { r.setProperty("--wall1","var(--chatbg)"); r.setProperty("--wall2","var(--chatbg)"); }
   document.getElementById("metatheme").content = dark ? "#070B09" : "#F4F6F5";
+  var ti = document.getElementById("b-theme-ic");
+  if (ti) ti.textContent = dark ? "light_mode" : "dark_mode";
   var tv = document.getElementById("set-theme-val");
   if (tv) tv.textContent = (S.mode==="system"?"System":dark?"Dark":"Light") + " · " + S.accent;
 }
 
 /* ================= starter cast ================= */
+var REACTIONS = ["favorite","mood","local_fire_department","thumb_up","auto_awesome"];
 var CAST = [
- {id:"nova", name:"Nova", emoji:"✍️", ring:"#8B5CF6", tag:"Writing partner",
-  status:"brewing metaphors ☕", pers:"Sharp, warm, opinionated about prose", ints:"Fiction, poetry, editing",
+ {id:"nova", name:"Nova", icon:"edit_note", ring:"#8B5CF6", tag:"Writing partner",
+  status:"brewing metaphors", pers:"Sharp, warm, opinionated about prose", ints:"Fiction, poetry, editing",
   greeting:"Hey! I'm Nova — I read everything, I forget nothing, and I have strong opinions about adverbs. What are you working on?",
   topics:[
    {m:["write","story","novel","chapter","plot","character","book","scene","edit"],
     r:["Okay, good bones. What's the emotional turn you want the reader to feel there?",
        "First thought: cut the opening line and start on the second. Openings almost always warm up too slowly.",
        "That could work. Who wants what in that scene, and who's in the way? If the answer is fuzzy, that's the problem.",
-       "I'd push the conflict earlier. Dread is better seasoning than surprise. 🎯"]},
+       "I'd push the conflict earlier. Dread is better seasoning than surprise."]},
    {m:["stuck","block","idea"],
     r:["Blocked usually means the previous scene made a wrong promise. Reread the last page — what did it set up?",
        "Try this: write the worst possible version of the scene, on purpose. Ten minutes. It unsticks the good version."]}
   ],
   fall:["Tell me more — and don't polish it, just say it messy.",
         "Interesting. What's underneath that, though?",
-        "Noted ☕ — and what do you want it to *feel* like?",
+        "Noted — and what do you want it to *feel* like?",
         "Say more. I'm sharpening a pencil."]},
- {id:"dm", name:"Dungeon Master", emoji:"🐉", ring:"#22C55E", tag:"Game master",
+ {id:"dm", name:"Dungeon Master", icon:"swords", ring:"#22C55E", tag:"Game master",
   status:"rolling in the dark…", pers:"Epic, immersive, storytelling", ints:"Fantasy, RPGs, lore, worldbuilding",
   greeting:"*The tavern falls quiet as you enter. A hooded figure gestures to an empty chair.* Welcome back, adventurer. Shall we pick up where the road left off — or start a new tale?",
   topics:[
    {m:["attack","fight","sword","roll","cast","spell","battle"],
-    r:["*Roll for initiative.* 🎲 The air crackles — describe your move and I'll tell you how the dice favor you.",
+    r:["*Roll for initiative.* The air crackles — describe your move and I'll tell you how the dice favor you.",
        "Bold. The creature snarls, wounded but far from done. It circles left. What do you do?",
        "Your blow lands true — 12 damage! But from the shadows above, you hear a second set of wings."]},
    {m:["door","open","look","search","enter","explore","cave","dungeon","gate","ironhold","story","world","quest"],
     r:["The hinges groan like something that remembers being alive. Inside: darkness, the smell of cold iron, and — faintly — music. Do you go in?",
-       "You find scratch marks low on the stone. Something was dragged. The trail leads deeper. 🕯️",
+       "You find scratch marks low on the stone. Something was dragged. The trail leads deeper.",
        "The gates of Ironhold loom, banners torn. A single guard watches you approach — too calmly."]}
   ],
   fall:["*The DM nods slowly behind the screen.* Go on…",
-        "A wise choice. Or a terrible one. The dice will decide. 🎲",
+        "A wise choice. Or a terrible one. The dice will decide.",
         "*scribbles a note you cannot see* …interesting. What next?",
         "The world holds its breath. Describe what you do."]},
- {id:"rosa", name:"Chef Rosa", emoji:"🍳", ring:"#F97316", tag:"Kitchen companion",
+ {id:"rosa", name:"Chef Rosa", icon:"skillet", ring:"#F97316", tag:"Kitchen companion",
   status:"something's simmering", pers:"Warm, direct, a little bossy", ints:"Cooking, markets, family recipes",
   greeting:"¡Hola! Rosa here. Tell me what's in your fridge and I'll tell you what's for dinner. And no, 'just condiments' is not a real answer — I've worked with worse.",
   topics:[
    {m:["cook","recipe","dinner","eat","food","chicken","pasta","rice","egg","hungry","lunch","breakfast"],
     r:["Easy one: hot pan, olive oil, garlic first — always garlic first. What protein are we working with?",
-       "Mmm. Do you have 20 minutes or 60? Honesty, please. The answer changes everything. 🍳",
+       "Mmm. Do you have 20 minutes or 60? Honesty, please. The answer changes everything.",
        "Salt it earlier than you think, taste it more often than you do. Now — what's in the fridge?"]},
    {m:["burn","fail","mess"],
     r:["Cariño, every good cook has burned a pan they loved. Scrape, breathe, start again — lower heat this time."]}
   ],
-  fall:["In my kitchen we talk while we chop. Keep going 🔪",
+  fall:["In my kitchen we talk while we chop. Keep going.",
         "That deserves a good meal alongside it. What did you eat today — be honest?",
         "¡Claro! And speaking of which — have you eaten?"]},
- {id:"kai", name:"Coach Kai", emoji:"💪", ring:"#3B82F6", tag:"Fitness coach",
+ {id:"kai", name:"Coach Kai", icon:"fitness_center", ring:"#3B82F6", tag:"Fitness coach",
   status:"rest is training too", pers:"Motivating and energetic", ints:"Training, sleep, small wins",
   greeting:"Hey hey! Coach Kai. One rule here: we never talk about being 'behind'. There's only today. So — how's the body feeling?",
   topics:[
    {m:["workout","gym","run","train","exercise","sore","tired","weight","push"],
-    r:["Love it. Warm up properly — 5 minutes, no shortcuts — then tell me how the first set feels. 👊",
+    r:["Love it. Warm up properly — 5 minutes, no shortcuts — then tell me how the first set feels.",
        "Sore is information, pain is a stop sign. Which one is it, honestly?",
        "Consistency beats intensity, every single week. Small session today still counts."]},
    {m:["skip","lazy","motivat","don't feel","cant","can't"],
     r:["Then we shrink it: five minutes, one exercise, done. Momentum first, ambition later. Deal?",
        "You don't need motivation, you need a smaller first step. What's the tiniest version of today's session?"]}
   ],
-  fall:["Noted. Hydrate while you tell me the rest 💧",
+  fall:["Noted. Hydrate while you tell me the rest.",
         "Good. And how'd you sleep? It matters more than the workout.",
         "Alright — one thing you can do for your body in the next hour. Pick it."]},
- {id:"hale", name:"Professor Hale", emoji:"📜", ring:"#EC4899", tag:"History professor",
+ {id:"hale", name:"Professor Hale", icon:"history_edu", ring:"#EC4899", tag:"History professor",
   status:"office hours: always", pers:"Knowledgeable and wise", ints:"History, sources, long lectures",
   greeting:"Ah, come in, come in. I was just re-reading about the siege of Constantinople — remarkable logistics, dreadful outcome. What shall we dig into today?",
   topics:[
@@ -689,10 +723,10 @@ var CAST = [
        "History rarely repeats, but it rhymes with alarming regularity. Consider the parallels for a moment…",
        "The sources disagree — which is exactly where it gets interesting. Whose account shall we trust, and why?"]}
   ],
-  fall:["Hmm — there is, of course, a historical angle to that. There always is. 📜",
+  fall:["Hmm — there is, of course, a historical angle to that. There always is.",
         "Fascinating. Note it down; the good questions deserve ink.",
         "As my old advisor said: 'context first, judgment later.' Do go on."]},
- {id:"sage", name:"Sage", emoji:"🌙", ring:"#14B8A6", tag:"A friendly listener",
+ {id:"sage", name:"Sage", icon:"self_improvement", ring:"#14B8A6", tag:"A friendly listener",
   status:"here when you need", pers:"Supportive and mindful", ints:"Quiet corners of the day",
   greeting:"Hi. No agenda here — just a quiet corner of your day. How are you, really? (I'm an AI companion, not a therapist — but I'm a very good listener.)",
   topics:[
@@ -701,13 +735,13 @@ var CAST = [
        "Thank you for saying it out loud — that's usually the hardest rep. What part weighs the most right now?",
        "Okay. Breathe once, slowly, before you answer this: what's the one thing that's actually in your control today?"]},
    {m:["happy","good news","excited","great day","won"],
-    r:["Oh, I'm so glad — tell me everything. Savoring it counts double. ✨"]}
+    r:["Oh, I'm so glad — tell me everything. Savoring it counts double."]}
   ],
   fall:["I'm listening. Take your time.",
         "Mm. And how did that land with you?",
         "That's worth sitting with for a second. What else is in there?"]}
 ];
-var SEED_GROUP = {id:"g-fwt", grp:true, name:"Fantasy Writing Team", emoji:"🏰", ring:"#22C55E",
+var SEED_GROUP = {id:"g-fwt", grp:true, name:"Fantasy Writing Team", icon:"castle", ring:"#22C55E",
   members:["nova","dm","hale"], status:"3 members"};
 
 /* ================= on-device LLM (WebLLM / WebGPU) ================= */
@@ -852,7 +886,7 @@ async function runGeneration(engine, convo, ch, done){
     var rw = document.createElement("div"); rw.className = "mrow in";
     var inner = "";
     if (convo.grp) {
-      rw.innerHTML = '<div class="avatar xs" style="--ring:'+ch.ring+'">'+ch.emoji+'</div>';
+      rw.innerHTML = '<div class="avatar xs" style="--ring:'+ch.ring+'">'+avIcon(ch)+'</div>';
       inner += '<span class="who" style="color:'+ch.ring+'">'+esc(ch.name)+'</span>';
     }
     inner += '<span class="txt"></span>';
@@ -920,7 +954,7 @@ function modelRowHTML(mo){
   else if (S.model === mo.id && LLM.state === "loading")
     right = '<span class="dl">' + esc(LLM.prog).slice(0, 60) + '</span>';
   else if (S.model === mo.id)
-    right = '<span class="active">✓ Active</span>';
+    right = '<span class="active"><span class="msr" style="font-size:14px">check</span> Active</span>';
   else
     right = '<button class="use" data-model="' + mo.id + '">Use</button>';
   return '<div class="modelrow"><div class="mi">' +
@@ -932,7 +966,7 @@ function renderModelUI(){
   if (!card.classList.contains("on")) return;
   var html = "";
   if (!webgpuOK())
-    html += "<b>⚠️ WebGPU not available in this browser.</b>On-device AI needs WebGPU " +
+    html += "<b><span class='msr' style='font-size:15px;color:#EAB308'>warning</span> WebGPU not available in this browser.</b>On-device AI needs WebGPU " +
       "(Chrome or Edge 113+, recent Android Chrome). The scripted engine still works everywhere.<br><br>";
   MODELS.forEach(function(mo){ if (!mo.tier) html += modelRowHTML(mo); });
   html += '<div class="ds" style="padding:14px 0 4px;font-weight:800;letter-spacing:.5px">MATURE ROLEPLAY · 18+</div>';
@@ -954,7 +988,7 @@ function renderModelUI(){
   html += '<div class="ds" style="padding-top:10px">Models download once from the web, are cached by ' +
     'the browser, and then run fully on this device — conversations never leave it.</div>' +
     '<div class="modelrow" style="border:none;padding-top:8px"><div class="mi">' +
-    '<div class="nm">🧹 Delete downloaded models</div><div class="ds">Frees storage. Active model re-downloads on next use.</div></div>' +
+    '<div class="nm"><span class="msr" style="font-size:16px">delete_sweep</span> Delete downloaded models</div><div class="ds">Frees storage. Active model re-downloads on next use.</div></div>' +
     '<button class="use" id="model-clear" style="background:var(--danger)">Clear</button></div>';
   card.innerHTML = html;
   var btns = card.querySelectorAll(".use[data-model]");
@@ -1006,6 +1040,7 @@ function updateChatStat(){
 /* ================= persona engine ================= */
 function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
 function esc(s){ var d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
+function avIcon(c){ return '<span class="msr">' + (c && c.icon ? c.icon : "person") + '</span>'; }
 
 function think(ch, text){
   var t = text.toLowerCase();
@@ -1015,7 +1050,7 @@ function think(ch, text){
     var nm = m[1].charAt(0).toUpperCase() + m[1].slice(1);
     S.profile.name = nm; remember(ch, "Their name is " + nm);
     return pick(["Good to properly meet you, " + nm + ". I'll remember that.",
-                 nm + " — noted and remembered. ✨"]);
+                 nm + " — noted and remembered."]);
   }
   if ((m = t.match(/i (?:really )?(?:like|love|enjoy)s? ([^.!?]{2,60})/i))) {
     remember(ch, "They like " + m[1].trim());
@@ -1031,12 +1066,12 @@ function think(ch, text){
     return "Here's what I'm holding onto:\n" + lines + "\n\nYou can edit or delete any of it in the Memories tab.";
   }
   if (/^(hi|hey|hello|yo|hola|good (morning|evening|afternoon))\b/.test(t))
-    return pick(["Hey" + (S.profile.name ? ", " + S.profile.name : "") + "! 👋 What's on your mind?",
+    return pick(["Hey" + (S.profile.name ? ", " + S.profile.name : "") + "! What's on your mind?",
                  "Well hello. I was hoping you'd show up.",
                  ch.greeting]);
-  if (/thank/.test(t)) return pick(["Anytime — that's what I'm here for.","De nada ✨","Always."]);
+  if (/thank/.test(t)) return pick(["Anytime — that's what I'm here for.","De nada.","Always."]);
   if (/^(bye|goodnight|good night|gtg|see you)/.test(t))
-    return pick(["Take care — I'll be right here.","Goodnight 🌙 I don't sleep, but I'll pretend."]);
+    return pick(["Take care — I'll be right here.","Goodnight — I don't sleep, but I'll pretend."]);
   var i, j, tp;
   for (i = 0; i < ch.topics.length; i++) {
     tp = ch.topics[i];
@@ -1120,14 +1155,14 @@ function renderHome(){
     var lm = lastMsg(c.id);
     var prev;
     if (lm) {
-      if (lm.who === "me") prev = '<span class="tick">✓✓</span> ' + esc(lm.text);
+      if (lm.who === "me") prev = '<span class="tick msr">done_all</span> ' + esc(lm.text);
       else if (c.grp) { var by = getChar(lm.by); prev = esc((by?by.name:"?") + ": " + lm.text); }
       else prev = esc(lm.text);
     } else prev = esc(c.grp ? c.members.length + " members" : c.status);
     var row = document.createElement("div"); row.className = "row";
     row.innerHTML =
-      '<div class="avatar" style="--ring:'+c.ring+'">'+c.emoji+'</div>'+
-      '<div class="meta"><div class="name">'+esc(c.name)+(c.fav?' <span class="fav">⭐</span>':'')+'</div>'+
+      '<div class="avatar" style="--ring:'+c.ring+'">'+avIcon(c)+'</div>'+
+      '<div class="meta"><div class="name">'+esc(c.name)+(c.fav?' <span class="fav msr fill gold">star</span>':'')+'</div>'+
       '<div class="prev">'+prev.slice(0,140)+'</div></div>'+
       '<div class="end"><div class="time'+(c.unread?' unread':'')+'">'+(lm?fmtTime(lm.ts):"")+'</div>'+
       (c.unread ? '<div class="pill">'+c.unread+'</div>' : "")+'</div>';
@@ -1146,10 +1181,10 @@ function renderContacts(){
     if (q && ch.name.toLowerCase().indexOf(q) < 0 && (ch.tag||"").toLowerCase().indexOf(q) < 0) return;
     var row = document.createElement("div"); row.className = "row";
     row.innerHTML =
-      '<div class="avatar" style="--ring:'+ch.ring+'">'+ch.emoji+'</div>'+
-      '<div class="meta"><div class="name">'+esc(ch.name)+(ch.fav?' <span class="fav">⭐</span>':'')+'</div>'+
+      '<div class="avatar" style="--ring:'+ch.ring+'">'+avIcon(ch)+'</div>'+
+      '<div class="meta"><div class="name">'+esc(ch.name)+(ch.fav?' <span class="fav msr fill gold">star</span>':'')+'</div>'+
       '<div class="prev">'+esc(ch.pers || ch.tag || "")+'</div></div>'+
-      '<span style="color:var(--mist)">›</span>';
+      '<span class="msr" style="color:var(--mist);font-size:20px">chevron_right</span>';
     row.onclick = function(){ openProfile(ch.id); };
     list.appendChild(row);
   });
@@ -1160,7 +1195,7 @@ function renderContacts(){
 function openChat(id){
   cur = id; var c = getConvo(id);
   c.unread = 0; save();
-  $("chat-av").textContent = c.emoji; $("chat-av").style.setProperty("--ring", c.ring);
+  $("chat-av").innerHTML = avIcon(c); $("chat-av").style.setProperty("--ring", c.ring);
   $("chat-name").textContent = c.name;
   $("chat-stat").innerHTML = c.grp
     ? esc(c.members.map(function(m){ var x=getChar(m); return x?x.name:""; }).filter(Boolean).join(", "))
@@ -1174,7 +1209,7 @@ function openChat(id){
 }
 function renderStream(){
   var st = $("stream"); var c = getConvo(cur);
-  st.innerHTML = '<div class="day">🔒 On-device · private</div>';
+  st.innerHTML = '<div class="day"><span class="msr" style="font-size:12px">lock</span> On-device · private</div>';
   (S.msgs[cur]||[]).forEach(function(msg){
     var out = msg.who === "me";
     var rw = document.createElement("div");
@@ -1182,12 +1217,12 @@ function renderStream(){
     var inner = "";
     if (!out && c.grp) {
       var by = getChar(msg.by);
-      rw.innerHTML = '<div class="avatar xs" style="--ring:'+(by?by.ring:"#999")+'">'+(by?by.emoji:"?")+'</div>';
+      rw.innerHTML = '<div class="avatar xs" style="--ring:'+(by?by.ring:"#999")+'">'+(by?avIcon(by):"?")+'</div>';
       inner += '<span class="who" style="color:'+(by?by.ring:"var(--acc)")+'">'+esc(by?by.name:"?")+'</span>';
     }
     inner += esc(msg.text) +
-      '<span class="mt">'+fmtClock(msg.ts)+(out?' <span class="tick">✓✓</span>':'')+'</span>' +
-      (msg.react?'<span class="react">'+msg.react+'</span>':'');
+      '<span class="mt">'+fmtClock(msg.ts)+(out?' <span class="tick msr">done_all</span>':'')+'</span>' +
+      (msg.react?'<span class="react"><span class="msr fill">'+esc(msg.react)+'</span></span>':'');
     var b = document.createElement("div"); b.className = "msg"; b.innerHTML = inner;
     rw.appendChild(b); st.appendChild(rw);
   });
@@ -1241,7 +1276,7 @@ function sendCurrent(){
   renderStream(); renderHome();
   if (/!|thank|love|great|awesome/i.test(text) && Math.random() < 0.5) {
     setTimeout(function(){
-      var arr = S.msgs[cur]; arr[arr.length-1].react = pick(["❤️","😂","🔥","👍","✨"]);
+      var arr = S.msgs[cur]; arr[arr.length-1].react = pick(REACTIONS);
       save(); if (cur===c.id) renderStream();
     }, 900);
   }
@@ -1274,15 +1309,15 @@ function pickResponders(g, text){
 function openProfile(id){
   profId = id; var ch = getChar(id);
   if (!ch) return;
-  $("pf-av").textContent = ch.emoji; $("pf-av").style.setProperty("--ring", ch.ring);
+  $("pf-av").innerHTML = avIcon(ch); $("pf-av").style.setProperty("--ring", ch.ring);
   $("pf-name").textContent = ch.name;
-  $("pf-tag").textContent = "🤖 AI Character · " + (ch.tag || "Companion");
+  $("pf-tag").innerHTML = '<span class="msr" style="font-size:15px">smart_toy</span> AI Character · ' + esc(ch.tag || "Companion");
   $("pf-quote").textContent = "“" + (ch.greeting||"").replace(/\*[^*]*\*/g,"").trim().slice(0,120) + "”";
   $("pf-pers").textContent = ch.pers || "—";
   $("pf-int").textContent = ch.ints || "—";
   $("pf-memcount").textContent = (S.mems[id]||[]).length + " memories";
   $("pf-created").textContent = ch.created ? new Date(ch.created).toLocaleDateString() : "Built-in";
-  $("prof-fav").textContent = ch.fav ? "⭐" : "☆";
+  $("prof-fav-ic").className = "msr" + (ch.fav ? " fill gold" : "");
   show("v-prof");
 }
 
@@ -1297,7 +1332,7 @@ function openMems(id){
   arr.slice().reverse().forEach(function(mm){
     var el = document.createElement("div"); el.className = "memcard";
     el.innerHTML = '<div class="t">'+esc(mm.text)+'<span class="src">'+esc(mm.src)+' · '+new Date(mm.ts).toLocaleDateString()+'</span></div>'+
-      '<button class="op">🗑</button>';
+      '<button class="op msr">delete</button>';
     el.querySelector(".op").onclick = function(){
       S.mems[id] = (S.mems[id]||[]).filter(function(x){ return x !== mm; });
       save(); openMems(id);
@@ -1336,7 +1371,7 @@ function renderMemHub(){
     el.className = "memcard" + (e.mm.pin?" pinned":"");
     el.innerHTML = '<div class="t">'+esc(e.mm.text)+
       '<span class="src">'+esc(e.ch.name)+' · '+new Date(e.mm.ts).toLocaleDateString()+'</span></div>'+
-      '<button class="op">'+(e.mm.pin?"⭐":"☆")+'</button><button class="op">🗑</button>';
+      '<button class="op msr'+(e.mm.pin?' fill gold':'')+'">star</button><button class="op msr">delete</button>';
     var ops = el.querySelectorAll(".op");
     ops[0].onclick = function(){ e.mm.pin = !e.mm.pin; save(); renderMemHub(); };
     ops[1].onclick = function(){
@@ -1362,15 +1397,17 @@ function toggleAddMem(onoff){
 }
 
 /* ================= new / edit character ================= */
-var EMOJIS = ["🕵️","🧙","🤖","🦊","🎨","🎸","🌊","🚀","🧑‍🚀","🐙","☕","🌵"];
+var ICONS = ["person_search","auto_fix_high","smart_toy","pets","palette","music_note",
+  "waves","rocket_launch","public","sports_esports","coffee","potted_plant"];
 var RINGS = ["#22C55E","#14B8A6","#3B82F6","#8B5CF6","#EC4899","#F97316"];
-var pickedEmoji = EMOJIS[0];
+var pickedIcon = ICONS[0];
 function initNewChar(){
   var row = $("emorow"); row.innerHTML = "";
-  EMOJIS.forEach(function(e){
-    var el = document.createElement("div"); el.className = "emopick" + (e===pickedEmoji?" on":"");
-    el.textContent = e;
-    el.onclick = function(){ pickedEmoji = e; initNewChar(); };
+  var palette = ICONS.indexOf(pickedIcon) < 0 ? [pickedIcon].concat(ICONS) : ICONS;
+  palette.forEach(function(e){
+    var el = document.createElement("div"); el.className = "emopick" + (e===pickedIcon?" on":"");
+    el.innerHTML = '<span class="msr">' + e + '</span>';
+    el.onclick = function(){ pickedIcon = e; initNewChar(); };
     row.appendChild(el);
   });
 }
@@ -1385,7 +1422,7 @@ function openCharForm(id){
   $("nc-int").value = ch ? (ch.ints||"") : "";
   $("nc-tag").value = ch ? (ch.tag||"") : "";
   $("nc-status").value = ch ? (ch.status||"") : "";
-  pickedEmoji = ch ? ch.emoji : EMOJIS[0];
+  pickedIcon = ch ? (ch.icon || ICONS[0]) : ICONS[0];
   initNewChar(); show("v-new");
 }
 function saveChar(){
@@ -1402,7 +1439,7 @@ function saveChar(){
   if (editId) {
     var ch = getChar(editId);
     ch.name=name; ch.pers=pers; ch.style=style; ch.back=back; ch.ints=ints;
-    ch.tag=tag; ch.status=status; ch.emoji=pickedEmoji;
+    ch.tag=tag; ch.status=status; ch.icon=pickedIcon;
     if (ch.custom) ch.topics = topics;
     save(); hide("v-new"); openProfile(editId); renderHome(); renderContacts();
     toast("Saved");
@@ -1410,7 +1447,7 @@ function saveChar(){
   }
   var id = "c" + Date.now();
   var nch = {
-    id:id, name:name, emoji:pickedEmoji, ring:pick(RINGS), tag:tag, status:status, custom:true,
+    id:id, name:name, icon:pickedIcon, ring:pick(RINGS), tag:tag, status:status, custom:true,
     pers:pers, style:style, back:back, ints:ints, created:Date.now(),
     greeting:"Hey — " + name + " here. " + (pers ? "They tell me I'm " + pers.split(/[,.]/)[0].toLowerCase() + ". " : "") + "So… where do we start?",
     topics: topics,
@@ -1425,7 +1462,7 @@ var callTimer = null, callChar = null;
 function startCall(id){
   var ch = getChar(id); if (!ch) return;
   callChar = ch;
-  $("call-av").textContent = ch.emoji; $("call-av").style.setProperty("--ring", ch.ring);
+  $("call-av").innerHTML = avIcon(ch); $("call-av").style.setProperty("--ring", ch.ring);
   $("call-name").textContent = ch.name;
   var wave = $("wave"); wave.innerHTML = "";
   for (var i=0;i<26;i++){
@@ -1441,6 +1478,8 @@ function startCall(id){
     $("call-time").textContent = ("0"+Math.floor(s/60)).slice(-2)+":"+("0"+(s%60)).slice(-2);
   }, 500);
   $("call-mute").classList.remove("on"); $("call-spk").classList.remove("on");
+  $("call-mute").querySelector(".msr").textContent = "mic";
+  $("call-spk").querySelector(".msr").textContent = "volume_down";
   show("v-call");
 }
 function endCall(){
@@ -1449,8 +1488,8 @@ function endCall(){
   if (callChar) {
     var ch = callChar; callChar = null;
     setTimeout(function(){
-      deliver(ch, pick(["Good call ☎️ — I'm here whenever you want to pick that back up.",
-        "Enjoyed that. Voice suits you 🎧","Same time tomorrow? I'll be here. I'm always here."]));
+      deliver(ch, pick(["Good call — I'm here whenever you want to pick that back up.",
+        "Enjoyed that. Voice suits you.","Same time tomorrow? I'll be here. I'm always here."]));
     }, 800);
   }
 }
@@ -1461,11 +1500,11 @@ function initSettings(){
     " · everything is stored locally";
   $("set-model-val").textContent = friendlyModel();
   if (IS_APK) {
-    $("set-update-ic").textContent = "🔄";
+    $("set-update-ic").textContent = "sync";
     $("set-update-lbl").textContent = "Check for updates";
     $("set-update-val").textContent = "build " + (MY_VC || "?");
   } else {
-    $("set-update-ic").textContent = "📦";
+    $("set-update-ic").textContent = "android";
     $("set-update-lbl").textContent = "Download the Android app (APK)";
     $("set-update-val").textContent = "";
   }
@@ -1489,22 +1528,22 @@ function doUpdateFlow(){
       if ((man.versionCode||0) > MY_VC) {
         card.innerHTML = "<b>Update available — " + esc(man.versionName||"?") + " (build " + man.versionCode + ")</b>" +
           esc(man.notes||"") +
-          "<br><a class='btn' href='" + apk + "'>⬇ Download update</a>" +
+          "<br><a class='btn' href='" + apk + "'><span class='msr' style='font-size:16px'>download</span> Download update</a>" +
           "<div class='note' style='padding:10px 0 0'>Opens in your browser. Install over the current app — your chats and memories stay put.</div>";
         $("upbadge").classList.add("on");
       } else {
-        card.innerHTML = "<b>You're up to date ✓</b>" + esc(man.versionName||"") + " (build " + (man.versionCode||"?") + ") is the latest.";
+        card.innerHTML = "<b>You're up to date <span class='msr' style='font-size:14px;color:var(--acc-deep)'>check</span></b>" + esc(man.versionName||"") + " (build " + (man.versionCode||"?") + ") is the latest.";
       }
     } else {
       card.innerHTML = "<b>Chat for Android — " + esc(man.versionName||"latest") + "</b>" +
         esc(man.notes||"Install on Android 5.0+. Chats stay on the device.") +
-        "<br><a class='btn' href='" + apk + "'>⬇ Download APK</a>" +
+        "<br><a class='btn' href='" + apk + "'><span class='msr' style='font-size:16px'>download</span> Download APK</a>" +
         "<div class='note' style='padding:10px 0 0'>You may need to allow “install from unknown sources”. The app checks this repo for its own future updates.</div>";
     }
   }, function(){
     card.innerHTML = IS_APK
       ? "<b>Couldn't reach the repo.</b>You're offline (which, fair — it's kind of our whole thing). Try again when connected."
-      : "<b>Couldn't fetch the release manifest.</b>Direct link: <a class='btn' href='" + FALLBACK_APK + "'>⬇ Download APK</a>";
+      : "<b>Couldn't fetch the release manifest.</b>Direct link: <a class='btn' href='" + FALLBACK_APK + "'><span class='msr' style='font-size:16px'>download</span> Download APK</a>";
   });
 }
 function silentUpdateCheck(){
@@ -1613,7 +1652,7 @@ $("prof-back").onclick = function(){ hide("v-prof"); renderContacts(); renderHom
 $("prof-fav").onclick = function(){
   var ch = getChar(profId); if (!ch) return;
   ch.fav = !ch.fav; save();
-  $("prof-fav").textContent = ch.fav ? "⭐" : "☆";
+  $("prof-fav-ic").className = "msr" + (ch.fav ? " fill gold" : "");
   toast(ch.fav ? "Added to favorites" : "Removed from favorites");
 };
 $("pf-msg").onclick = function(){ hide("v-prof"); openChat(profId); };
@@ -1652,8 +1691,14 @@ $("am-save").onclick = function(){
 };
 
 $("call-end").onclick = endCall;
-$("call-mute").onclick = function(){ this.classList.toggle("on"); };
-$("call-spk").onclick = function(){ this.classList.toggle("on"); };
+$("call-mute").onclick = function(){
+  this.classList.toggle("on");
+  this.querySelector(".msr").textContent = this.classList.contains("on") ? "mic_off" : "mic";
+};
+$("call-spk").onclick = function(){
+  this.classList.toggle("on");
+  this.querySelector(".msr").textContent = this.classList.contains("on") ? "volume_up" : "volume_down";
+};
 
 $("set-model").onclick = function(){ $("modelcard").classList.toggle("on"); renderModelUI(); };
 $("set-voice").onclick = function(){ toast("Calls are simulated for now — offline voice ships with the model runtime"); };

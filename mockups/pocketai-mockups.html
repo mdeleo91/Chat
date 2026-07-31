@@ -19,6 +19,20 @@
     --shadow:0 24px 60px rgba(60,40,120,.18);
   }
   *{margin:0;padding:0;box-sizing:border-box}
+
+  /* ---------- Google Material Symbols (embedded subset) ---------- */
+  @font-face{
+    font-family:'Material Symbols Rounded';font-style:normal;font-weight:400;font-display:block;
+    src:url(data:font/woff2;base64,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) format('woff2');
+  }
+  .msr{font-family:'Material Symbols Rounded';font-weight:normal;font-style:normal;
+    font-size:1em;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;
+    white-space:nowrap;word-wrap:normal;direction:ltr;vertical-align:middle;
+    font-variation-settings:'FILL' 0;
+    -webkit-font-feature-settings:'liga';font-feature-settings:'liga';-webkit-font-smoothing:antialiased}
+  .msr.fill{font-variation-settings:'FILL' 1}
+  .statusicons{display:inline-flex;gap:6px;align-items:center;font-size:14px}
+
   body{
     background:var(--page); color:var(--ink);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
@@ -158,7 +172,7 @@
 <body>
   <div class="page-head">
     <div class="wordmark">Pocket<b>AI</b> · “Dusk” mockups</div>
-    <button class="toggle" onclick="var h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark';this.textContent=h.dataset.theme==='dark'?'☀️ Light theme':'🌙 Dark theme'">☀️ Light theme</button>
+    <button class="toggle" onclick="var h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark';this.innerHTML=h.dataset.theme==='dark'?'<span class=\'msr\'>light_mode</span> Light theme':'<span class=\'msr\'>dark_mode</span> Dark theme'"><span class="msr">light_mode</span> Light theme</button>
   </div>
   <p class="sub">Five key screens in the Dusk design language — deep ink surfaces, violet→ember gradient identity, per-character accent hues. Self-contained file; toggle themes above. See <code>docs/10-ui-mockups.md</code> for the token spec.</p>
 
@@ -167,44 +181,44 @@
     <!-- ============ 1 · HOME ============ -->
     <div class="shot">
       <div class="phone"><div class="screen"><div class="notch"></div>
-        <div class="statusbar"><span>21:42</span><span>📶 🔋</span></div>
+        <div class="statusbar"><span>21:42</span><span class="statusicons"><span class="msr">signal_cellular_alt</span><span class="msr">battery_full</span></span></div>
         <div class="apphead">
           <div class="title">Pocket<b>AI</b></div>
-          <div style="margin-left:auto;display:flex;gap:8px"><div class="icirc">⊕</div><div class="icirc">⚙︎</div></div>
+          <div style="margin-left:auto;display:flex;gap:8px"><div class="icirc"><span class="msr">add</span></div><div class="icirc"><span class="msr">settings</span></div></div>
         </div>
-        <div class="search">🔍 Search chats &amp; messages</div>
-        <div class="sect">📌 PINNED</div>
+        <div class="search"><span class="msr">search</span> Search chats &amp; messages</div>
+        <div class="sect"><span class="msr">keep</span> PINNED</div>
         <div class="row">
-          <div class="avatar ring-v">✍️</div>
+          <div class="avatar ring-v"><span class="msr">edit_note</span></div>
           <div class="meta"><div class="name">Nova</div><div class="prev">Sure — want me to punch up the ending?</div></div>
           <div class="end"><div class="time">21:42</div><div class="dot"></div></div>
         </div>
         <div class="sect">ALL CHATS</div>
         <div class="row">
-          <div class="avatar ring-g">🐉</div>
+          <div class="avatar ring-g"><span class="msr">swords</span></div>
           <div class="meta"><div class="name">Dungeon Master</div><div class="prev">The gates of Ironhold creak open…</div></div>
           <div class="end"><div class="time">19:03</div></div>
         </div>
         <div class="row">
-          <div class="stack"><div class="avatar a1 ring-b">🖋</div><div class="avatar a2 ring-p">📜</div></div>
+          <div class="stack"><div class="avatar a1 ring-b"><span class="msr">stylus_note</span></div><div class="avatar a2 ring-p"><span class="msr">history_edu</span></div></div>
           <div class="meta"><div class="name">Fantasy Writing Team</div><div class="prev">Elias: The siege engine chapter is…</div></div>
           <div class="end"><div class="time">18:11</div></div>
         </div>
         <div class="row">
-          <div class="avatar ring-e">🍳</div>
-          <div class="meta"><div class="name">Chef Rosa</div><div class="prev">🎤 Voice note · 0:23</div></div>
+          <div class="avatar ring-e"><span class="msr">skillet</span></div>
+          <div class="meta"><div class="name">Chef Rosa</div><div class="prev"><span class="msr">mic</span> Voice note · 0:23</div></div>
           <div class="end"><div class="time">Tue</div></div>
         </div>
         <div class="row">
-          <div class="avatar ring-g">💪</div>
-          <div class="meta"><div class="name">Coach Kai</div><div class="prev">Rest day today. You earned it 👊</div></div>
+          <div class="avatar ring-g"><span class="msr">fitness_center</span></div>
+          <div class="meta"><div class="name">Coach Kai</div><div class="prev">Rest day today. You earned it <span class="msr">sports_mma</span></div></div>
           <div class="end"><div class="time">Mon</div></div>
         </div>
         <div class="tabs">
-          <div class="tab on"><span class="ti">💬</span>Chats</div>
-          <div class="tab"><span class="ti">👥</span>Cast</div>
-          <div class="tab"><span class="ti">📚</span>Vault</div>
-          <div class="tab"><span class="ti">⚙︎</span>Settings</div>
+          <div class="tab on"><span class="ti msr">forum</span>Chats</div>
+          <div class="tab"><span class="ti msr">group</span>Cast</div>
+          <div class="tab"><span class="ti msr">book_2</span>Vault</div>
+          <div class="tab"><span class="ti msr">settings</span>Settings</div>
         </div>
       </div></div>
       <div class="caption"><b>1 · Conversation list.</b> Pinned chats, unread gradient dot, group row with stacked avatars, voice-note preview. Character accent rings make each contact individual at a glance.</div>
@@ -213,23 +227,23 @@
     <!-- ============ 2 · CHAT ============ -->
     <div class="shot">
       <div class="phone"><div class="screen"><div class="notch"></div>
-        <div class="statusbar"><span>21:44</span><span>📶 🔋</span></div>
+        <div class="statusbar"><span>21:44</span><span class="statusicons"><span class="msr">signal_cellular_alt</span><span class="msr">battery_full</span></span></div>
         <div class="chathead">
-          <span class="back">‹</span>
-          <div class="avatar ring-v" style="width:36px;height:36px;font-size:17px">✍️</div>
-          <div><div class="cname">Nova</div><div class="cstat">brewing metaphors ☕</div></div>
-          <div class="hact"><span>📞</span><span>⋯</span></div>
+          <span class="back msr">arrow_back_ios_new</span>
+          <div class="avatar ring-v" style="width:36px;height:36px;font-size:17px"><span class="msr">edit_note</span></div>
+          <div><div class="cname">Nova</div><div class="cstat">brewing metaphors <span class="msr">coffee</span></div></div>
+          <div class="hact"><span class="msr">call</span><span class="msr">more_horiz</span></div>
         </div>
         <div class="stream">
           <div class="day">Today</div>
           <div class="msg in">Morning! Did you get a chance to read chapter 4?</div>
           <div class="msg out">Yes — the pacing drags in the middle though</div>
-          <div class="msg in" style="margin-bottom:14px">Agreed. The dinner scene runs three pages before any tension lands. Two options: cut it, or move the phone call earlier so it hangs over the whole meal. 🎯<span class="react">❤️</span></div>
+          <div class="msg in" style="margin-bottom:14px">Agreed. The dinner scene runs three pages before any tension lands. Two options: cut it, or move the phone call earlier so it hangs over the whole meal. <span class="msr">target</span><span class="react"><span class="msr fill">favorite</span></span></div>
           <div class="msg out">Ooh — the second one. Dread as seasoning</div>
-          <div class="msg out vnote"><span>▶</span><span class="wave"><i style="height:6px"></i><i style="height:12px"></i><i style="height:16px"></i><i style="height:9px"></i><i style="height:14px"></i><i style="height:7px"></i><i style="height:11px"></i><i style="height:5px"></i></span><span style="font-size:11px">0:11</span></div>
+          <div class="msg out vnote"><span class="msr">play_arrow</span><span class="wave"><i style="height:6px"></i><i style="height:12px"></i><i style="height:16px"></i><i style="height:9px"></i><i style="height:14px"></i><i style="height:7px"></i><i style="height:11px"></i><i style="height:5px"></i></span><span style="font-size:11px">0:11</span></div>
           <div class="typing"><i></i><i></i><i></i></div>
         </div>
-        <div class="composer"><span class="cbtn">⊕</span><div class="cfield">Message…</div><span class="cbtn">🎤</span><div class="send">➤</div></div>
+        <div class="composer"><span class="cbtn msr">add_circle</span><div class="cfield">Message…</div><span class="cbtn msr">mic</span><div class="send"><span class="msr">send</span></div></div>
       </div></div>
       <div class="caption"><b>2 · 1:1 chat.</b> The signature Dusk-gradient user bubble, incoming card bubbles, a tapback reaction, a voice-note bubble with waveform, and the breathing typing indicator in Nova's accent hue.</div>
     </div>
@@ -237,26 +251,26 @@
     <!-- ============ 3 · GROUP ============ -->
     <div class="shot">
       <div class="phone"><div class="screen"><div class="notch"></div>
-        <div class="statusbar"><span>18:11</span><span>📶 🔋</span></div>
+        <div class="statusbar"><span>18:11</span><span class="statusicons"><span class="msr">signal_cellular_alt</span><span class="msr">battery_full</span></span></div>
         <div class="chathead">
-          <span class="back">‹</span>
-          <div class="stack" style="width:36px;height:36px"><div class="avatar a1 ring-b" style="width:24px;height:24px;font-size:11px">🖋</div><div class="avatar a2 ring-p" style="width:24px;height:24px;font-size:11px">📜</div></div>
-          <div><div class="cname">⚔️ Fantasy Writing Team</div><div class="cstat">Elias, Mira, DM &amp; you</div></div>
-          <div class="hact"><span>⋯</span></div>
+          <span class="back msr">arrow_back_ios_new</span>
+          <div class="stack" style="width:36px;height:36px"><div class="avatar a1 ring-b" style="width:24px;height:24px;font-size:11px"><span class="msr">stylus_note</span></div><div class="avatar a2 ring-p" style="width:24px;height:24px;font-size:11px"><span class="msr">history_edu</span></div></div>
+          <div><div class="cname"><span class="msr">swords</span> Fantasy Writing Team</div><div class="cstat">Elias, Mira, DM &amp; you</div></div>
+          <div class="hact"><span class="msr">more_horiz</span></div>
         </div>
         <div class="stream">
-          <div class="gwrap g-elias"><div class="avatar sm ring-b">🖋</div>
+          <div class="gwrap g-elias"><div class="avatar sm ring-b"><span class="msr">stylus_note</span></div>
             <div class="gcol"><div class="glabel">Elias · Editor</div>
             <div class="msg in">The siege chapter needs a ticking clock. Right now the walls could hold forever and nobody sweats.</div></div></div>
-          <div class="gwrap g-mira"><div class="avatar sm ring-p">📜</div>
+          <div class="gwrap g-mira"><div class="avatar sm ring-p"><span class="msr">history_edu</span></div>
             <div class="gcol"><div class="glabel">Mira · Historian</div>
             <div class="msg in">Historically, sieges took months — your three-day deadline is already generous. Lean on the water supply; that's what actually broke cities.</div></div></div>
           <div class="msg out"><span class="mention">@DM</span> what would the defenders realistically do first?</div>
-          <div class="gwrap g-dm"><div class="avatar sm ring-g">🐉</div>
+          <div class="gwrap g-dm"><div class="avatar sm ring-g"><span class="msr">swords</span></div>
             <div class="gcol"><div class="glabel">DM</div>
             <div class="typing" style="align-self:flex-start"><i style="background:#3DD68C"></i><i style="background:#3DD68C"></i><i style="background:#3DD68C"></i></div></div></div>
         </div>
-        <div class="composer"><span class="cbtn">⊕</span><div class="cfield">Message…</div><span class="cbtn">🎤</span><div class="send">➤</div></div>
+        <div class="composer"><span class="cbtn msr">add_circle</span><div class="cfield">Message…</div><span class="cbtn msr">mic</span><div class="send"><span class="msr">send</span></div></div>
       </div></div>
       <div class="caption"><b>3 · Group chat.</b> Sender labels and left-edge tints in each character's accent hue; an <b>@mention</b> pill forces the Dungeon Master to answer. Characters respond to each other — capped, so the user always gets the floor back.</div>
     </div>
@@ -264,9 +278,9 @@
     <!-- ============ 4 · WIZARD ============ -->
     <div class="shot">
       <div class="phone"><div class="screen"><div class="notch"></div>
-        <div class="statusbar"><span>10:12</span><span>📶 🔋</span></div>
+        <div class="statusbar"><span>10:12</span><span class="statusicons"><span class="msr">signal_cellular_alt</span><span class="msr">battery_full</span></span></div>
         <div class="wizhead">
-          <span class="back">‹ New character</span>
+          <span class="back"><span class="msr">arrow_back_ios_new</span> New character</span>
           <div class="steps"><i class="done"></i><i class="done"></i><i></i></div>
         </div>
         <div class="wtitle">Personality</div>
@@ -278,10 +292,10 @@
         <div class="field"><label>PERSONALITY</label>
           <div class="val">Sharp-eyed story editor with a warm streak. Direct about what isn't working, generous about what is. Secretly loves a good villain.</div></div>
         <div class="field"><label>SPEAKING STYLE</label>
-          <div class="val">Short, dry sentences. Occasional ☕ and 🎯. Asks one pointed question at a time.</div></div>
+          <div class="val">Short, dry sentences. Occasional <span class="msr">coffee</span> and <span class="msr">target</span>. Asks one pointed question at a time.</div></div>
         <div class="field"><label>BACKSTORY &amp; INTERESTS <span style="font-weight:400">(optional)</span></label>
           <div class="val" style="color:var(--mist)">Ex-magazine editor · thrillers · espresso · structure nerd…</div></div>
-        <div class="adv"><span>▸ Advanced — system prompt, memory rules, model</span></div>
+        <div class="adv"><span><span class="msr">chevron_right</span> Advanced — system prompt, memory rules, model</span></div>
         <div class="cta">Next · Voice &amp; look</div>
       </div></div>
       <div class="caption"><b>4 · Character creation, step 2.</b> Trait chips compose into the persona; free text for depth. All technical machinery (system prompt, memory rules, model override) lives behind one quiet <b>Advanced</b> row.</div>
@@ -290,9 +304,9 @@
     <!-- ============ 5 · CALL ============ -->
     <div class="shot">
       <div class="phone"><div class="screen"><div class="notch"></div>
-        <div class="statusbar"><span>22:03</span><span>📶 🔋</span></div>
+        <div class="statusbar"><span>22:03</span><span class="statusicons"><span class="msr">signal_cellular_alt</span><span class="msr">battery_full</span></span></div>
         <div class="call">
-          <div class="glow"><div class="bigav">✍️</div></div>
+          <div class="glow"><div class="bigav"><span class="msr">edit_note</span></div></div>
           <div style="font-size:22px;font-weight:700">Nova</div>
           <div class="cstate">listening…</div>
           <div class="cwave">
@@ -301,9 +315,9 @@
           </div>
           <div class="transcript">“…so if the phone call moves to page two, the dinner scene becomes the payoff instead of the warm-up…”</div>
           <div class="callbar">
-            <div class="cball">🔇</div>
-            <div class="cball end">✕</div>
-            <div class="cball">💬</div>
+            <div class="cball"><span class="msr">volume_off</span></div>
+            <div class="cball end"><span class="msr">call_end</span></div>
+            <div class="cball"><span class="msr">chat_bubble</span></div>
           </div>
         </div>
       </div></div>
