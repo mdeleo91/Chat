@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -30,6 +31,9 @@ public class MainActivity extends Activity {
         // Allow the file:// page to fetch the update manifest from raw.githubusercontent.com
         s.setAllowUniversalAccessFromFileURLs(true);
 
+        // Without a WebChromeClient, WebView suppresses JS dialogs entirely —
+        // confirm() returns false, breaking the 18+ gate and delete/wipe flows.
+        web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {

@@ -1,6 +1,6 @@
 {
-  "versionCode": 3,
-  "versionName": "0.3.2",
+  "versionCode": 4,
+  "versionName": "0.3.3",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Green messenger redesign with tabs, groups, voice calls, memories and themes; on-device AI models (WebLLM) including Qwen3/Qwen3.5 and a gated mature tier — on devices whose browser has WebGPU."
+  "notes": "Fixes confirmation dialogs on Android (18+ gate, clear chat, delete character, erase data did nothing when tapped). Also includes Qwen3/Qwen3.5 models and the gated mature tier."
 }
