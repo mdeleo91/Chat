@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0E0D16">
+<title>PocketAI</title>
+<style>
+  :root{
+    --dusk:#8F73FF; --ember:#FF8A6B; --alive:#3DD68C; --danger:#E5484D;
+    --grad:linear-gradient(135deg,#7C5CFF 0%,#B15CFF 55%,#FF7A59 100%);
+    --ink:#EDEBF6; --mist:#7E7A96; --surface:#0E0D16; --card:#1A1826;
+    --card2:#232032; --line:#2A2740; --page:#080711;
+  }
+  [data-theme="light"]{
+    --dusk:#7C5CFF; --ember:#FF7A59;
+    --ink:#14121F; --mist:#8B87A0; --surface:#F7F5FB; --card:#FFFFFF;
+    --card2:#EFECF8; --line:#E4E0F0; --page:#EDEAF6;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    background:var(--page); color:var(--ink); overflow:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  }
+  #shell{height:100%;max-width:480px;margin:0 auto;background:var(--surface);
+    display:flex;flex-direction:column;position:relative;overflow:hidden}
+  @media(min-width:520px){#shell{height:calc(100% - 48px);margin-top:24px;border-radius:28px;
+    box-shadow:0 24px 80px rgba(0,0,0,.5);border:1px solid var(--line)}}
+  .view{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--surface);
+    transition:transform .28s cubic-bezier(.4,0,.2,1);z-index:1}
+  .view.right{transform:translateX(102%)}
+  .view.hidden{display:none}
+
+  /* ------- shared ------- */
+  .avatar{width:46px;height:46px;border-radius:50%;background:var(--card2);
+    display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;
+    border:2px solid var(--ring,transparent)}
+  .avatar.sm{width:34px;height:34px;font-size:16px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--grad)}
+  .btn{background:var(--grad);color:#fff;border:none;border-radius:999px;padding:12px 22px;
+    font-size:15px;font-weight:700;cursor:pointer;font-family:inherit}
+  .btn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+  .icb{width:34px;height:34px;border-radius:50%;background:var(--card);border:1px solid var(--line);
+    color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:16px;
+    cursor:pointer;position:relative;flex-shrink:0}
+  .badge{position:absolute;top:-2px;right:-2px;width:10px;height:10px;border-radius:50%;
+    background:var(--ember);border:2px solid var(--surface);display:none}
+  .badge.on{display:block}
+
+  /* ------- home ------- */
+  .apphead{padding:calc(14px + env(safe-area-inset-top)) 18px 6px;display:flex;align-items:center;gap:10px}
+  .apphead .title{font-size:26px;font-weight:800;letter-spacing:-.5px;flex:1}
+  .apphead .title b{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .rows{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:20px}
+  .row{display:flex;gap:12px;padding:11px 16px;align-items:center;cursor:pointer}
+  .row:active{background:var(--card)}
+  .row .meta{flex:1;min-width:0}
+  .row .name{font-size:15.5px;font-weight:650}
+  .row .prev{font-size:13px;color:var(--mist);white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis;margin-top:2px}
+  .row .end{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0}
+  .row .time{font-size:11px;color:var(--mist)}
+  .upbanner{margin:8px 16px;background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:12px 14px;display:none;gap:10px;align-items:center;font-size:13px}
+  .upbanner.on{display:flex}
+  .upbanner a{color:var(--dusk);font-weight:700;text-decoration:none;margin-left:auto;white-space:nowrap}
+
+  /* ------- chat ------- */
+  .chathead{display:flex;align-items:center;gap:10px;
+    padding:calc(10px + env(safe-area-inset-top)) 12px 8px;border-bottom:1px solid var(--line)}
+  .back{color:var(--dusk);font-size:26px;line-height:1;cursor:pointer;padding:0 6px 3px}
+  .chathead .cwrap{flex:1;min-width:0;cursor:pointer}
+  .chathead .cname{font-size:15.5px;font-weight:700}
+  .chathead .cstat{font-size:11.5px;color:var(--mist);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .stream{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 12px;
+    display:flex;flex-direction:column;gap:8px}
+  .day{align-self:center;font-size:10.5px;color:var(--mist);background:var(--card);
+    border:1px solid var(--line);padding:3px 12px;border-radius:999px;margin:4px 0}
+  .msg{max-width:80%;padding:9px 13px;border-radius:20px;font-size:14.5px;line-height:1.42;
+    position:relative;word-wrap:break-word;white-space:pre-wrap}
+  .msg.in{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-bottom-left-radius:6px}
+  .msg.out{align-self:flex-end;background:var(--grad);color:#fff;border-bottom-right-radius:6px}
+  .msg .react{position:absolute;bottom:-12px;right:8px;background:var(--card2);
+    border:1px solid var(--line);border-radius:999px;font-size:11px;padding:2px 7px}
+  .msg.reacted{margin-bottom:12px}
+  .typing{align-self:flex-start;background:var(--card);border:1px solid var(--line);
+    border-radius:20px;border-bottom-left-radius:6px;padding:12px 16px;display:none;gap:5px}
+  .typing.on{display:flex}
+  .typing i{width:7px;height:7px;border-radius:50%;background:var(--dusk);opacity:.4;
+    animation:breathe 1.2s infinite}
+  .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+  @keyframes breathe{0%,100%{opacity:.35;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
+  .composer{display:flex;gap:10px;align-items:flex-end;padding:10px 12px calc(12px + env(safe-area-inset-bottom));
+    border-top:1px solid var(--line)}
+  .cfield{flex:1;background:var(--card);border:1px solid var(--line);border-radius:20px;
+    padding:10px 16px;font-size:14.5px;color:var(--ink);font-family:inherit;resize:none;
+    max-height:110px;outline:none;line-height:1.4}
+  .send{width:38px;height:38px;border-radius:50%;background:var(--grad);color:#fff;border:none;
+    display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;flex-shrink:0}
+
+  /* ------- sheets ------- */
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.5);z-index:40;opacity:0;
+    pointer-events:none;transition:opacity .25s}
+  .scrim.on{opacity:1;pointer-events:auto}
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);z-index:50;
+    border-radius:24px 24px 0 0;padding:10px 20px calc(24px + env(safe-area-inset-bottom));
+    transform:translateY(105%);transition:transform .3s cubic-bezier(.4,0,.2,1);
+    max-height:88%;overflow-y:auto;border-top:1px solid var(--line)}
+  .sheet.on{transform:translateY(0)}
+  .grip{width:40px;height:4px;border-radius:2px;background:var(--line);margin:4px auto 14px}
+  .sheet h2{font-size:19px;font-weight:800;margin-bottom:4px}
+  .sheet .sub{font-size:13px;color:var(--mist);margin-bottom:14px}
+  .srow{display:flex;align-items:center;gap:12px;padding:13px 2px;border-bottom:1px solid var(--line);
+    font-size:14.5px;cursor:pointer}
+  .srow:last-child{border-bottom:none}
+  .srow .ic{font-size:19px;width:28px;text-align:center}
+  .srow .lbl{flex:1}.srow .val{color:var(--mist);font-size:13px;max-width:55%;text-align:right}
+  .srow .chev{color:var(--mist)}
+  .note{font-size:12px;color:var(--mist);line-height:1.5;padding:12px 2px}
+  .upcard{margin:10px 0;background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:14px;font-size:13.5px;line-height:1.5;display:none}
+  .upcard.on{display:block}
+  .upcard b{display:block;margin-bottom:4px}
+  .upcard .btn{margin-top:10px;display:inline-block;text-decoration:none;font-size:13.5px;padding:9px 18px}
+
+  /* contact / memories / new char */
+  .profile{display:flex;flex-direction:column;align-items:center;padding:24px 20px 8px;gap:6px}
+  .bigav{width:96px;height:96px;border-radius:50%;background:var(--card2);display:flex;
+    align-items:center;justify-content:center;font-size:46px;border:3px solid var(--ring,var(--dusk))}
+  .pname{font-size:22px;font-weight:800}
+  .ptag{font-size:14px;color:var(--mist)}
+  .pdisc{font-size:11px;color:var(--mist);border:1px solid var(--line);border-radius:999px;padding:3px 12px;margin-top:4px}
+  .memcard{margin:8px 16px;background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:12px 14px;font-size:14px;line-height:1.45;display:flex;gap:10px;align-items:flex-start}
+  .memcard .t{flex:1}
+  .memcard .src{display:block;font-size:11px;color:var(--mist);margin-top:4px}
+  .memcard .del{color:var(--mist);cursor:pointer;font-size:15px;padding:2px 6px}
+  .field{margin:8px 16px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+  .field label{display:block;font-size:11px;font-weight:700;color:var(--mist);letter-spacing:.5px;margin-bottom:6px}
+  .field input,.field textarea{width:100%;background:none;border:none;color:var(--ink);
+    font-size:14.5px;font-family:inherit;outline:none;resize:none;line-height:1.4}
+  .emorow{display:flex;gap:8px;flex-wrap:wrap;padding:4px 16px}
+  .emopick{width:44px;height:44px;border-radius:50%;background:var(--card);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;font-size:21px;cursor:pointer}
+  .emopick.on{border-color:var(--dusk);box-shadow:0 0 0 2px var(--dusk)}
+  .empty{text-align:center;color:var(--mist);font-size:13.5px;padding:40px 30px;line-height:1.6}
+  .sechead{padding:14px 20px 4px;font-size:11px;font-weight:800;letter-spacing:1px;color:var(--mist)}
+</style>
+</head>
+<body>
+<div id="shell">
+
+  <!-- HOME -->
+  <div class="view" id="v-home">
+    <div class="apphead">
+      <div class="title">Pocket<b>AI</b></div>
+      <div class="icb" id="b-new" title="New character">⊕</div>
+      <div class="icb" id="b-theme" title="Theme">◐</div>
+      <div class="icb" id="b-settings" title="Settings">⚙<span class="badge" id="upbadge"></span></div>
+    </div>
+    <div class="upbanner" id="upbanner">
+      <span>✨</span><span id="upbanner-txt"></span><a id="upbanner-a" href="#">Get it</a>
+    </div>
+    <div class="rows" id="convo-list"></div>
+  </div>
+
+  <!-- CHAT -->
+  <div class="view right" id="v-chat">
+    <div class="chathead">
+      <span class="back" id="chat-back">‹</span>
+      <div class="avatar sm" id="chat-av"></div>
+      <div class="cwrap" id="chat-contact"><div class="cname" id="chat-name"></div>
+        <div class="cstat" id="chat-stat"></div></div>
+      <div class="icb" id="chat-mem" title="Memories">🧠</div>
+    </div>
+    <div class="stream" id="stream"></div>
+    <div class="composer">
+      <textarea class="cfield" id="input" rows="1" placeholder="Message…"></textarea>
+      <button class="send" id="send">➤</button>
+    </div>
+  </div>
+
+  <!-- MEMORIES -->
+  <div class="view right" id="v-mem">
+    <div class="chathead">
+      <span class="back" id="mem-back">‹</span>
+      <div style="flex:1"><div class="cname" id="mem-title">Memories</div>
+        <div class="cstat">what they remember about you</div></div>
+    </div>
+    <div class="rows" id="mem-list"></div>
+  </div>
+
+  <!-- NEW CHARACTER -->
+  <div class="view right" id="v-new">
+    <div class="chathead">
+      <span class="back" id="new-back">‹</span>
+      <div style="flex:1"><div class="cname">New character</div>
+        <div class="cstat">they'll live only on this device</div></div>
+    </div>
+    <div class="rows">
+      <div class="sechead">AVATAR</div>
+      <div class="emorow" id="emorow"></div>
+      <div class="field"><label>NAME</label><input id="nc-name" placeholder="e.g. Marlowe"></div>
+      <div class="field"><label>ROLE / TAGLINE</label><input id="nc-tag" placeholder="e.g. Film noir detective"></div>
+      <div class="field"><label>STATUS MESSAGE</label><input id="nc-status" placeholder="e.g. it was a dark and stormy night…"></div>
+      <div class="field"><label>PERSONALITY & SPEAKING STYLE</label>
+        <textarea id="nc-pers" rows="3" placeholder="Wry, world-weary, talks in short clipped sentences, secretly a softie…"></textarea></div>
+      <div style="padding:16px"><button class="btn" style="width:100%" id="nc-create">Create & say hi</button></div>
+    </div>
+  </div>
+
+  <!-- CONTACT CARD sheet -->
+  <div class="scrim" id="scrim"></div>
+  <div class="sheet" id="sh-contact">
+    <div class="grip"></div>
+    <div class="profile">
+      <div class="bigav" id="cc-av"></div>
+      <div class="pname" id="cc-name"></div>
+      <div class="ptag" id="cc-tag"></div>
+      <div class="ptag" id="cc-status" style="font-style:italic"></div>
+      <div class="pdisc">AI character · runs on your device</div>
+    </div>
+    <div class="srow" id="cc-mem"><span class="ic">🧠</span><span class="lbl">Memories</span>
+      <span class="val" id="cc-memcount"></span><span class="chev">›</span></div>
+    <div class="srow" id="cc-clear"><span class="ic">🧹</span><span class="lbl">Clear chat history</span><span class="chev">›</span></div>
+    <div class="srow" id="cc-forget"><span class="ic">🗑</span>
+      <span class="lbl" style="color:var(--danger)">Forget everything</span><span class="chev">›</span></div>
+  </div>
+
+  <!-- SETTINGS sheet -->
+  <div class="sheet" id="sh-settings">
+    <div class="grip"></div>
+    <h2>Settings</h2>
+    <div class="sub" id="set-sub"></div>
+    <div class="upcard" id="upcard"></div>
+    <div class="srow" id="set-update"><span class="ic" id="set-update-ic">⬇</span>
+      <span class="lbl" id="set-update-lbl"></span><span class="val" id="set-update-val"></span><span class="chev">›</span></div>
+    <div class="srow" id="set-theme"><span class="ic">🎨</span><span class="lbl">Theme</span>
+      <span class="val" id="set-theme-val"></span><span class="chev">›</span></div>
+    <div class="srow" id="set-wipe"><span class="ic">🗑</span>
+      <span class="lbl" style="color:var(--danger)">Erase all data on this device</span><span class="chev">›</span></div>
+    <div class="note" id="about-note"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================= platform & version ================= */
+var WEB_VN = "0.1.0";                        // version of this page when served as web app
+var Q = {};
+location.search.replace(/^\?/, "").split("&").forEach(function(kv){
+  var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
+});
+var IS_APK = Q.platform === "apk";
+var MY_VC = parseInt(Q.vc || "0", 10) || 0;  // APK passes its versionCode in the URL
+var MY_VN = Q.vn || WEB_VN;
+var REPO = "mdeleo91/Chat";
+var BRANCHES = ["main", "claude/pocketai-design-architecture-j25h8d"]; // main first; dev branch as fallback until merged
+var FALLBACK_APK = "https://github.com/" + REPO + "/raw/main/releases/PocketAI.apk";
+
+function fetchManifest(cb, err){
+  var i = 0;
+  function tryNext(){
+    if (i >= BRANCHES.length) { err && err(); return; }
+    var b = BRANCHES[i++];
+    var url = "https://raw.githubusercontent.com/" + REPO + "/" + encodeURIComponent(b) +
+              "/releases/version.json?t=" + Date.now();
+    fetch(url, {cache:"no-store"}).then(function(r){
+      if (!r.ok) throw 0; return r.json();
+    }).then(function(m){ cb(m, b); }).catch(tryNext);
+  }
+  tryNext();
+}
+
+/* ================= state ================= */
+var KEY = "pocketai.v1";
+var S = null;
+function load(){
+  try { S = JSON.parse(localStorage.getItem(KEY)); } catch(e){ S = null; }
+  if (!S) S = { chars:[], msgs:{}, mems:{}, profile:{}, theme:"dark", seeded:false };
+}
+function save(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e){} }
+
+/* ================= starter cast ================= */
+var CAST = [
+ {id:"nova", name:"Nova", emoji:"✍️", ring:"#8F73FF", tag:"Writing partner",
+  status:"brewing metaphors ☕",
+  greeting:"Hey! I'm Nova — I read everything, I forget nothing, and I have strong opinions about adverbs. What are you working on?",
+  topics:[
+   {m:["write","story","novel","chapter","plot","character","book","scene","edit"],
+    r:["Okay, good bones. What's the emotional turn you want the reader to feel there?",
+       "First thought: cut the opening line and start on the second. Openings almost always warm up too slowly.",
+       "That could work. Who wants what in that scene, and who's in the way? If the answer is fuzzy, that's the problem.",
+       "I'd push the conflict earlier. Dread is better seasoning than surprise. 🎯"]},
+   {m:["stuck","block","idea"],
+    r:["Blocked usually means the previous scene made a wrong promise. Reread the last page — what did it set up?",
+       "Try this: write the worst possible version of the scene, on purpose. Ten minutes. It unsticks the good version."]}
+  ],
+  fall:["Tell me more — and don't polish it, just say it messy.",
+        "Interesting. What's underneath that, though?",
+        "Noted ☕ — and what do you want it to *feel* like?",
+        "Say more. I'm sharpening a pencil."]},
+ {id:"dm", name:"Dungeon Master", emoji:"🐉", ring:"#3DD68C", tag:"Game master",
+  status:"rolling in the dark…",
+  greeting:"*The tavern falls quiet as you enter. A hooded figure gestures to an empty chair.* Welcome back, adventurer. Shall we pick up where the road left off — or start a new tale?",
+  topics:[
+   {m:["attack","fight","sword","roll","cast","spell","battle"],
+    r:["*Roll for initiative.* 🎲 The air crackles — describe your move and I'll tell you how the dice favor you.",
+       "Bold. The creature snarls, wounded but far from done. It circles left. What do you do?",
+       "Your blow lands true — 12 damage! But from the shadows above, you hear a second set of wings."]},
+   {m:["door","open","look","search","enter","explore","cave","dungeon","gate","ironhold"],
+    r:["The hinges groan like something that remembers being alive. Inside: darkness, the smell of cold iron, and — faintly — music. Do you go in?",
+       "You find scratch marks low on the stone. Something was dragged. The trail leads deeper. 🕯️",
+       "The gates of Ironhold loom, banners torn. A single guard watches you approach — too calmly."]}
+  ],
+  fall:["*The DM nods slowly behind the screen.* Go on…",
+        "A wise choice. Or a terrible one. The dice will decide. 🎲",
+        "*scribbles a note you cannot see* …interesting. What next?",
+        "The world holds its breath. Describe what you do."]},
+ {id:"rosa", name:"Chef Rosa", emoji:"🍳", ring:"#FF8A6B", tag:"Kitchen companion",
+  status:"something's simmering",
+  greeting:"¡Hola! Rosa here. Tell me what's in your fridge and I'll tell you what's for dinner. And no, 'just condiments' is not a real answer — I've worked with worse.",
+  topics:[
+   {m:["cook","recipe","dinner","eat","food","chicken","pasta","rice","egg","hungry","lunch","breakfast"],
+    r:["Easy one: hot pan, olive oil, garlic first — always garlic first. What protein are we working with?",
+       "Mmm. Do you have 20 minutes or 60? Honesty, please. The answer changes everything. 🍳",
+       "Salt it earlier than you think, taste it more often than you do. Now — what's in the fridge?"]},
+   {m:["burn","fail","mess"],
+    r:["Cariño, every good cook has burned a pan they loved. Scrape, breathe, start again — lower heat this time."]}
+  ],
+  fall:["In my kitchen we talk while we chop. Keep going 🔪",
+        "That deserves a good meal alongside it. What did you eat today — be honest?",
+        "¡Claro! And speaking of which — have you eaten?"]},
+ {id:"kai", name:"Coach Kai", emoji:"💪", ring:"#5CA8FF", tag:"Fitness coach",
+  status:"rest is training too",
+  greeting:"Hey hey! Coach Kai. One rule here: we never talk about being 'behind'. There's only today. So — how's the body feeling?",
+  topics:[
+   {m:["workout","gym","run","train","exercise","sore","tired","weight","push"],
+    r:["Love it. Warm up properly — 5 minutes, no shortcuts — then tell me how the first set feels. 👊",
+       "Sore is information, pain is a stop sign. Which one is it, honestly?",
+       "Consistency beats intensity, every single week. Small session today still counts."]},
+   {m:["skip","lazy","motivat","don't feel","cant","can't"],
+    r:["Then we shrink it: five minutes, one exercise, done. Momentum first, ambition later. Deal?",
+       "You don't need motivation, you need a smaller first step. What's the tiniest version of today's session?"]}
+  ],
+  fall:["Noted. Hydrate while you tell me the rest 💧",
+        "Good. And how'd you sleep? It matters more than the workout.",
+        "Alright — one thing you can do for your body in the next hour. Pick it."]},
+ {id:"hale", name:"Professor Hale", emoji:"📜", ring:"#FF6BB5", tag:"History professor",
+  status:"office hours: always",
+  greeting:"Ah, come in, come in. I was just re-reading about the siege of Constantinople — remarkable logistics, dreadful outcome. What shall we dig into today?",
+  topics:[
+   {m:["history","war","rome","medieval","ancient","king","empire","revolution","siege","century"],
+    r:["Splendid question. The short answer is 'grain supply' — the long answer is a lecture I will happily give. Where shall I start?",
+       "History rarely repeats, but it rhymes with alarming regularity. Consider the parallels for a moment…",
+       "The sources disagree — which is exactly where it gets interesting. Whose account shall we trust, and why?"]}
+  ],
+  fall:["Hmm — there is, of course, a historical angle to that. There always is. 📜",
+        "Fascinating. Note it down; the good questions deserve ink.",
+        "As my old advisor said: 'context first, judgment later.' Do go on."]},
+ {id:"sage", name:"Sage", emoji:"🌙", ring:"#B15CFF", tag:"A friendly listener",
+  status:"here when you need",
+  greeting:"Hi. No agenda here — just a quiet corner of your day. How are you, really? (I'm an AI companion, not a therapist — but I'm a very good listener.)",
+  topics:[
+   {m:["stress","anxious","worried","overwhelm","tired","sad","rough","hard day","upset"],
+    r:["That sounds genuinely heavy. Want to unpack it, or would you rather be distracted for a bit? Both are fine.",
+       "Thank you for saying it out loud — that's usually the hardest rep. What part weighs the most right now?",
+       "Okay. Breathe once, slowly, before you answer this: what's the one thing that's actually in your control today?"]},
+   {m:["happy","good news","excited","great day","won"],
+    r:["Oh, I'm so glad — tell me everything. Savoring it counts double. ✨"]}
+  ],
+  fall:["I'm listening. Take your time.",
+        "Mm. And how did that land with you?",
+        "That's worth sitting with for a second. What else is in there?"]}
+];
+
+/* ================= persona engine (scripted starter brain) ================= */
+function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
+function esc(s){ var d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
+
+function think(ch, text){
+  var t = text.toLowerCase();
+  var mems = S.mems[ch.id] || [];
+  var m;
+
+  // remember: name
+  if ((m = t.match(/my name(?:'s| is) ([a-z][a-z\-']{1,20})/i))) {
+    var nm = m[1].charAt(0).toUpperCase() + m[1].slice(1);
+    S.profile.name = nm; remember(ch, "Their name is " + nm);
+    return pick(["Good to properly meet you, " + nm + ". I'll remember that.",
+                 nm + " — noted and remembered. ✨"]);
+  }
+  // remember: likes / loves / favorites
+  if ((m = t.match(/i (?:really )?(?:like|love|enjoy)s? ([^.!?]{2,60})/i))) {
+    remember(ch, "They like " + m[1].trim());
+    return pick(["Filed away: you like " + m[1].trim() + ". This will come up again, promise.",
+                 "Noted — " + m[1].trim() + ". I remember these things."]);
+  }
+  if ((m = t.match(/i (?:work|live) (?:as|in|at) ([^.!?]{2,60})/i))) {
+    remember(ch, "They " + (t.indexOf("work")>=0?"work":"live") + " " + m[0].replace(/^i /i,"").trim());
+  }
+  // recall
+  if (/what do you (know|remember)|do you remember/.test(t)) {
+    if (!mems.length) return "We're just getting started — tell me things and I'll hold onto them. Everything I remember stays on this device, in my little 🧠 (top right).";
+    var lines = mems.slice(-4).map(function(x){ return "• " + x.text; }).join("\n");
+    return "Here's what I'm holding onto:\n" + lines + "\n\nYou can edit or delete any of it in my memories (🧠).";
+  }
+  // greetings / thanks / bye
+  if (/^(hi|hey|hello|yo|hola|good (morning|evening|afternoon))\b/.test(t))
+    return pick(["Hey" + (S.profile.name ? ", " + S.profile.name : "") + "! 👋 What's on your mind?",
+                 "Well hello. I was hoping you'd show up.",
+                 ch.greeting]);
+  if (/thank/.test(t)) return pick(["Anytime — that's what I'm here for.","De nada ✨","Always."]);
+  if (/^(bye|goodnight|good night|gtg|see you)/.test(t))
+    return pick(["Take care — I'll be right here.","Goodnight 🌙 I don't sleep, but I'll pretend."]);
+
+  // persona topics
+  var i, j, tp;
+  for (i = 0; i < ch.topics.length; i++) {
+    tp = ch.topics[i];
+    for (j = 0; j < tp.m.length; j++)
+      if (t.indexOf(tp.m[j]) >= 0) return pick(tp.r);
+  }
+  // occasionally weave in a memory
+  if (mems.length && Math.random() < 0.25) {
+    var mm = pick(mems);
+    return pick(ch.fall) + "\n\n(Also — earlier you mentioned " +
+      mm.text.replace(/^Their name is /,"you're ").replace(/^They /,"you ") + ". Still true?)";
+  }
+  if (/\?$/.test(text.trim()))
+    return pick(["Honest answer? " + pick(ch.fall), pick(ch.fall)]);
+  return pick(ch.fall);
+}
+function remember(ch, fact){
+  var arr = S.mems[ch.id] = S.mems[ch.id] || [];
+  for (var i=0;i<arr.length;i++) if (arr[i].text === fact) return;
+  arr.push({text:fact, ts:Date.now(), src:"from chat"});
+  save();
+}
+
+/* ================= views & rendering ================= */
+var cur = null;   // current character id
+function $(id){ return document.getElementById(id); }
+function show(v){ $(v).classList.remove("hidden"); requestAnimationFrame(function(){ requestAnimationFrame(function(){ $(v).classList.remove("right"); }); }); }
+function hide(v){ $(v).classList.add("right"); }
+function fmtTime(ts){
+  var d = new Date(ts), now = new Date();
+  if (d.toDateString() === now.toDateString())
+    return d.getHours() + ":" + ("0"+d.getMinutes()).slice(-2);
+  var days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  if (now - d < 6*864e5) return days[d.getDay()];
+  return (d.getMonth()+1) + "/" + d.getDate();
+}
+
+function renderHome(){
+  var list = $("convo-list"); list.innerHTML = "";
+  var chars = S.chars.slice().sort(function(a,b){
+    var la = lastMsg(a.id), lb = lastMsg(b.id);
+    return (lb?lb.ts:0) - (la?la.ts:0);
+  });
+  chars.forEach(function(ch){
+    var lm = lastMsg(ch.id);
+    var row = document.createElement("div"); row.className = "row";
+    row.innerHTML =
+      '<div class="avatar" style="--ring:'+ch.ring+'">'+ch.emoji+'</div>'+
+      '<div class="meta"><div class="name">'+esc(ch.name)+'</div>'+
+      '<div class="prev">'+ (lm ? esc((lm.who==="me"?"You: ":"")+lm.text).slice(0,90) : esc(ch.status)) +'</div></div>'+
+      '<div class="end"><div class="time">'+(lm?fmtTime(lm.ts):"")+'</div>'+
+      (ch.unread ? '<div class="dot"></div>' : "")+'</div>';
+    row.onclick = function(){ openChat(ch.id); };
+    list.appendChild(row);
+  });
+}
+function lastMsg(id){ var a = S.msgs[id]; return a && a.length ? a[a.length-1] : null; }
+function getChar(id){ for (var i=0;i<S.chars.length;i++) if (S.chars[i].id===id) return S.chars[i]; return null; }
+
+function openChat(id){
+  cur = id; var ch = getChar(id);
+  ch.unread = false; save();
+  $("chat-av").textContent = ch.emoji; $("chat-av").style.setProperty("--ring", ch.ring);
+  $("chat-name").textContent = ch.name; $("chat-stat").textContent = ch.status;
+  renderStream(); show("v-chat");
+  if (!(S.msgs[id] && S.msgs[id].length)) setTimeout(function(){ deliver(ch, ch.greeting); }, 600);
+}
+function renderStream(){
+  var st = $("stream"); st.innerHTML = '<div class="day">PocketAI · on-device</div>';
+  (S.msgs[cur]||[]).forEach(function(msg){
+    var el = document.createElement("div");
+    el.className = "msg " + (msg.who==="me"?"out":"in") + (msg.react?" reacted":"");
+    el.innerHTML = esc(msg.text) + (msg.react?'<span class="react">'+msg.react+'</span>':"");
+    st.appendChild(el);
+  });
+  var ty = document.createElement("div"); ty.className="typing"; ty.id="ty";
+  ty.innerHTML="<i></i><i></i><i></i>"; st.appendChild(ty);
+  st.scrollTop = st.scrollHeight;
+}
+function pushMsg(id, who, text, react){
+  (S.msgs[id] = S.msgs[id] || []).push({who:who, text:text, ts:Date.now(), react:react||null});
+  save();
+}
+
+function deliver(ch, reply){
+  var ty = $("ty"); if (cur===ch.id && ty){ ty.classList.add("on"); $("stream").scrollTop = 1e9; }
+  var delay = 500 + Math.min(2400, reply.length*18) + Math.random()*400;
+  setTimeout(function(){
+    pushMsg(ch.id, "them", reply);
+    if (cur === ch.id) renderStream(); else { ch.unread = true; save(); }
+    renderHome();
+  }, delay);
+}
+
+function sendCurrent(){
+  var inp = $("input"); var text = inp.value.trim();
+  if (!text || !cur) return;
+  inp.value = ""; inp.style.height = "auto";
+  var ch = getChar(cur);
+  pushMsg(cur, "me", text);
+  renderStream(); renderHome();
+  // occasional tapback from the character
+  if (/!|thank|love|great|awesome/i.test(text) && Math.random() < 0.5) {
+    setTimeout(function(){
+      var arr = S.msgs[cur]; arr[arr.length-1].react = pick(["❤️","😂","🔥","👍","✨"]);
+      save(); if (cur===ch.id) renderStream();
+    }, 900);
+  }
+  deliver(ch, think(ch, text));
+}
+
+/* ================= memories view ================= */
+function openMems(){
+  var ch = getChar(cur); $("mem-title").textContent = ch.name + "'s memories";
+  var list = $("mem-list"); list.innerHTML = "";
+  var arr = S.mems[cur] || [];
+  if (!arr.length) list.innerHTML =
+    '<div class="empty">Nothing yet. Tell '+esc(ch.name)+' about yourself — your name, what you like — and it\'ll be remembered here.<br><br>Everything stays on this device.</div>';
+  arr.slice().reverse().forEach(function(mm){
+    var el = document.createElement("div"); el.className = "memcard";
+    el.innerHTML = '<div class="t">'+esc(mm.text)+'<span class="src">'+esc(mm.src)+' · '+new Date(mm.ts).toLocaleDateString()+'</span></div>'+
+      '<span class="del">🗑</span>';
+    el.querySelector(".del").onclick = function(){
+      S.mems[cur] = (S.mems[cur]||[]).filter(function(x){ return x !== mm; });
+      save(); openMems();
+    };
+    list.appendChild(el);
+  });
+  show("v-mem");
+}
+
+/* ================= new character ================= */
+var EMOJIS = ["🕵️","🧙","🤖","🦊","🎨","🎸","🌊","🚀","🧑‍🚀","🐙","☕","🌵"];
+var RINGS = ["#8F73FF","#FF8A6B","#3DD68C","#5CA8FF","#FF6BB5","#B15CFF"];
+var pickedEmoji = EMOJIS[0];
+function initNewChar(){
+  var row = $("emorow"); row.innerHTML = "";
+  EMOJIS.forEach(function(e){
+    var el = document.createElement("div"); el.className = "emopick" + (e===pickedEmoji?" on":"");
+    el.textContent = e;
+    el.onclick = function(){ pickedEmoji = e; initNewChar(); };
+    row.appendChild(el);
+  });
+}
+function createChar(){
+  var name = $("nc-name").value.trim(); if (!name) { $("nc-name").focus(); return; }
+  var tag = $("nc-tag").value.trim() || "Companion";
+  var status = $("nc-status").value.trim() || "around, somewhere";
+  var pers = $("nc-pers").value.trim();
+  var id = "c" + Date.now();
+  var ch = {
+    id:id, name:name, emoji:pickedEmoji, ring:pick(RINGS), tag:tag, status:status, custom:true,
+    greeting:"Hey — " + name + " here. " + (pers ? "They tell me I'm " + pers.split(/[,.]/)[0].toLowerCase() + ". " : "") + "So… where do we start?",
+    topics: pers ? [{m: pers.toLowerCase().split(/[\s,.]+/).filter(function(w){return w.length>4;}).slice(0,6),
+      r:["Now *that* is exactly my kind of subject. Go on…","Ha — you've found my favorite topic. Tell me more."]}] : [],
+    fall:["Tell me more about that.","Mm — go on, I'm curious.","And how do you feel about that?","Interesting. What happened next?"]
+  };
+  S.chars.push(ch); save();
+  $("nc-name").value = $("nc-tag").value = $("nc-status").value = $("nc-pers").value = "";
+  hide("v-new"); renderHome(); openChat(id);
+}
+
+/* ================= sheets ================= */
+function openSheet(id){ $("scrim").classList.add("on"); $(id).classList.add("on"); }
+function closeSheets(){
+  $("scrim").classList.remove("on");
+  $("sh-contact").classList.remove("on"); $("sh-settings").classList.remove("on");
+}
+function openContact(){
+  var ch = getChar(cur);
+  $("cc-av").textContent = ch.emoji; $("cc-av").style.setProperty("--ring", ch.ring);
+  $("cc-name").textContent = ch.name; $("cc-tag").textContent = ch.tag;
+  $("cc-status").textContent = "“" + ch.status + "”";
+  $("cc-memcount").textContent = (S.mems[cur]||[]).length + " remembered";
+  openSheet("sh-contact");
+}
+
+/* ================= settings / update flow ================= */
+function initSettings(){
+  $("set-sub").textContent = "PocketAI " + MY_VN + " · " + (IS_APK ? "Android app" : "web version") +
+    " · everything stays on this device";
+  $("set-theme-val").textContent = S.theme === "dark" ? "Dusk (dark)" : "Daylight";
+  if (IS_APK) {
+    $("set-update-ic").textContent = "🔄";
+    $("set-update-lbl").textContent = "Check for updates";
+    $("set-update-val").textContent = "build " + (MY_VC || "?");
+  } else {
+    $("set-update-ic").textContent = "📦";
+    $("set-update-lbl").textContent = "Download the Android app (APK)";
+    $("set-update-val").textContent = "";
+  }
+  $("about-note").innerHTML =
+    "<b>About this build.</b> This is the PocketAI interface prototype — chats, characters and memories are fully " +
+    "functional and stored only in this device's local storage. Replies come from a lightweight scripted persona " +
+    "engine; the full offline LLM runtime (llama.cpp — see <i>docs/03-tech-stack.md</i> in the repo) is the next " +
+    "milestone and will drop in behind this same interface." +
+    (IS_APK ? "<br><br>Updates are fetched straight from the GitHub repo — <i>Check for updates</i> reads " +
+      "<code>releases/version.json</code> on the main branch." :
+      "<br><br>The APK installs on Android 5.0+ and checks this repo for its own updates.");
+}
+function doUpdateFlow(){
+  var card = $("upcard");
+  card.classList.add("on");
+  card.innerHTML = "<b>" + (IS_APK ? "Checking for updates…" : "Finding latest APK…") + "</b>Contacting the repo…";
+  fetchManifest(function(man, branch){
+    var apk = man.apkUrl || FALLBACK_APK;
+    if (IS_APK) {
+      if ((man.versionCode||0) > MY_VC) {
+        card.innerHTML = "<b>Update available — " + esc(man.versionName||"?") + " (build " + man.versionCode + ")</b>" +
+          esc(man.notes||"") + "<br><span style='color:var(--mist)'>from branch: " + esc(branch) + "</span>" +
+          "<br><a class='btn' href='" + apk + "'>⬇ Download update</a>" +
+          "<div class='note'>Opens in your browser. Install over the current app — your chats and memories stay put.</div>";
+        $("upbadge").classList.add("on");
+      } else {
+        card.innerHTML = "<b>You're up to date ✓</b>" + esc(man.versionName||"") + " (build " + (man.versionCode||"?") +
+          ") is the latest on <i>" + esc(branch) + "</i>.";
+      }
+    } else {
+      card.innerHTML = "<b>PocketAI for Android — " + esc(man.versionName||"latest") + "</b>" +
+        esc(man.notes||"Install on Android 5.0+. Chats stay on the device.") +
+        "<br><a class='btn' href='" + apk + "'>⬇ Download APK</a>" +
+        "<div class='note'>You may need to allow “install from unknown sources”. The app checks this repo for its own future updates.</div>";
+    }
+  }, function(){
+    card.innerHTML = IS_APK
+      ? "<b>Couldn't reach the repo.</b>You're offline (which, fair — it's kind of our whole thing). Try again when connected."
+      : "<b>Couldn't fetch the release manifest.</b>Direct link: <a class='btn' href='" + FALLBACK_APK + "'>⬇ Download APK</a>";
+  });
+}
+function silentUpdateCheck(){
+  if (!IS_APK) return;
+  fetchManifest(function(man){
+    if ((man.versionCode||0) > MY_VC) {
+      $("upbadge").classList.add("on");
+      $("upbanner-txt").textContent = "Update " + (man.versionName||"") + " is available";
+      $("upbanner-a").href = man.apkUrl || FALLBACK_APK;
+      $("upbanner").classList.add("on");
+    }
+  }, function(){});
+}
+
+/* ================= boot & events ================= */
+load();
+if (!S.seeded) { S.chars = CAST.slice(); S.seeded = true; save(); }
+else {
+  // refresh built-in personas (topics/replies) while keeping user data & customs
+  S.chars = S.chars.map(function(ch){
+    if (ch.custom) return ch;
+    for (var i=0;i<CAST.length;i++) if (CAST[i].id===ch.id) return CAST[i];
+    return ch;
+  });
+  CAST.forEach(function(c){ if (!getChar(c.id)) S.chars.push(c); });
+}
+document.documentElement.dataset.theme = S.theme || "dark";
+renderHome(); initNewChar(); initSettings(); silentUpdateCheck();
+
+$("b-settings").onclick = function(){ initSettings(); openSheet("sh-settings"); };
+$("b-theme").onclick = function(){
+  S.theme = (S.theme==="dark") ? "light" : "dark";
+  document.documentElement.dataset.theme = S.theme; save(); initSettings();
+};
+$("b-new").onclick = function(){ initNewChar(); show("v-new"); };
+$("new-back").onclick = function(){ hide("v-new"); };
+$("nc-create").onclick = createChar;
+$("chat-back").onclick = function(){ hide("v-chat"); cur=null; renderHome(); };
+$("chat-contact").onclick = openContact;
+$("chat-mem").onclick = openMems;
+$("mem-back").onclick = function(){ hide("v-mem"); };
+$("send").onclick = sendCurrent;
+$("input").addEventListener("keydown", function(e){
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendCurrent(); }
+});
+$("input").addEventListener("input", function(){
+  this.style.height = "auto"; this.style.height = Math.min(this.scrollHeight, 110) + "px";
+});
+$("scrim").onclick = closeSheets;
+$("set-update").onclick = doUpdateFlow;
+$("set-theme").onclick = function(){ $("b-theme").onclick(); };
+$("set-wipe").onclick = function(){
+  if (confirm("Erase ALL PocketAI data on this device? Chats, characters and memories will be gone for good.")) {
+    localStorage.removeItem(KEY); location.reload();
+  }
+};
+$("cc-mem").onclick = function(){ closeSheets(); openMems(); };
+$("cc-clear").onclick = function(){
+  if (confirm("Clear this chat's history?")) { S.msgs[cur]=[]; save(); renderStream(); renderHome(); closeSheets(); }
+};
+$("cc-forget").onclick = function(){
+  var ch = getChar(cur);
+  if (confirm("Make " + ch.name + " forget everything — chat AND memories?")) {
+    S.msgs[cur]=[]; S.mems[cur]=[]; save(); renderStream(); renderHome(); closeSheets();
+  }
+};
+</script>
+</body>
+</html>
