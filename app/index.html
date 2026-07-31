@@ -247,6 +247,20 @@
   .cbtn.on{background:var(--ink);color:var(--surface)}
   .cbtn.end{background:var(--danger);border-color:var(--danger);color:#fff;width:68px;height:68px}
 
+  /* ------- model picker ------- */
+  .modelrow{display:flex;align-items:center;gap:10px;padding:11px 2px;border-bottom:1px solid var(--line)}
+  .modelrow:last-child{border-bottom:none}
+  .modelrow .mi{flex:1;min-width:0}
+  .modelrow .nm{font-size:14px;font-weight:700}
+  .modelrow .nm .sz{color:var(--mist);font-weight:600;font-size:12px;margin-left:6px}
+  .modelrow .ds{font-size:12px;color:var(--mist);margin-top:1px}
+  .modelrow .use{background:var(--acc);color:#fff;border:none;border-radius:999px;
+    padding:7px 16px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0}
+  .modelrow .active{color:var(--acc-deep);font-weight:800;font-size:13px;flex-shrink:0}
+  .modelrow .dl{color:var(--mist);font-size:11.5px;max-width:130px;text-align:right;flex-shrink:0}
+  .progbar{height:5px;border-radius:3px;background:var(--card2);margin-top:8px;overflow:hidden}
+  .progbar i{display:block;height:100%;border-radius:3px;background:var(--acc);width:0%;transition:width .3s}
+
   /* ------- themes ------- */
   .modecards{display:flex;gap:10px;padding:6px 16px}
   .modecard{flex:1;border:2px solid var(--line);border-radius:14px;padding:14px 8px;text-align:center;
@@ -328,13 +342,10 @@
           <div><b>Chat</b><span id="set-sub"></span></div></div>
         <div class="sechead">MODELS</div>
         <button class="srow"><span class="ic">🧠</span><span class="lbl">Current model</span>
-          <span class="val">Scripted persona · prototype</span></button>
+          <span class="val" id="set-model-val"></span></button>
         <button class="srow" id="set-model"><span class="ic">📦</span><span class="lbl">Change model</span>
           <span class="val">Download &amp; manage</span><span class="chev">›</span></button>
-        <div class="infocard" id="modelcard"><b>Local LLM runtime — next milestone.</b>
-          Replies currently come from a lightweight scripted persona engine. The offline model runtime
-          (llama.cpp — Gemma, Llama, Qwen, Phi) drops in behind this same interface; your characters,
-          chats and memories carry over untouched. See <i>docs/03-tech-stack.md</i> in the repo.</div>
+        <div class="infocard" id="modelcard"></div>
         <div class="sechead">FEATURES</div>
         <button class="srow" id="set-voice"><span class="ic">🎙️</span><span class="lbl">Voice</span>
           <span class="val">Simulated calls</span><span class="chev">›</span></button>
@@ -515,7 +526,7 @@
 <script>
 "use strict";
 /* ================= platform & version ================= */
-var WEB_VN = "0.2.0";
+var WEB_VN = "0.3.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -553,6 +564,7 @@ function load(){
   if (!S.wall)   S.wall   = "none";
   if (!S.removed) S.removed = {};
   if (!S.groups)  S.groups = [];
+  if (!S.model)   S.model  = "scripted";
 }
 function save(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e){} }
 
@@ -696,6 +708,236 @@ var CAST = [
 ];
 var SEED_GROUP = {id:"g-fwt", grp:true, name:"Fantasy Writing Team", emoji:"🏰", ring:"#22C55E",
   members:["nova","dm","hale"], status:"3 members"};
+
+/* ================= on-device LLM (WebLLM / WebGPU) ================= */
+var WEBLLM_URL = "https://esm.run/@mlc-ai/web-llm@0.2.84";
+var MODELS = [
+  {id:"scripted", name:"Scripted persona", size:"0 MB",
+   desc:"Instant canned replies. No download, works everywhere."},
+  {id:"SmolLM2-360M-Instruct-q4f16_1-MLC", name:"SmolLM2 360M", size:"~0.4 GB",
+   desc:"Tiny and fast. Simple but real replies."},
+  {id:"Llama-3.2-1B-Instruct-q4f16_1-MLC", name:"Llama 3.2 1B", size:"~0.9 GB",
+   desc:"Recommended — good balance of speed and quality."},
+  {id:"Qwen2.5-1.5B-Instruct-q4f16_1-MLC", name:"Qwen2.5 1.5B", size:"~1.6 GB",
+   desc:"Stronger conversation quality."},
+  {id:"gemma-2-2b-it-q4f16_1-MLC", name:"Gemma 2 2B", size:"~1.9 GB",
+   desc:"Best quality here. Needs a capable device."}
+];
+var LLM = {engine:null, id:null, state:"idle", prog:"", pct:0, err:""};
+function webgpuOK(){ return typeof navigator !== "undefined" && !!navigator.gpu; }
+function useLLM(){ return S.model !== "scripted" && webgpuOK(); }
+function friendlyModel(){
+  for (var i=0;i<MODELS.length;i++) if (MODELS[i].id===S.model)
+    return MODELS[i].id==="scripted" ? "Scripted persona · prototype" : MODELS[i].name + " · on-device";
+  return S.model;
+}
+function ensureEngine(cb){
+  if (!useLLM()) { cb("unavailable"); return; }
+  if (LLM.engine && LLM.id === S.model) { cb(null, LLM.engine); return; }
+  if (LLM.state === "loading") { cb("busy"); return; }
+  LLM.state = "loading"; LLM.prog = "Starting…"; LLM.pct = 0; LLM.err = "";
+  renderModelUI(); updateChatStat();
+  var wanted = S.model;
+  import(WEBLLM_URL).then(function(webllm){
+    return webllm.CreateMLCEngine(wanted, {
+      initProgressCallback: function(p){
+        LLM.pct = Math.round((p.progress || 0) * 100);
+        LLM.prog = p.text || (LLM.pct + "%");
+        renderModelUI(); updateChatStat();
+      }
+    });
+  }).then(function(engine){
+    LLM.engine = engine; LLM.id = wanted; LLM.state = "ready";
+    renderModelUI(); updateChatStat(); initSettings();
+    toast("Model ready — " + friendlyModel());
+    cb(null, engine);
+  }).catch(function(e){
+    LLM.state = "error"; LLM.err = String(e && e.message || e);
+    renderModelUI(); updateChatStat();
+    cb(e);
+  });
+}
+function sysPrompt(ch, convo){
+  var p = "You are " + ch.name + ", " + (ch.tag || "an AI companion") + ", a character in a private " +
+    "offline messaging app called Chat.\n";
+  if (ch.pers)  p += "Personality: " + ch.pers + "\n";
+  if (ch.style) p += "Speaking style: " + ch.style + "\n";
+  if (ch.back)  p += "Backstory: " + ch.back + "\n";
+  if (ch.ints)  p += "Interests: " + ch.ints + "\n";
+  if (S.profile.name) p += "The user's name is " + S.profile.name + ".\n";
+  var mems = S.mems[ch.id] || [];
+  if (mems.length) {
+    p += "Things you remember about the user:\n";
+    mems.slice(-12).forEach(function(m){ p += "- " + m.text + "\n"; });
+  }
+  if (convo && convo.grp) {
+    var others = convo.members.filter(function(m){ return m !== ch.id; })
+      .map(function(m){ var x = getChar(m); return x ? x.name : ""; }).filter(Boolean).join(", ");
+    p += "You are in the group chat \"" + convo.name + "\" with the user and " + others + ". " +
+      "Other characters' messages appear prefixed with their name. Reply only as " + ch.name +
+      " and never prefix your own name or speak for others.\n";
+  }
+  p += "Reply like a text message: short (1-3 sentences unless the user asks for more), natural, " +
+    "in character, plain text without markdown. Never mention being a language model.";
+  return p;
+}
+function buildMessages(ch, convo){
+  var msgs = [{role:"system", content:sysPrompt(ch, convo)}];
+  (S.msgs[convo.id] || []).slice(-16).forEach(function(m){
+    var role, content;
+    if (m.who === "me") { role = "user"; content = m.text; }
+    else if (convo.grp && m.by !== ch.id) {
+      var by = getChar(m.by);
+      role = "user"; content = (by ? by.name : "Someone") + ": " + m.text;
+    } else { role = "assistant"; content = m.text; }
+    var last = msgs[msgs.length-1];
+    if (last.role === role) last.content += "\n" + content;
+    else msgs.push({role:role, content:content});
+  });
+  return msgs;
+}
+/* one generation at a time — it's a single GPU */
+var GEN = {q:[], busy:false};
+function enqueue(job){ GEN.q.push(job); pump(); }
+function pump(){
+  if (GEN.busy || !GEN.q.length) return;
+  GEN.busy = true;
+  var job = GEN.q.shift();
+  job(function(){ GEN.busy = false; setTimeout(pump, 300); });
+}
+function aiDeliver(convo, ch, userText){
+  enqueue(function(done){
+    var ty = $("ty");
+    if (cur === convo.id && ty){ ty.classList.add("on"); $("stream").scrollTop = 1e9; }
+    ensureEngine(function(err, engine){
+      if (err) {
+        deliver(convo, think(ch, userText || "hi"), ch.id);
+        if (err !== "busy" && err !== "unavailable") toast("Model error — used scripted reply");
+        done(); return;
+      }
+      runGeneration(engine, convo, ch, done);
+    });
+  });
+}
+async function runGeneration(engine, convo, ch, done){
+  var liveEl = null, txt = "";
+  function ensureLive(){
+    if (liveEl || cur !== convo.id) return;
+    var st = $("stream"), ty = $("ty");
+    if (ty) ty.classList.remove("on");
+    var rw = document.createElement("div"); rw.className = "mrow in";
+    var inner = "";
+    if (convo.grp) {
+      rw.innerHTML = '<div class="avatar xs" style="--ring:'+ch.ring+'">'+ch.emoji+'</div>';
+      inner += '<span class="who" style="color:'+ch.ring+'">'+esc(ch.name)+'</span>';
+    }
+    inner += '<span class="txt"></span>';
+    var b = document.createElement("div"); b.className = "msg"; b.innerHTML = inner;
+    rw.appendChild(b);
+    if (ty) st.insertBefore(rw, ty); else st.appendChild(rw);
+    liveEl = rw;
+  }
+  try {
+    var chunks = await engine.chat.completions.create({
+      messages: buildMessages(ch, convo),
+      stream: true, temperature: 0.85, top_p: 0.95, max_tokens: 256
+    });
+    for await (var chunk of chunks) {
+      var delta = chunk.choices && chunk.choices[0] && chunk.choices[0].delta &&
+                  chunk.choices[0].delta.content;
+      if (!delta) continue;
+      txt += delta;
+      ensureLive();
+      if (liveEl) {
+        liveEl.querySelector(".txt").textContent = txt;
+        $("stream").scrollTop = 1e9;
+      }
+    }
+    txt = txt.trim();
+    if (!txt) txt = pick(ch.fall);
+    pushMsg(convo.id, "them", txt, ch.id);
+    if (cur === convo.id) renderStream();
+    else { convo.unread = (convo.unread||0)+1; save(); }
+    renderHome();
+  } catch(e) {
+    if (liveEl) liveEl.remove();
+    deliver(convo, think(ch, txt || "hi"), ch.id);
+    toast("Model error — used scripted reply");
+  }
+  done();
+}
+/* memory extraction shared by both engines */
+function extractFacts(ch, text){
+  var t = text.toLowerCase(), m;
+  if ((m = t.match(/my name(?:'s| is) ([a-z][a-z\-']{1,20})/i))) {
+    var nm = m[1].charAt(0).toUpperCase() + m[1].slice(1);
+    S.profile.name = nm; remember(ch, "Their name is " + nm);
+  }
+  if ((m = t.match(/i (?:really )?(?:like|love|enjoy)s? ([^.!?]{2,60})/i)))
+    remember(ch, "They like " + m[1].trim());
+  if ((m = t.match(/i (?:work|live) (?:as|in|at) ([^.!?]{2,60})/i)))
+    remember(ch, "They " + (t.indexOf("work")>=0?"work":"live") + " " + m[0].replace(/^i /i,"").trim());
+}
+function renderModelUI(){
+  var card = $("modelcard");
+  if (!card.classList.contains("on")) return;
+  var html = "";
+  if (!webgpuOK())
+    html += "<b>⚠️ WebGPU not available in this browser.</b>On-device AI needs WebGPU " +
+      "(Chrome or Edge 113+, recent Android Chrome). The scripted engine still works everywhere.<br><br>";
+  MODELS.forEach(function(mo){
+    var right;
+    if (mo.id !== "scripted" && !webgpuOK())
+      right = '<span class="dl">needs WebGPU</span>';
+    else if (S.model === mo.id && LLM.state === "loading")
+      right = '<span class="dl">' + esc(LLM.prog).slice(0, 60) + '</span>';
+    else if (S.model === mo.id)
+      right = '<span class="active">✓ Active</span>';
+    else
+      right = '<button class="use" data-model="' + mo.id + '">Use</button>';
+    html += '<div class="modelrow"><div class="mi">' +
+      '<div class="nm">' + mo.name + '<span class="sz">' + mo.size + '</span></div>' +
+      '<div class="ds">' + mo.desc + '</div></div>' + right + '</div>';
+  });
+  if (LLM.state === "loading")
+    html += '<div class="progbar"><i style="width:' + LLM.pct + '%"></i></div>';
+  if (LLM.state === "error")
+    html += '<div class="ds" style="color:var(--danger);padding-top:8px">' + esc(LLM.err).slice(0,200) + '</div>';
+  html += '<div class="ds" style="padding-top:10px">Models download once from the web, are cached by ' +
+    'the browser, and then run fully on this device — conversations never leave it.</div>' +
+    '<div class="modelrow" style="border:none;padding-top:8px"><div class="mi">' +
+    '<div class="nm">🧹 Delete downloaded models</div><div class="ds">Frees storage. Active model re-downloads on next use.</div></div>' +
+    '<button class="use" id="model-clear" style="background:var(--danger)">Clear</button></div>';
+  card.innerHTML = html;
+  var btns = card.querySelectorAll(".use[data-model]");
+  for (var i=0;i<btns.length;i++) (function(b){
+    b.onclick = function(){
+      S.model = b.dataset.model; save(); initSettings(); renderModelUI();
+      if (S.model !== "scripted") ensureEngine(function(){});
+    };
+  })(btns[i]);
+  var clr = card.querySelector("#model-clear");
+  if (clr) clr.onclick = function(){
+    if (!window.caches) { toast("Nothing to clear"); return; }
+    caches.keys().then(function(keys){
+      var hits = keys.filter(function(k){ return /webllm|mlc/i.test(k); });
+      return Promise.all(hits.map(function(k){ return caches.delete(k); })).then(function(){ return hits.length; });
+    }).then(function(n){
+      LLM.engine = null; LLM.id = null; LLM.state = "idle";
+      toast(n ? "Downloaded models deleted" : "Nothing to clear");
+      renderModelUI();
+    });
+  };
+}
+function updateChatStat(){
+  if (!cur) return;
+  var c = getConvo(cur); if (!c || c.grp) return;
+  var el = $("chat-stat");
+  if (LLM.state === "loading")
+    el.innerHTML = '<span class="on">downloading model · ' + LLM.pct + '%</span>';
+  else
+    el.innerHTML = '<span class="on">online</span> · ' + esc(c.status);
+}
 
 /* ================= persona engine ================= */
 function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
@@ -920,19 +1162,9 @@ function seedGroupChat(g){
   });
 }
 function groupRespond(g, text){
-  var t = text.toLowerCase();
-  var scored = g.members.map(function(mid){
-    var ch = getChar(mid); if (!ch) return null;
-    var score = 0;
-    ch.topics.forEach(function(tp){ tp.m.forEach(function(kw){ if (t.indexOf(kw)>=0) score++; }); });
-    return {ch:ch, score:score};
-  }).filter(Boolean);
-  scored.sort(function(a,b){ return b.score - a.score || (Math.random()-.5); });
-  var responders = [scored[0]];
-  if (scored.length > 1 && Math.random() < 0.4) responders.push(scored[1]);
   var wait = 0;
-  responders.forEach(function(r){
-    setTimeout(function(){ deliver(g, think(r.ch, text), r.ch.id); }, wait);
+  pickResponders(g, text).forEach(function(ch){
+    setTimeout(function(){ deliver(g, think(ch, text), ch.id); }, wait);
     wait += 1600 + Math.random()*900;
   });
 }
@@ -949,8 +1181,29 @@ function sendCurrent(){
       save(); if (cur===c.id) renderStream();
     }, 900);
   }
-  if (c.grp) groupRespond(c, text);
-  else deliver(c, think(c, text));
+  if (useLLM()) {
+    if (c.grp) {
+      pickResponders(c, text).forEach(function(r){
+        extractFacts(r, text); aiDeliver(c, r, text);
+      });
+    } else { extractFacts(c, text); aiDeliver(c, c, text); }
+  } else {
+    if (c.grp) groupRespond(c, text);
+    else deliver(c, think(c, text));
+  }
+}
+function pickResponders(g, text){
+  var t = text.toLowerCase();
+  var scored = g.members.map(function(mid){
+    var ch = getChar(mid); if (!ch) return null;
+    var score = 0;
+    ch.topics.forEach(function(tp){ tp.m.forEach(function(kw){ if (t.indexOf(kw)>=0) score++; }); });
+    return {ch:ch, score:score};
+  }).filter(Boolean);
+  scored.sort(function(a,b){ return b.score - a.score || (Math.random()-.5); });
+  var out = [scored[0].ch];
+  if (scored.length > 1 && Math.random() < 0.4) out.push(scored[1].ch);
+  return out;
 }
 
 /* ================= profile ================= */
@@ -1142,6 +1395,7 @@ function endCall(){
 function initSettings(){
   $("set-sub").textContent = "v" + MY_VN + " · " + (IS_APK ? "Android app" : "web version") +
     " · everything is stored locally";
+  $("set-model-val").textContent = friendlyModel();
   if (IS_APK) {
     $("set-update-ic").textContent = "🔄";
     $("set-update-lbl").textContent = "Check for updates";
@@ -1153,9 +1407,10 @@ function initSettings(){
   }
   applyTheme();
   $("about-note").innerHTML =
-    "<b>About this build.</b> This is the Chat interface prototype — chats, characters and memories are fully " +
-    "functional and stored only in this device's local storage. Replies come from a lightweight scripted persona " +
-    "engine; the full offline LLM runtime (llama.cpp) is the next milestone and will drop in behind this same interface." +
+    "<b>About this build.</b> Chats, characters and memories are stored only in this device's local storage. " +
+    "Replies come from the scripted persona engine by default; pick a real on-device AI model under " +
+    "<i>Change model</i> — it downloads once, then runs fully offline in your browser via WebGPU. " +
+    "Conversations never leave the device either way." +
     (IS_APK ? "<br><br>Updates are fetched straight from the GitHub repo — <i>Check for updates</i> reads " +
       "<code>releases/version.json</code> on the main branch." :
       "<br><br>The APK installs on Android 5.0+ and checks this repo for its own updates.");
@@ -1336,7 +1591,7 @@ $("call-end").onclick = endCall;
 $("call-mute").onclick = function(){ this.classList.toggle("on"); };
 $("call-spk").onclick = function(){ this.classList.toggle("on"); };
 
-$("set-model").onclick = function(){ $("modelcard").classList.toggle("on"); };
+$("set-model").onclick = function(){ $("modelcard").classList.toggle("on"); renderModelUI(); };
 $("set-voice").onclick = function(){ toast("Calls are simulated for now — offline voice ships with the model runtime"); };
 $("set-mem").onclick = function(){ tab("mem"); };
 $("set-themes").onclick = function(){ renderThemes(); show("v-themes"); };
