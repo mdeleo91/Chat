@@ -915,7 +915,8 @@ function crashGuard(){
   if (!pend || pend.m === "scripted") return "";
 
   var mo = modelById(pend.m), name = mo ? mo.name : pend.m;
-  S.crash = {model:pend.m, name:name, t:Date.now(), how:how};
+  S.crash = {model:pend.m, name:name, t:Date.now(),
+             msg:name + " closed the app while loading — " + how + "."};
   if (S.bigok) delete S.bigok[pend.m];      // the crash settles the argument
   if (S.model === pend.m) {
     S.model = "scripted";
@@ -924,6 +925,25 @@ function crashGuard(){
   }
   save();
   return name + " couldn't load on this device — switched to scripted replies";
+}
+/* Also at boot: a model that's already selected but over budget. Nothing has
+   to go wrong for this to bite — the selection alone means the next message
+   starts a load that can't finish. It's how a device arrives after updating
+   from a build that had no memory check, which is exactly the state a crash
+   loop leaves behind, so stand the model down before anything can ask for it
+   rather than waiting to be discovered mid-conversation. */
+function budgetGuard(){
+  var mo = modelById(S.model);
+  if (!tooBig(mo) || bigOK(S.model)) return "";
+  L("model", "stood down " + S.model + " at boot — " + memNote(mo), true);
+  if (!S.crash)
+    S.crash = {model:S.model, name:mo.name, t:Date.now(),
+               msg:mo.name + " needs about " + modelGB(mo) + " GB and this device has roughly " +
+                   memBudgetGB() + " GB to spare, so it was never loaded."};
+  S.model = "scripted";
+  LLM.engine = null; LLM.id = null; LLM.state = "idle";
+  save();
+  return mo.name + " is too large for this device — switched to scripted replies";
 }
 
 /* ================= remote server (OpenAI-compatible) =================
@@ -1285,9 +1305,9 @@ function renderModelUI(){
   if (S.crash)
     html += '<div class="ds" style="color:#EAB308;padding-bottom:10px">' +
       "<span class='msr' style='font-size:15px;vertical-align:-2px'>warning</span> <b>" +
-      esc(S.crash.name) + " closed the app while loading</b> — " + esc(S.crash.how) +
-      ". Scripted replies are active. A model this size needs a desktop GPU, or run it on " +
-      "your own machine with My Server above.</div>";
+      esc(S.crash.msg) + "</b> Scripted replies are active. A model this size needs a desktop " +
+      "GPU — run it on your own machine with My Server above, or pick a smaller one below. " +
+      "Its half-finished download is still using storage; Delete downloaded models clears it.</div>";
   if (!webgpuOK())
     html += "<b><span class='msr' style='font-size:15px;color:#EAB308'>warning</span> WebGPU not available in this browser.</b>On-device AI needs WebGPU " +
       "(Chrome or Edge 113+, recent Android Chrome). The scripted engine still works everywhere.<br><br>";
@@ -2286,7 +2306,7 @@ applyTheme();
 L("boot", "v" + MY_VN + " " + (IS_APK ? "apk build " + MY_VC : "web") +
   " · webgpu=" + webgpuOK() + " · ram=" + (deviceRAM() || "?") + "GB · model=" + S.model +
   " · " + navigator.userAgent.slice(0,120), true);
-var crashMsg = crashGuard();
+var crashMsg = crashGuard() || budgetGuard();
 renderHome(); initSettings(); silentUpdateCheck();
 if (crashMsg) setTimeout(function(){ toast(crashMsg); }, 600);
 if (S.onboarded) { $("v-ob").classList.add("right"); }
