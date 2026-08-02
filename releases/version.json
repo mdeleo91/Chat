@@ -1,6 +1,6 @@
 {
-  "versionCode": 13,
-  "versionName": "0.4.5",
+  "versionCode": 14,
+  "versionName": "0.5.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Photos. Give a character or your own persona a real picture from your phone, cropped square and shrunk to fit. No photo means initials on a coloured circle, the way your contacts app does it — Michael DeLeo shows as MD. The Android build now opens the system picker, which it previously couldn't."
+  "notes": "Characters remember the whole conversation. The history window grows from 16 to 48 messages, and everything older is folded into a rolling summary the character keeps reading — so message 300 can still reference message 5. Pinned memories are now always sent. Tuned sampling for long roleplay. Built for a real model server; the scripted engine is unaffected."
 }

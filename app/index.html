@@ -678,7 +678,7 @@ window.addEventListener("unhandledrejection", function(e){
 });
 
 /* ================= platform & version ================= */
-var WEB_VN = "0.4.5";
+var WEB_VN = "0.5.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -721,6 +721,7 @@ function load(){
   if (!S.accent) S.accent = "green";
   if (!S.wall)   S.wall   = "none";
   if (!S.removed) S.removed = {};
+  if (!S.sums)    S.sums = {};      // rolling per-conversation summaries
   if (!S.groups)  S.groups = [];
   if (!S.model)   S.model  = "scripted";
   if (S.adult === undefined) S.adult = false;
@@ -1074,7 +1075,7 @@ async function remoteGenerate(messages, onDelta){
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({
       model: srv().model, messages: messages, stream: true,
-      temperature: 0.85, top_p: 0.95, max_tokens: 512,
+      temperature: 0.85, top_p: 0.95, min_p: 0.05, max_tokens: 512,
       presence_penalty: 0.3, frequency_penalty: 0.3
     })
   });
@@ -1154,6 +1155,10 @@ function ensureEngine(cb){
     cb(e);
   });
 }
+/* Ordered stable-first: the server caches the prompt as a token prefix, so
+   the parts that never change (who the character is) go before the parts
+   that do (summary, memories). A change invalidates the cache only from
+   the point it occurs. */
 function sysPrompt(ch, convo){
   var p = "You are " + ch.name + ", " + (fill(ch.tag, ch) || "an AI companion") + ", a character in a private " +
     "offline messaging app called Chat.\n";
@@ -1163,14 +1168,6 @@ function sysPrompt(ch, convo){
   if (ch.ints)  p += "Interests: " + fill(ch.ints, ch) + "\n";
   if (ch.scene) p += "Scenario: " + fill(ch.scene, ch) + "\n";
   if (ch.example) p += "Example of how " + ch.name + " talks:\n" + fill(ch.example, ch) + "\n";
-  var me = S.profile || {};
-  if (me.name) p += "The user's name is " + me.name + ".\n";
-  if (me.desc && me.on !== false) p += "About the user: " + me.desc + "\n";
-  var mems = S.mems[ch.id] || [];
-  if (mems.length) {
-    p += "Things you remember about the user:\n";
-    mems.slice(-12).forEach(function(m){ p += "- " + m.text + "\n"; });
-  }
   if (convo && convo.grp) {
     var others = convo.members.filter(function(m){ return m !== ch.id; })
       .map(function(m){ var x = getChar(m); return x ? x.name : ""; }).filter(Boolean).join(", ");
@@ -1183,8 +1180,42 @@ function sysPrompt(ch, convo){
       "roleplay is permitted when the user invites it. All characters are consenting adults. " +
       "Always decline anything involving minors, real people, or non-consent.\n";
   p += "Reply like a text message: short (1-3 sentences unless the user asks for more), natural, " +
-    "in character, plain text without markdown. Never mention being a language model.";
-  return p;
+    "in character, plain text without markdown. Never mention being a language model.\n";
+  /* --- volatile from here down --- */
+  var me = S.profile || {};
+  if (me.name) p += "The user's name is " + me.name + ".\n";
+  if (me.desc && me.on !== false) p += "About the user: " + me.desc + "\n";
+  var sm = S.sums[convo ? convo.id : ch.id];
+  if (sm && sm.text)
+    p += "Summary of the conversation before the messages below:\n" + sm.text + "\n";
+  var mems = pickMemories(ch);
+  if (mems.length) {
+    p += "Things you remember about the user:\n";
+    mems.forEach(function(m){ p += "- " + m.text + "\n"; });
+  }
+  return p.replace(/\n$/, "");
+}
+/* pinned memories always go; the rest fill by recency */
+var MEM_SEND = 12;
+function pickMemories(ch){
+  var all = S.mems[ch.id] || [];
+  var pinned = all.filter(function(m){ return m.pin; });
+  var rest = all.filter(function(m){ return !m.pin; });
+  return pinned.concat(rest.slice(-(Math.max(0, MEM_SEND - pinned.length))));
+}
+/* ---- history window: append-only, evicted in chunks ----
+   A window that slides by one message every turn changes the prompt prefix
+   every turn and kills the server's cache. Instead the window only moves
+   when it overflows, and then by EVICT_CHUNK at once — the evicted chunk is
+   folded into the rolling summary. Boundary is a timestamp, not an index,
+   so rewind/delete/edit of messages can't corrupt it. */
+var HIST_CAP = 48, EVICT_CHUNK = 20, HIST_HARD = 72;
+function histWindow(convo){
+  var arr = S.msgs[convo.id] || [];
+  var sm = S.sums[convo.id];
+  var w = sm ? arr.filter(function(m){ return m.ts > sm.ts; }) : arr.slice();
+  if (w.length > HIST_HARD) w = w.slice(-HIST_HARD);   // summariser unavailable or behind
+  return w;
 }
 function buildMessages(ch, convo, nudge){
   var msgs = [{role:"system", content:sysPrompt(ch, convo)}];
@@ -1193,7 +1224,7 @@ function buildMessages(ch, convo, nudge){
     if (last.role === role) last.content += "\n" + content;
     else msgs.push({role:role, content:content});
   }
-  (S.msgs[convo.id] || []).slice(-16).forEach(function(m){
+  histWindow(convo).forEach(function(m){
     if (m.who === "me") add("user", m.text);
     else if (convo.grp && m.by !== ch.id) {
       var by = getChar(m.by);
@@ -1206,6 +1237,67 @@ function buildMessages(ch, convo, nudge){
   else if (msgs.length === 1)
     add("user", "[Open the conversation in character.]");
   return msgs;
+}
+/* ---- rolling summary of evicted history ---- */
+var SUMBUSY = {};
+function completeOnce(engine, messages, maxTok, cb){
+  if (engine === REMOTE) {
+    fetch(srvBase() + "/v1/chat/completions", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({model:srv().model, messages:messages, stream:false,
+        temperature:0.3, max_tokens:maxTok})
+    }).then(function(r){ if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function(j){ cb(null, j.choices && j.choices[0] && j.choices[0].message &&
+                             j.choices[0].message.content || ""); })
+      .catch(cb);
+  } else {
+    engine.chat.completions.create({messages:messages, temperature:0.3, max_tokens:maxTok})
+      .then(function(r){ cb(null, r.choices && r.choices[0] && r.choices[0].message &&
+                            r.choices[0].message.content || ""); })
+      .catch(cb);
+  }
+}
+function speakerName(convo, m){
+  if (m.who === "me") return userName();
+  if (convo.grp) { var x = getChar(m.by); return x ? x.name : "?"; }
+  return convo.name;
+}
+function scheduleSummarize(convo){
+  if (!useLLM() || SUMBUSY[convo.id]) return;
+  var arr = S.msgs[convo.id] || [], sm = S.sums[convo.id];
+  var pending = sm ? arr.filter(function(m){ return m.ts > sm.ts; }) : arr.slice();
+  if (pending.length <= HIST_CAP) return;
+  var chunk = pending.slice(0, EVICT_CHUNK);
+  var transcript = chunk.map(function(m){ return speakerName(convo, m) + ": " + m.text; }).join("\n");
+  SUMBUSY[convo.id] = true;
+  enqueue(function(done){
+    ensureEngine(function(err, engine){
+      if (err) { SUMBUSY[convo.id] = false; done(); return; }
+      completeOnce(engine, [
+        {role:"system", content:"You compress roleplay chat history into a running summary. " +
+          "Third person, plain text, at most 130 words. Keep facts learned, events, decisions, " +
+          "promises, emotional shifts and open threads. Drop pleasantries. Merge the previous " +
+          "summary with the new lines, preferring newer information. Reply with the summary only."},
+        {role:"user", content:"Previous summary:\n" + (sm && sm.text || "(none)") +
+          "\n\nNew messages:\n" + transcript + "\n\nUpdated summary:"}
+      ], 220, function(err2, text){
+        text = (text || "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+        if (!err2 && text) {
+          S.sums[convo.id] = {ts: chunk[chunk.length-1].ts, text: text.slice(0, 1400)};
+          save();
+        }
+        SUMBUSY[convo.id] = false; done();
+        scheduleSummarize(convo);      // keep folding if we're far behind
+      });
+    });
+  });
+}
+/* rewinding into or past the summarised region makes the summary describe
+   messages that no longer happened — drop it rather than haunt the chat */
+function trimSummary(id){
+  var sm = S.sums[id]; if (!sm) return;
+  var arr = S.msgs[id] || [];
+  if (!arr.length || arr[arr.length - 1].ts <= sm.ts) delete S.sums[id];
 }
 /* one generation at a time — it's a single GPU */
 var GEN = {q:[], busy:false};
@@ -1289,6 +1381,7 @@ async function runGeneration(engine, convo, ch, nudge, done){
     if (cur === convo.id) renderStream();
     else { convo.unread = (convo.unread||0)+1; save(); }
     renderHome();
+    scheduleSummarize(convo);
   } catch(e) {
     if (liveEl) liveEl.remove();
     deliver(convo, think(ch, txt || "hi"), ch.id);
@@ -2049,6 +2142,7 @@ function msgAction(act, idx){
   else if (act === "rewind") {
     S.msgs[cur] = arr.slice(0, idx);
     if (m.who === "me") $("input").value = m.text;
+    trimSummary(cur);
     save(); renderStream(); renderHome();
     L("msg", "rewound to #" + idx);
     closeSheet();
@@ -2056,6 +2150,7 @@ function msgAction(act, idx){
   else if (act === "regen") {
     var ch = c.grp ? (getChar(m.by) || getChar(c.members[0])) : c;
     S.msgs[cur] = arr.slice(0, idx);
+    trimSummary(cur);
     save(); renderStream(); renderHome();
     L("msg", "regenerate #" + idx + " by " + (ch ? ch.name : "?"));
     var lastUser = lastUserTextBefore(arr, idx);
@@ -2064,7 +2159,7 @@ function msgAction(act, idx){
     closeSheet();
   }
   else if (act === "del") {
-    arr.splice(idx, 1); save(); renderStream(); renderHome();
+    arr.splice(idx, 1); trimSummary(cur); save(); renderStream(); renderHome();
     L("msg", "deleted #" + idx);
     closeSheet();
   }
@@ -2625,7 +2720,7 @@ $("pf-edit").onclick = function(){ openCharForm(profId); };
 $("pf-mem").onclick = function(){ openMems(profId); };
 $("pf-clear").onclick = function(){
   if (confirm("Clear this chat's history?")) {
-    S.msgs[profId]=[]; save(); toast("Chat history cleared");
+    S.msgs[profId]=[]; delete S.sums[profId]; save(); toast("Chat history cleared");
     if (cur===profId) renderStream(); renderHome();
   }
 };
@@ -2633,7 +2728,7 @@ $("pf-del").onclick = function(){
   var ch = getChar(profId); if (!ch) return;
   if (confirm("Delete " + ch.name + "? Their chat and memories will be gone for good.")) {
     S.chars = S.chars.filter(function(x){ return x.id!==profId; });
-    delete S.msgs[profId]; delete S.mems[profId];
+    delete S.msgs[profId]; delete S.mems[profId]; delete S.sums[profId];
     S.removed[profId] = true; save();
     hide("v-prof"); if (cur===profId){ hide("v-chat"); cur=null; }
     renderHome(); renderContacts(); toast("Deleted");
