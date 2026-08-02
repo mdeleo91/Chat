@@ -1,6 +1,6 @@
 {
-  "versionCode": 9,
-  "versionName": "0.4.1",
+  "versionCode": 10,
+  "versionName": "0.4.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Fixes the app closing itself while loading a large model. It now survives an out-of-memory kill instead of dying, warns before you pick a model this device can't hold, and falls back to scripted replies after a failed load instead of crashing again."
+  "notes": "Your persona. Settings → Your persona: give the characters a name, a picture and a description of you, and they get it before every reply — the other half of the character profile system. Can be switched off; your name is still shared. Includes the out-of-memory fixes and message actions from 0.4.1."
 }

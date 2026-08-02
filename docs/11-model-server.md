@@ -76,7 +76,8 @@ Exactly what the on-device path builds — same code, in `sysPrompt()` and
 
 - the character's name, tagline, personality, speaking style, description and
   interests
-- your name, once a character has learned it
+- your own persona — name and description, from Settings → Your persona
+  (the description can be withheld with the toggle there; the name always goes)
 - that character's stored memories (most recent 12)
 - group-chat context, when the conversation is a group
 - the last 16 messages of history
