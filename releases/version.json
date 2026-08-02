@@ -1,6 +1,6 @@
 {
-  "versionCode": 10,
-  "versionName": "0.4.2",
+  "versionCode": 11,
+  "versionName": "0.4.3",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Your persona. Settings → Your persona: give the characters a name, a picture and a description of you, and they get it before every reply — the other half of the character profile system. Can be switched off; your name is still shared. Includes the out-of-memory fixes and message actions from 0.4.1."
+  "notes": "{{char}} and {{user}} placeholders, the character-card convention from CrushOn and SillyTavern: write \"{{user}}'s oldest friend, though {{char}} would never admit it\" and each name fills itself in. Works in every profile field, plus two new ones — a Scenario and a Greeting you write yourself."
 }

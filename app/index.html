@@ -263,6 +263,11 @@
   .emopick{width:46px;height:46px;border-radius:50%;background:var(--card);border:1px solid var(--line);
     display:flex;align-items:center;justify-content:center;font-size:22px;cursor:pointer}
   .emopick.on{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc)}
+  .macrorow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:2px 16px 4px}
+  .macro{background:var(--acc-soft);color:var(--acc-deep);border:1px solid var(--out);border-radius:999px;
+    padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .macro:active{background:var(--out)}
+  .macrohint{font-size:11.5px;color:var(--mist)}
 
   /* ------- voice call ------- */
   #v-call{align-items:center;justify-content:flex-start;text-align:center;z-index:30}
@@ -514,9 +519,22 @@
         <textarea id="nc-pers" rows="2" placeholder="e.g. Grumpy, curious, warm, dramatic, blunt…"></textarea></div>
       <div class="field"><label>SPEAKING STYLE</label><input id="nc-style" placeholder="e.g. Terse and dry. Formal. Excitable."></div>
       <div class="field"><label>INTERESTS</label><input id="nc-int" placeholder="Subjects they light up about…"></div>
-      <div class="note" style="padding:2px 4px 0">Personality and speaking style set their voice; description and
-        interests set what they react to. Both shape replies right away — and word-for-word once you pick an AI
-        model under Settings → Change model.</div>
+      <div class="field"><label>SCENARIO <span style="font-weight:400;text-transform:none">— optional</span></label>
+        <textarea id="nc-scene" rows="2" placeholder="The setting and situation the roleplay always sits in. e.g. Set in 18th century Europe, {{char}} is a witch and the Inquisition hunts magic."></textarea></div>
+      <div class="field"><label>GREETING <span style="font-weight:400;text-transform:none">— optional, written by you</span></label>
+        <textarea id="nc-greet" rows="4" placeholder="Their opening message. Third person works best; set the scene, include a line of their dialogue, end on something {{user}} can answer. Leave blank and one gets written from the profile."></textarea></div>
+      <div class="sechead">PLACEHOLDERS</div>
+      <div class="macrorow">
+        <button class="macro" data-macro="{{char}}">{{char}}</button>
+        <button class="macro" data-macro="{{user}}">{{user}}</button>
+        <span class="macrohint" id="macro-hint"></span>
+      </div>
+      <div class="note" style="padding:2px 4px 0">Tap a placeholder to drop it into the last field you were typing in.
+        <b>{{char}}</b> becomes this character's name, <b>{{user}}</b> becomes your persona name — so a description
+        like “{{user}}'s oldest friend, though {{char}} would never admit it” writes itself for whoever is reading.
+        Works in every field above.<br><br>
+        Personality and speaking style set their voice; description and interests set what they react to. Both shape
+        replies right away — and word-for-word once you pick an AI model under Settings → Change model.</div>
       <div class="field"><label>ROLE / TAGLINE</label><input id="nc-tag" placeholder="e.g. Film noir detective"></div>
       <div class="field"><label>STATUS MESSAGE</label><input id="nc-status" placeholder="e.g. it was a dark and stormy night…"></div>
       <div style="height:24px"></div>
@@ -638,7 +656,7 @@ window.addEventListener("unhandledrejection", function(e){
 });
 
 /* ================= platform & version ================= */
-var WEB_VN = "0.4.2";
+var WEB_VN = "0.4.3";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -1105,12 +1123,13 @@ function ensureEngine(cb){
   });
 }
 function sysPrompt(ch, convo){
-  var p = "You are " + ch.name + ", " + (ch.tag || "an AI companion") + ", a character in a private " +
+  var p = "You are " + ch.name + ", " + (fill(ch.tag, ch) || "an AI companion") + ", a character in a private " +
     "offline messaging app called Chat.\n";
-  if (ch.pers)  p += "Personality: " + ch.pers + "\n";
-  if (ch.style) p += "Speaking style: " + ch.style + "\n";
-  if (ch.back)  p += "Description: " + ch.back + "\n";
-  if (ch.ints)  p += "Interests: " + ch.ints + "\n";
+  if (ch.pers)  p += "Personality: " + fill(ch.pers, ch) + "\n";
+  if (ch.style) p += "Speaking style: " + fill(ch.style, ch) + "\n";
+  if (ch.back)  p += "Description: " + fill(ch.back, ch) + "\n";
+  if (ch.ints)  p += "Interests: " + fill(ch.ints, ch) + "\n";
+  if (ch.scene) p += "Scenario: " + fill(ch.scene, ch) + "\n";
   var me = S.profile || {};
   if (me.name) p += "The user's name is " + me.name + ".\n";
   if (me.desc && me.on !== false) p += "About the user: " + me.desc + "\n";
@@ -1419,7 +1438,7 @@ function updateChatStat(){
   else if (remoteReady())
     el.innerHTML = '<span class="on">online</span> · via ' + esc(srvHost());
   else
-    el.innerHTML = '<span class="on">online</span> · ' + esc(c.status);
+    el.innerHTML = '<span class="on">online</span> · ' + esc(fill(c.status, c));
 }
 
 /* ================= persona engine ================= */
@@ -1538,13 +1557,13 @@ var STOP = ("about above after again against because been before being between b
   "always never really quite rather often little always someone something anything everything").split(" ");
 function personaDriven(ch){ return !!(ch && (ch.custom || ch.edited)); }
 function voicesOf(ch){
-  var src = ((ch.pers||"") + " " + (ch.style||"")).toLowerCase(), out = [];
+  var src = fill((ch.pers||"") + " " + (ch.style||""), ch).toLowerCase(), out = [];
   for (var i=0;i<VOICES.length;i++) if (VOICES[i].re.test(src)) out.push(VOICES[i].id);
   return out.length ? out : ["neutral"];
 }
 /* subjects the character reacts to: interests + description + personality */
 function keywordsOf(ch){
-  var src = ((ch.ints||"") + " " + (ch.back||"") + " " + (ch.pers||"")).toLowerCase();
+  var src = fill((ch.ints||"") + " " + (ch.back||"") + " " + (ch.scene||"") + " " + (ch.pers||""), ch).toLowerCase();
   var seen = {}, out = [];
   src.split(/[^a-z']+/).forEach(function(w){
     if (w.length < 5 || seen[w] || STOP.indexOf(w) >= 0) return;
@@ -1585,12 +1604,14 @@ function firstClause(s){ return (s||"").split(/[,.;\n]/)[0].trim().toLowerCase()
 function cap(s){ return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 /* the opening line, rebuilt from the current profile every time */
 function greetingOf(ch){
-  if (!personaDriven(ch)) return ch.greeting;
-  var name = ch.name, pers = firstClause(ch.pers), ints = firstClause(ch.ints), desc = firstClause(ch.back);
+  if (ch.greeting) return fill(ch.greeting, ch);   // written by you, used as-is
+  if (!personaDriven(ch)) return "";
+  var name = ch.name, pers = firstClause(fill(ch.pers, ch)), ints = firstClause(fill(ch.ints, ch)),
+      desc = firstClause(fill(ch.back, ch));
   var v = pick(voicesOf(ch)), g;
-  if (v === "terse")         g = name + ". " + (ch.tag ? cap(ch.tag) + ". " : "") + "What do you need?";
+  if (v === "terse")         g = name + ". " + (ch.tag ? cap(fill(ch.tag, ch)) + ". " : "") + "What do you need?";
   else if (v === "warm")     g = "Hi — I'm " + name + ". " + (pers ? "Fair warning: " + pers + ". " : "") + "How are you doing?";
-  else if (v === "formal")   g = "Good to meet you. " + name + " — " + (ch.tag || "at your service") + ". How may I help?";
+  else if (v === "formal")   g = "Good to meet you. " + name + " — " + (fill(ch.tag, ch) || "at your service") + ". How may I help?";
   else if (v === "playful")  g = "Well well. " + name + " here" + (pers ? ", professionally " + pers : "") + ". What are we getting into?";
   else if (v === "dramatic") g = "*" + name + " looks up.* You found me. " + (desc ? cap(desc) + ". " : "") + "Speak.";
   else if (v === "curious")  g = "I'm " + name + ". " + (ints ? "I mostly think about " + ints + ". " : "") + "What's on your mind?";
@@ -1654,7 +1675,7 @@ function think(ch, text){
   for (i = 0; i < ch.topics.length; i++) {
     tp = ch.topics[i];
     for (j = 0; j < tp.m.length; j++)
-      if (t.indexOf(tp.m[j]) >= 0) return pick(tp.r);
+      if (t.indexOf(tp.m[j]) >= 0) return fill(pick(tp.r), ch);
   }
   if (mems.length && Math.random() < 0.25) {
     var mm = pick(mems);
@@ -1662,8 +1683,8 @@ function think(ch, text){
       mm.text.replace(/^Their name is /,"you're ").replace(/^They /,"you ") + ". Still true?)";
   }
   if (/\?$/.test(text.trim()))
-    return pick(["Honest answer? " + pick(ch.fall), pick(ch.fall)]);
-  return pick(ch.fall);
+    return fill(pick(["Honest answer? " + pick(ch.fall), pick(ch.fall)]), ch);
+  return fill(pick(ch.fall), ch);
 }
 function remember(ch, fact){
   var arr = S.mems[ch.id] = S.mems[ch.id] || [];
@@ -1736,7 +1757,7 @@ function renderHome(){
       if (lm.who === "me") prev = '<span class="tick msr">done_all</span> ' + esc(lm.text);
       else if (c.grp) { var by = getChar(lm.by); prev = esc((by?by.name:"?") + ": " + lm.text); }
       else prev = esc(lm.text);
-    } else prev = esc(c.grp ? c.members.length + " members" : c.status);
+    } else prev = esc(c.grp ? c.members.length + " members" : fill(c.status, c));
     var row = document.createElement("div"); row.className = "row";
     row.innerHTML =
       '<div class="avatar" style="--ring:'+c.ring+'">'+avIcon(c)+'</div>'+
@@ -1761,7 +1782,7 @@ function renderContacts(){
     row.innerHTML =
       '<div class="avatar" style="--ring:'+ch.ring+'">'+avIcon(ch)+'</div>'+
       '<div class="meta"><div class="name">'+esc(ch.name)+(ch.fav?' <span class="fav msr fill gold">star</span>':'')+'</div>'+
-      '<div class="prev">'+esc(ch.pers || ch.tag || "")+'</div></div>'+
+      '<div class="prev">'+esc(fill(ch.pers || ch.tag || "", ch))+'</div></div>'+
       '<span class="msr" style="color:var(--mist);font-size:20px">chevron_right</span>';
     row.onclick = function(){ openProfile(ch.id); };
     list.appendChild(row);
@@ -1778,7 +1799,7 @@ function openChat(id){
   if (c.grp)
     $("chat-stat").innerHTML = esc(c.members.map(function(m){ var x=getChar(m); return x?x.name:""; }).filter(Boolean).join(", "));
   else
-    $("chat-stat").innerHTML = '<span class="on">online</span> · ' + esc(c.status);
+    $("chat-stat").innerHTML = '<span class="on">online</span> · ' + esc(fill(c.status, c));
   $("chat-call").style.display = c.grp ? "none" : "flex";
   renderStream(); show("v-chat"); updateChatStat();
   if (!(S.msgs[id] && S.msgs[id].length)) {
@@ -1996,13 +2017,13 @@ function openProfile(id){
   if (!ch) return;
   $("pf-av").innerHTML = avIcon(ch); $("pf-av").style.setProperty("--ring", ch.ring);
   $("pf-name").textContent = ch.name;
-  $("pf-tag").innerHTML = '<span class="msr" style="font-size:15px">smart_toy</span> AI Character · ' + esc(ch.tag || "Companion");
+  $("pf-tag").innerHTML = '<span class="msr" style="font-size:15px">smart_toy</span> AI Character · ' + esc(fill(ch.tag, ch) || "Companion");
   $("pf-quote").textContent = "“" + (greetingOf(ch)||"").replace(/\*[^*]*\*/g,"").trim().slice(0,120) + "”";
   var pd = $("pf-desc");
   pd.classList.toggle("on", !!ch.back);
-  if (ch.back) pd.innerHTML = "<b>DESCRIPTION</b>" + esc(ch.back);
-  $("pf-pers").textContent = ch.pers || "—";
-  $("pf-int").textContent = ch.ints || "—";
+  if (ch.back) pd.innerHTML = "<b>DESCRIPTION</b>" + esc(fill(ch.back, ch));
+  $("pf-pers").textContent = fill(ch.pers, ch) || "—";
+  $("pf-int").textContent = fill(ch.ints, ch) || "—";
   $("pf-memcount").textContent = (S.mems[id]||[]).length + " memories";
   $("pf-created").textContent = ch.created ? new Date(ch.created).toLocaleDateString() : "Built-in";
   $("prof-fav-ic").className = "msr" + (ch.fav ? " fill gold" : "");
@@ -2099,6 +2120,39 @@ function initNewChar(){
     row.appendChild(el);
   });
 }
+/* remember which profile field was last focused, so the macro chips know
+   where to insert */
+var lastField = null;
+function wireMacroChips(){
+  var fields = ["nc-name","nc-back","nc-pers","nc-style","nc-int","nc-tag","nc-status","nc-scene","nc-greet"];
+  fields.forEach(function(id){
+    var el = $(id);
+    if (!el || el._macroWired) return;
+    el._macroWired = true;
+    el.addEventListener("focus", function(){ lastField = el; updateMacroHint(); });
+    if (id === "nc-name") el.addEventListener("input", updateMacroHint);
+  });
+  var chips = document.querySelectorAll(".macro");
+  for (var i=0;i<chips.length;i++) (function(b){
+    if (b._wired) return; b._wired = true;
+    b.onmousedown = function(e){ e.preventDefault(); };   // keep focus/caret
+    b.onclick = function(){
+      var el = lastField || $("nc-back");
+      var tok = b.dataset.macro;
+      var start = el.selectionStart, end = el.selectionEnd;
+      if (typeof start === "number") {
+        el.value = el.value.slice(0, start) + tok + el.value.slice(end);
+        el.selectionStart = el.selectionEnd = start + tok.length;
+      } else el.value += tok;
+      lastField = el; el.focus(); updateMacroHint();
+    };
+  })(chips[i]);
+}
+function updateMacroHint(){
+  var h = $("macro-hint"); if (!h) return;
+  var nm = ($("nc-name").value || "").trim();
+  h.textContent = "→ " + (nm || "this character") + " · " + userName();
+}
 function openCharForm(id){
   editId = id || null;
   var ch = id ? getChar(id) : null;
@@ -2110,8 +2164,11 @@ function openCharForm(id){
   $("nc-int").value = ch ? (ch.ints||"") : "";
   $("nc-tag").value = ch ? (ch.tag||"") : "";
   $("nc-status").value = ch ? (ch.status||"") : "";
+  $("nc-scene").value  = ch ? (ch.scene||"") : "";
+  $("nc-greet").value  = ch ? (ch.greeting||"") : "";
   pickedIcon = ch ? (ch.icon || ICONS[0]) : ICONS[0];
-  initNewChar(); show("v-new");
+  lastField = null;
+  initNewChar(); wireMacroChips(); updateMacroHint(); show("v-new");
 }
 function saveChar(){
   var name = $("nc-name").value.trim(); if (!name) { $("nc-name").focus(); return; }
@@ -2121,10 +2178,12 @@ function saveChar(){
   var ints = $("nc-int").value.trim();
   var tag = $("nc-tag").value.trim() || "Companion";
   var status = $("nc-status").value.trim() || "around, somewhere";
+  var scene = $("nc-scene").value.trim();
+  var greet = $("nc-greet").value.trim();
   if (editId) {
     var ch = getChar(editId);
     ch.name=name; ch.pers=pers; ch.style=style; ch.back=back; ch.ints=ints;
-    ch.tag=tag; ch.status=status; ch.icon=pickedIcon;
+    ch.tag=tag; ch.status=status; ch.icon=pickedIcon; ch.scene=scene; ch.greeting=greet;
     ch.edited = true;               // the profile now drives replies, and survives updates
     save(); hide("v-new"); openProfile(editId); renderHome(); renderContacts();
     toast("Saved — " + name + " will talk like this now");
@@ -2133,7 +2192,7 @@ function saveChar(){
   var id = "c" + Date.now();
   var nch = {
     id:id, name:name, icon:pickedIcon, ring:pick(RINGS), tag:tag, status:status, custom:true,
-    pers:pers, style:style, back:back, ints:ints, created:Date.now(),
+    pers:pers, style:style, back:back, ints:ints, scene:scene, greeting:greet, created:Date.now(),
     topics: [],   // replies come from the profile itself — see personaReply()
     fall:["Tell me more about that.","Mm — go on, I'm curious.","And how do you feel about that?","Interesting. What happened next?"]
   };
@@ -2145,6 +2204,20 @@ function saveChar(){
    The other half of the profile system: characters get a description of
    you the same way you get one of them. Goes into the system prompt, so
    a real model actually uses it. */
+/* ---------- {{char}} / {{user}} placeholders ----------
+   Character-card convention (CrushOn, SillyTavern, the V1/V2 card spec):
+   {{char}} or <BOT>  -> this character's name
+   {{user}} or <USER> -> your persona name, defaulting to "You"
+   Case-insensitive, and applied wherever a profile field is read —
+   prompt, scripted replies, greeting and the profile screen alike. */
+function userName(){ return (S.profile && S.profile.name) || "You"; }
+function fill(s, ch){
+  if (!s) return s;
+  var cn = (ch && ch.name) || "them", un = userName();
+  return String(s)
+    .replace(/\{\{\s*char\s*\}\}/gi, cn).replace(/<\s*bot\s*>/gi, cn)
+    .replace(/\{\{\s*user\s*\}\}/gi, un).replace(/<\s*user\s*>/gi, un);
+}
 function meIcon(){ return (S.profile && S.profile.icon) || "account_circle"; }
 function meOn(){ return !S.profile || S.profile.on !== false; }
 function openMe(){
