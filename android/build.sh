@@ -36,8 +36,10 @@ javac -source 8 -target 8 -nowarn \
   -classpath "$TOOLS/android-stub.jar" \
   -d "$OUT/stubs" \
   $(find "$AND/stubs" -name '*.java')
+# stubs first: WebChromeClient exists in the API 16 jar but without
+# onShowFileChooser/FileChooserParams, so the stub has to shadow it here
 javac -source 8 -target 8 -nowarn \
-  -classpath "$TOOLS/android-stub.jar:$OUT/stubs" \
+  -classpath "$OUT/stubs:$TOOLS/android-stub.jar" \
   -d "$OUT/classes" \
   "$AND/src/com/pocketai/app/MainActivity.java" \
   "$OUT/gen/com/pocketai/app/BuildVersion.java"

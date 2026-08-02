@@ -7,6 +7,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.ViewGroup;
 import android.webkit.RenderProcessGoneDetail;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -20,6 +21,10 @@ import android.webkit.WebViewClient;
 public class MainActivity extends Activity {
 
     private WebView web;
+
+    /** Pending <input type="file"> callback, held while the picker is open. */
+    private ValueCallback<Uri[]> filePicker;
+    private static final int REQ_FILE = 7;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -48,7 +53,26 @@ public class MainActivity extends Activity {
 
         // Without a WebChromeClient, WebView suppresses JS dialogs entirely —
         // confirm() returns false, breaking the 18+ gate and delete/wipe flows.
-        web.setWebChromeClient(new WebChromeClient());
+        // It also has to forward <input type="file"> to the system picker, or
+        // choosing a contact photo silently does nothing.
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view,
+                                             ValueCallback<Uri[]> callback,
+                                             FileChooserParams params) {
+                if (filePicker != null) filePicker.onReceiveValue(null);
+                filePicker = callback;
+                try {
+                    startActivityForResult(params.createIntent(), REQ_FILE);
+                    return true;
+                } catch (Exception e) {
+                    // no picker on the device — let the page know rather than
+                    // leaving it waiting on a callback that never fires
+                    filePicker = null;
+                    return false;
+                }
+            }
+        });
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
@@ -93,6 +117,20 @@ public class MainActivity extends Activity {
                 + BuildVersion.CODE + "&vn=" + BuildVersion.NAME;
         if (crashReason != null) url += "&rcrash=" + crashReason;
         web.loadUrl(url);
+    }
+
+    /** Hands the chosen image back to the waiting page. */
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQ_FILE) {
+            if (filePicker != null) {
+                filePicker.onReceiveValue(
+                        WebChromeClient.FileChooserParams.parseResult(resultCode, data));
+                filePicker = null;
+            }
+            return;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
     }
 
     @Override

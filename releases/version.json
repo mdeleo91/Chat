@@ -1,6 +1,6 @@
 {
-  "versionCode": 12,
-  "versionName": "0.4.4",
+  "versionCode": 13,
+  "versionName": "0.4.5",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "The {{char}} and {{user}} buttons now ride above the keyboard while you type, dropping the placeholder straight into whichever field you're in. Adds Example Conversation — write a few lines of their dialogue and it anchors their voice, for the AI model and the scripted fallback alike."
+  "notes": "Photos. Give a character or your own persona a real picture from your phone, cropped square and shrunk to fit. No photo means initials on a coloured circle, the way your contacts app does it — Michael DeLeo shows as MD. The Android build now opens the system picker, which it previously couldn't."
 }

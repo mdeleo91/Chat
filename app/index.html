@@ -73,10 +73,12 @@
 
   /* ------- shared ------- */
   .avatar{width:48px;height:48px;border-radius:50%;background:var(--card2);
-    display:flex;align-items:center;justify-content:center;font-size:23px;flex-shrink:0;
-    border:2px solid var(--ring,transparent)}
-  .avatar.sm{width:34px;height:34px;font-size:16px}
-  .avatar.xs{width:24px;height:24px;font-size:12px;border-width:1.5px}
+    display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;
+    border:2px solid var(--ring,transparent);color:#fff;font-weight:700;letter-spacing:.5px;
+    overflow:hidden}
+  .avatar img,.bigav img,.callav img{width:100%;height:100%;object-fit:cover;display:block}
+  .avatar.sm{width:34px;height:34px;font-size:13px}
+  .avatar.xs{width:24px;height:24px;font-size:9.5px;border-width:1.5px}
   .btn{background:var(--acc);color:#fff;border:none;border-radius:999px;padding:13px 24px;
     font-size:15px;font-weight:700;cursor:pointer;font-family:inherit}
   .btn:active{background:var(--acc-deep)}
@@ -204,7 +206,8 @@
   /* ------- profile ------- */
   .profile{display:flex;flex-direction:column;align-items:center;padding:26px 20px 10px;gap:6px}
   .bigav{width:104px;height:104px;border-radius:50%;background:var(--card2);display:flex;
-    align-items:center;justify-content:center;font-size:50px;border:3px solid var(--ring,var(--acc))}
+    align-items:center;justify-content:center;font-size:38px;border:3px solid var(--ring,var(--acc));
+    color:#fff;font-weight:700;letter-spacing:1px;overflow:hidden}
   .pname{font-size:23px;font-weight:800;display:flex;align-items:center;gap:8px}
   .pname .live{width:10px;height:10px;border-radius:50%;background:var(--acc)}
   .ptag{font-size:14px;color:var(--mist)}
@@ -259,10 +262,10 @@
   .field label{display:block;font-size:11px;font-weight:700;color:var(--mist);letter-spacing:.5px;margin-bottom:6px}
   .field input,.field textarea{width:100%;background:none;border:none;color:var(--ink);
     font-size:14.5px;font-family:inherit;outline:none;resize:none;line-height:1.4}
-  .emorow{display:flex;gap:8px;flex-wrap:wrap;padding:4px 16px}
-  .emopick{width:46px;height:46px;border-radius:50%;background:var(--card);border:1px solid var(--line);
-    display:flex;align-items:center;justify-content:center;font-size:22px;cursor:pointer}
-  .emopick.on{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc)}
+  .photorow{display:flex;gap:16px;align-items:center;padding:6px 18px 10px}
+  .photocol{display:flex;flex-direction:column;gap:8px;align-items:flex-start;flex:1;min-width:0}
+  .photocol .btn{padding:9px 16px;font-size:13.5px}
+  .phint{font-size:11.5px;color:var(--mist);line-height:1.4}
   /* insert bar that rides above the keyboard while a profile field has focus */
   .macrobar{position:absolute;left:0;right:0;bottom:0;display:none;gap:8px;align-items:center;
     background:var(--surface);border-top:1px solid var(--line);z-index:6;
@@ -279,8 +282,8 @@
   #v-call{align-items:center;justify-content:flex-start;text-align:center;z-index:30}
   .callhead{padding:calc(18px + env(safe-area-inset-top)) 0 0;font-size:13px;color:var(--mist);width:100%}
   .callav{width:150px;height:150px;border-radius:50%;background:var(--card2);display:flex;
-    align-items:center;justify-content:center;font-size:70px;border:4px solid var(--ring,var(--acc));
-    margin:40px auto 18px;position:relative}
+    align-items:center;justify-content:center;font-size:52px;border:4px solid var(--ring,var(--acc));
+    margin:40px auto 18px;position:relative;color:#fff;font-weight:700;letter-spacing:2px;overflow:hidden}
   .callav::after{content:"";position:absolute;inset:-14px;border-radius:50%;
     border:2px solid var(--acc);opacity:.35;animation:pulse 2s infinite}
   @keyframes pulse{0%{transform:scale(.92);opacity:.5}70%{transform:scale(1.08);opacity:0}100%{opacity:0}}
@@ -516,8 +519,16 @@
       <button class="back" id="nc-create" style="font-size:15px;font-weight:800">Save</button>
     </div>
     <div class="rows">
-      <div class="sechead">AVATAR</div>
-      <div class="emorow" id="emorow"></div>
+      <div class="sechead">PHOTO</div>
+      <div class="photorow">
+        <div class="bigav" id="nc-av" style="width:84px;height:84px;font-size:30px"></div>
+        <div class="photocol">
+          <button class="btn ghost" id="nc-photo">Choose photo</button>
+          <button class="btn ghost" id="nc-photo-rm">Remove photo</button>
+          <div class="phint">Without one they show their initials, like a phone contact.</div>
+        </div>
+      </div>
+      <input type="file" accept="image/*" id="nc-file" style="display:none">
       <div class="field"><label>NAME</label><input id="nc-name" placeholder="Enter name"></div>
       <div class="field"><label>DESCRIPTION</label>
         <textarea id="nc-back" rows="3" placeholder="Who are they? Background, quirks, how they ended up here…"></textarea></div>
@@ -556,11 +567,16 @@
       <button class="back" id="me-save" style="font-size:15px;font-weight:800">Save</button>
     </div>
     <div class="rows">
-      <div class="profile" style="padding-bottom:0">
-        <div class="bigav" id="me-av" style="--ring:var(--acc)"></div>
+      <div class="sechead">PHOTO</div>
+      <div class="photorow">
+        <div class="bigav" id="me-av" style="width:84px;height:84px;font-size:30px"></div>
+        <div class="photocol">
+          <button class="btn ghost" id="me-photo">Choose photo</button>
+          <button class="btn ghost" id="me-photo-rm">Remove photo</button>
+          <div class="phint">Without one you show your initials.</div>
+        </div>
       </div>
-      <div class="sechead">PICTURE</div>
-      <div class="emorow" id="me-icons"></div>
+      <input type="file" accept="image/*" id="me-file" style="display:none">
       <div class="field"><label>YOUR NAME</label>
         <input id="me-name" placeholder="What should they call you?"></div>
       <div class="field"><label>ABOUT YOU</label>
@@ -662,7 +678,7 @@ window.addEventListener("unhandledrejection", function(e){
 });
 
 /* ================= platform & version ================= */
-var WEB_VN = "0.4.4";
+var WEB_VN = "0.4.5";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -721,7 +737,17 @@ function load(){
   });
   if (migrated) save();
 }
-function save(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e){} }
+function save(){
+  try { localStorage.setItem(KEY, JSON.stringify(S)); }
+  catch(e){
+    /* photos are the only thing here big enough to fill the quota — say so
+       rather than losing the write silently */
+    if (typeof toast === "function")
+      toast(/quota|exceed/i.test(String(e && e.name || e))
+        ? "Storage full — remove a photo and try again"
+        : "Couldn't save to this device");
+  }
+}
 
 /* ================= theming ================= */
 var ACCENTS = [
@@ -1214,7 +1240,7 @@ async function runGeneration(engine, convo, ch, nudge, done){
     var rw = document.createElement("div"); rw.className = "mrow in";
     var inner = "";
     if (convo.grp) {
-      rw.innerHTML = '<div class="avatar xs" style="--ring:'+ch.ring+'">'+avIcon(ch)+'</div>';
+      rw.innerHTML = avatarEl(ch, "xs");
       inner += '<span class="who" style="color:'+ch.ring+'">'+esc(ch.name)+'</span>';
     }
     inner += '<span class="txt"></span>';
@@ -1451,7 +1477,61 @@ function updateChatStat(){
 /* ================= persona engine ================= */
 function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
 function esc(s){ var d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
-function avIcon(c){ return '<span class="msr">' + (c && c.icon ? c.icon : "person") + '</span>'; }
+/* ---------- avatars: a photo if there is one, otherwise initials ----------
+   "Michael DeLeo" -> MD on a coloured circle, the way a phone's contacts do it. */
+function initialsOf(name){
+  var parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  var a = parts[0].charAt(0);
+  var b = parts.length > 1 ? parts[parts.length - 1].charAt(0) : "";
+  return (a + b).toUpperCase();
+}
+var AVCOLORS = ["#22C55E","#14B8A6","#3B82F6","#8B5CF6","#EC4899","#F97316","#EF4444","#0EA5E9","#7C3AED","#059669"];
+function avColor(c){
+  if (c && c.ring) return c.ring;                 // characters carry their own hue
+  var s = String((c && c.name) || ""), h = 0;
+  for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 100000;
+  return AVCOLORS[h % AVCOLORS.length];
+}
+function avInner(c){
+  if (c && c.photo) return '<img src="' + c.photo + '" alt="">';
+  return esc(initialsOf(c && c.name));
+}
+/* markup for list rows */
+function avatarEl(c, cls){
+  return '<div class="avatar' + (cls ? " " + cls : "") + '" style="--ring:' +
+    ((c && c.ring) || "transparent") + ';background:' + (c && c.photo ? "var(--card2)" : avColor(c)) +
+    '">' + avInner(c) + '</div>';
+}
+/* for the fixed avatar elements already in the page */
+function setAvatar(el, c){
+  if (!el) return;
+  el.innerHTML = avInner(c);
+  el.style.background = c && c.photo ? "var(--card2)" : avColor(c);
+  el.style.setProperty("--ring", (c && c.ring) || "var(--acc)");
+}
+/* shrink whatever the picker returns to a square thumbnail we can keep in
+   localStorage — full-size camera photos would blow the quota in a few saves */
+function readPhoto(file, cb){
+  if (!file) return;
+  var fr = new FileReader();
+  fr.onload = function(){
+    var img = new Image();
+    img.onload = function(){
+      var N = 256, cv = document.createElement("canvas");
+      cv.width = cv.height = N;
+      var g = cv.getContext("2d");
+      var side = Math.min(img.width, img.height);
+      g.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, N, N);
+      try { cb(cv.toDataURL("image/jpeg", 0.82)); }
+      catch (e) { toast("Couldn't process that image"); }
+    };
+    img.onerror = function(){ toast("That file isn't an image"); };
+    img.src = fr.result;
+  };
+  fr.onerror = function(){ toast("Couldn't read that file"); };
+  fr.readAsDataURL(file);
+}
 
 /* ---------- profile → behaviour (scripted engine) ----------
    A character the user wrote or edited answers from its own profile:
@@ -1784,7 +1864,7 @@ function renderHome(){
     } else prev = esc(c.grp ? c.members.length + " members" : fill(c.status, c));
     var row = document.createElement("div"); row.className = "row";
     row.innerHTML =
-      '<div class="avatar" style="--ring:'+c.ring+'">'+avIcon(c)+'</div>'+
+      avatarEl(c)+
       '<div class="meta"><div class="name">'+esc(c.name)+(c.fav?' <span class="fav msr fill gold">star</span>':'')+'</div>'+
       '<div class="prev">'+prev.slice(0,140)+'</div></div>'+
       '<div class="end"><div class="time'+(c.unread?' unread':'')+'">'+(lm?fmtTime(lm.ts):"")+'</div>'+
@@ -1804,7 +1884,7 @@ function renderContacts(){
     if (q && ch.name.toLowerCase().indexOf(q) < 0 && (ch.tag||"").toLowerCase().indexOf(q) < 0) return;
     var row = document.createElement("div"); row.className = "row";
     row.innerHTML =
-      '<div class="avatar" style="--ring:'+ch.ring+'">'+avIcon(ch)+'</div>'+
+      avatarEl(ch)+
       '<div class="meta"><div class="name">'+esc(ch.name)+(ch.fav?' <span class="fav msr fill gold">star</span>':'')+'</div>'+
       '<div class="prev">'+esc(fill(ch.pers || ch.tag || "", ch))+'</div></div>'+
       '<span class="msr" style="color:var(--mist);font-size:20px">chevron_right</span>';
@@ -1818,7 +1898,7 @@ function renderContacts(){
 function openChat(id){
   cur = id; var c = getConvo(id);
   c.unread = 0; save();
-  $("chat-av").innerHTML = avIcon(c); $("chat-av").style.setProperty("--ring", c.ring);
+  setAvatar($("chat-av"), c);
   $("chat-name").textContent = c.name;
   if (c.grp)
     $("chat-stat").innerHTML = esc(c.members.map(function(m){ var x=getChar(m); return x?x.name:""; }).filter(Boolean).join(", "));
@@ -1862,7 +1942,7 @@ function renderStream(){
     var inner = "";
     if (!out && c.grp) {
       var by = getChar(msg.by);
-      rw.innerHTML = '<div class="avatar xs" style="--ring:'+(by?by.ring:"#999")+'">'+(by?avIcon(by):"?")+'</div>';
+      rw.innerHTML = avatarEl(by || {name:"?"}, "xs");
       inner += '<span class="who" style="color:'+(by?by.ring:"var(--acc)")+'">'+esc(by?by.name:"?")+'</span>';
     }
     inner += esc(msg.text) +
@@ -2039,7 +2119,7 @@ function pickResponders(g, text){
 function openProfile(id){
   profId = id; var ch = getChar(id);
   if (!ch) return;
-  $("pf-av").innerHTML = avIcon(ch); $("pf-av").style.setProperty("--ring", ch.ring);
+  setAvatar($("pf-av"), ch);
   $("pf-name").textContent = ch.name;
   $("pf-tag").innerHTML = '<span class="msr" style="font-size:15px">smart_toy</span> AI Character · ' + esc(fill(ch.tag, ch) || "Companion");
   $("pf-quote").textContent = "“" + (greetingOf(ch)||"").replace(/\*[^*]*\*/g,"").trim().slice(0,120) + "”";
@@ -2130,19 +2210,10 @@ function toggleAddMem(onoff){
 }
 
 /* ================= new / edit character ================= */
-var ICONS = ["person_search","auto_fix_high","smart_toy","pets","palette","music_note",
-  "waves","rocket_launch","public","sports_esports","coffee","potted_plant"];
 var RINGS = ["#22C55E","#14B8A6","#3B82F6","#8B5CF6","#EC4899","#F97316"];
-var pickedIcon = ICONS[0];
+var pickedPhoto = null;
 function initNewChar(){
-  var row = $("emorow"); row.innerHTML = "";
-  var palette = ICONS.indexOf(pickedIcon) < 0 ? [pickedIcon].concat(ICONS) : ICONS;
-  palette.forEach(function(e){
-    var el = document.createElement("div"); el.className = "emopick" + (e===pickedIcon?" on":"");
-    el.innerHTML = '<span class="msr">' + e + '</span>';
-    el.onclick = function(){ pickedIcon = e; initNewChar(); };
-    row.appendChild(el);
-  });
+  setAvatar($("nc-av"), {name: $("nc-name").value, photo: pickedPhoto, ring: pickedRing});
 }
 /* remember which profile field was last focused, so the macro chips know
    where to insert */
@@ -2192,9 +2263,12 @@ function updateMacroHint(){
   var nm = ($("nc-name").value || "").trim();
   h.textContent = "→ " + (nm || "this character") + " · " + userName();
 }
+var pickedRing = RINGS[0];
 function openCharForm(id){
   editId = id || null;
   var ch = id ? getChar(id) : null;
+  pickedPhoto = ch ? (ch.photo || null) : null;
+  pickedRing = ch ? (ch.ring || RINGS[0]) : pick(RINGS);
   $("nc-title").textContent = ch ? "Edit Character" : "New Character";
   $("nc-name").value = ch ? ch.name : "";
   $("nc-pers").value = ch ? (ch.pers||"") : "";
@@ -2206,7 +2280,6 @@ function openCharForm(id){
   $("nc-scene").value  = ch ? (ch.scene||"") : "";
   $("nc-greet").value  = ch ? (ch.greeting||"") : "";
   $("nc-ex").value     = ch ? (ch.example||"") : "";
-  pickedIcon = ch ? (ch.icon || ICONS[0]) : ICONS[0];
   lastField = null;
   initNewChar(); wireMacroChips(); updateMacroHint(); showMacroBar(false); show("v-new");
 }
@@ -2224,7 +2297,8 @@ function saveChar(){
   if (editId) {
     var ch = getChar(editId);
     ch.name=name; ch.pers=pers; ch.style=style; ch.back=back; ch.ints=ints;
-    ch.tag=tag; ch.status=status; ch.icon=pickedIcon; ch.scene=scene; ch.greeting=greet; ch.example=example;
+    ch.tag=tag; ch.status=status; ch.scene=scene; ch.greeting=greet; ch.example=example;
+    if (pickedPhoto) ch.photo = pickedPhoto; else delete ch.photo;
     ch.edited = true;               // the profile now drives replies, and survives updates
     save(); hide("v-new"); openProfile(editId); renderHome(); renderContacts();
     toast("Saved — " + name + " will talk like this now");
@@ -2232,7 +2306,7 @@ function saveChar(){
   }
   var id = "c" + Date.now();
   var nch = {
-    id:id, name:name, icon:pickedIcon, ring:pick(RINGS), tag:tag, status:status, custom:true,
+    id:id, name:name, photo:pickedPhoto || null, ring:pickedRing, tag:tag, status:status, custom:true,
     pers:pers, style:style, back:back, ints:ints, scene:scene, greeting:greet, example:example,
     created:Date.now(),
     topics: [],   // replies come from the profile itself — see personaReply()
@@ -2260,27 +2334,18 @@ function fill(s, ch){
     .replace(/\{\{\s*char\s*\}\}/gi, cn).replace(/<\s*bot\s*>/gi, cn)
     .replace(/\{\{\s*user\s*\}\}/gi, un).replace(/<\s*user\s*>/gi, un);
 }
-function meIcon(){ return (S.profile && S.profile.icon) || "account_circle"; }
+function mePhoto(){ return (S.profile && S.profile.photo) || null; }
 function meOn(){ return !S.profile || S.profile.on !== false; }
 function openMe(){
   var me = S.profile || (S.profile = {});
   $("me-name").value = me.name || "";
   $("me-desc").value = me.desc || "";
-  renderMeIcons(); renderMeToggle();
+  renderMeAvatar(); renderMeToggle();
   show("v-me");
 }
-function renderMeIcons(){
-  var row = $("me-icons"); row.innerHTML = "";
-  var picked = meIcon();
-  var list = ICONS.indexOf(picked) < 0 ? [picked].concat(ICONS) : ICONS;
-  list.forEach(function(ic){
-    var el = document.createElement("div");
-    el.className = "emopick" + (ic === picked ? " on" : "");
-    el.innerHTML = '<span class="msr">' + ic + '</span>';
-    el.onclick = function(){ (S.profile = S.profile || {}).icon = ic; renderMeIcons(); };
-    row.appendChild(el);
-  });
-  $("me-av").innerHTML = '<span class="msr">' + picked + '</span>';
+function renderMeAvatar(){
+  setAvatar($("me-av"), {name: $("me-name").value || (S.profile && S.profile.name) || "",
+                         photo: mePhoto(), ring: "var(--acc)"});
 }
 function renderMeToggle(){
   var on = meOn();
@@ -2304,7 +2369,7 @@ var callTimer = null, callChar = null;
 function startCall(id){
   var ch = getChar(id); if (!ch) return;
   callChar = ch;
-  $("call-av").innerHTML = avIcon(ch); $("call-av").style.setProperty("--ring", ch.ring);
+  setAvatar($("call-av"), ch);
   $("call-name").textContent = ch.name;
   var wave = $("wave"); wave.innerHTML = "";
   for (var i=0;i<26;i++){
@@ -2598,6 +2663,28 @@ $("call-spk").onclick = function(){
   this.classList.toggle("on");
   this.querySelector(".msr").textContent = this.classList.contains("on") ? "volume_up" : "volume_down";
 };
+
+/* photo pickers — character editor and persona */
+$("nc-photo").onclick = function(){ $("nc-file").click(); };
+$("nc-file").onchange = function(){
+  var f = this.files && this.files[0]; this.value = "";
+  readPhoto(f, function(dataUrl){ pickedPhoto = dataUrl; initNewChar(); });
+};
+$("nc-photo-rm").onclick = function(){ pickedPhoto = null; initNewChar(); };
+$("nc-name").addEventListener("input", function(){ initNewChar(); });
+
+$("me-photo").onclick = function(){ $("me-file").click(); };
+$("me-file").onchange = function(){
+  var f = this.files && this.files[0]; this.value = "";
+  readPhoto(f, function(dataUrl){
+    (S.profile = S.profile || {}).photo = dataUrl; renderMeAvatar();
+  });
+};
+$("me-photo-rm").onclick = function(){
+  if (S.profile) delete S.profile.photo;
+  renderMeAvatar();
+};
+$("me-name").addEventListener("input", renderMeAvatar);
 
 $("set-me").onclick = openMe;
 $("me-back").onclick = function(){ hide("v-me"); initSettings(); };
