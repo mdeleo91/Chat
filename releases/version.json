@@ -1,6 +1,6 @@
 {
-  "versionCode": 15,
-  "versionName": "0.6.0",
+  "versionCode": 16,
+  "versionName": "0.6.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Server-only. The on-device model catalog and the scripted reply engine are gone — every reply now comes from the model server you connect under Settings → Your server, and if it's unreachable the app says so instead of answering with canned lines. Slimmer, honest about where words come from, built for one good model on your own box."
+  "notes": "Scenes. Every conversation gets a scene — tap the pill under the chat header and say where this is happening: texting from your phones, at dinner with the family, a long train ride. The character plays inside it until you change it, scene changes show as markers in the thread, and {{char}}/{{user}} work there too."
 }
