@@ -1,6 +1,6 @@
 {
-  "versionCode": 11,
-  "versionName": "0.4.3",
+  "versionCode": 12,
+  "versionName": "0.4.4",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "{{char}} and {{user}} placeholders, the character-card convention from CrushOn and SillyTavern: write \"{{user}}'s oldest friend, though {{char}} would never admit it\" and each name fills itself in. Works in every profile field, plus two new ones — a Scenario and a Greeting you write yourself."
+  "notes": "The {{char}} and {{user}} buttons now ride above the keyboard while you type, dropping the placeholder straight into whichever field you're in. Adds Example Conversation — write a few lines of their dialogue and it anchors their voice, for the AI model and the scripted fallback alike."
 }
