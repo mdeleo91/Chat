@@ -7,9 +7,9 @@ points the app at that machine.
 
 Anything speaking the OpenAI `/v1/chat/completions` API works: **Ollama**,
 **llama.cpp** (`llama-server`), **LM Studio**, **vLLM**. The app discovers what
-you have loaded via `GET /v1/models` and streams replies over SSE. If the box is
-asleep, off, or off-network, the character answers from the scripted engine
-instead — you never get a dead chat.
+you have loaded via `GET /v1/models` and streams replies over SSE. The server is
+the only reply engine: if the box is asleep, off, or off-network, the app says
+so instead of answering — keep the server reachable.
 
 ## Ollama, the short version
 

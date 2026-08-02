@@ -399,11 +399,11 @@
         <div class="sechead">YOU</div>
         <button class="srow" id="set-me"><span class="ic msr">account_circle</span><span class="lbl">Your persona</span>
           <span class="val" id="set-me-val"></span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
-        <div class="sechead">MODELS</div>
-        <button class="srow"><span class="ic msr">neurology</span><span class="lbl">Current model</span>
+        <div class="sechead">AI MODEL</div>
+        <button class="srow"><span class="ic msr">neurology</span><span class="lbl">Active model</span>
           <span class="val" id="set-model-val"></span></button>
-        <button class="srow" id="set-model"><span class="ic msr">package_2</span><span class="lbl">Change model</span>
-          <span class="val">Download &amp; manage</span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
+        <button class="srow" id="set-model"><span class="ic msr">package_2</span><span class="lbl">Your server</span>
+          <span class="val">Connect &amp; choose</span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
         <div class="infocard" id="modelcard"></div>
         <div class="sechead">FEATURES</div>
         <button class="srow" id="set-voice"><span class="ic msr">mic</span><span class="lbl">Voice</span>
@@ -678,7 +678,7 @@ window.addEventListener("unhandledrejection", function(e){
 });
 
 /* ================= platform & version ================= */
-var WEB_VN = "0.5.0";
+var WEB_VN = "0.6.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -723,7 +723,6 @@ function load(){
   if (!S.removed) S.removed = {};
   if (!S.sums)    S.sums = {};      // rolling per-conversation summaries
   if (!S.groups)  S.groups = [];
-  if (!S.model)   S.model  = "scripted";
   if (S.adult === undefined) S.adult = false;
   var migrated = false;
   (S.chars || []).concat(S.groups || []).forEach(function(c){
@@ -894,144 +893,16 @@ var CAST = [
 var SEED_GROUP = {id:"g-fwt", grp:true, name:"Fantasy Writing Team", icon:"castle", ring:"#22C55E",
   members:["nova","dm","hale"], status:"3 members"};
 
-/* ================= on-device LLM (WebLLM / WebGPU) ================= */
-var WEBLLM_URL = "https://esm.run/@mlc-ai/web-llm@0.2.84";
-var MODELS = [
-  {id:"scripted", name:"Scripted persona", size:"0 MB",
-   desc:"Instant canned replies. No download, works everywhere."},
-  {id:"SmolLM2-360M-Instruct-q4f16_1-MLC", name:"SmolLM2 360M", size:"~0.4 GB",
-   desc:"Tiny and fast. Simple but real replies."},
-  {id:"Llama-3.2-1B-Instruct-q4f16_1-MLC", name:"Llama 3.2 1B", size:"~0.9 GB",
-   desc:"Recommended — good balance of speed and quality."},
-  {id:"Qwen2.5-1.5B-Instruct-q4f16_1-MLC", name:"Qwen2.5 1.5B", size:"~1.6 GB",
-   desc:"Stronger conversation quality."},
-  {id:"gemma-2-2b-it-q4f16_1-MLC", name:"Gemma 2 2B", size:"~1.9 GB",
-   desc:"Solid quality on modest hardware."},
-  {id:"Qwen3.5-2B-q4f16_1-MLC", name:"Qwen3.5 2B", size:"~2.2 GB",
-   desc:"Newest Qwen generation — punchy for its size."},
-  {id:"Qwen3-4B-q4f16_1-MLC", name:"Qwen3 4B", size:"~3.4 GB",
-   desc:"Big quality step up. Good laptops and better."},
-  {id:"Qwen3-8B-q4f16_1-MLC", name:"Qwen3 8B", size:"~5.7 GB",
-   desc:"Best standard model here. Desktop-class GPU."},
-  {id:"Hermes-3-Llama-3.2-3B-q4f16_1-MLC", name:"Hermes 3 · 3B", size:"~2.3 GB", tier:"mature",
-   desc:"Steerable, minimal refusals, follows character prompts loyally. Lightest mature option."},
-  {id:"Hermes-3-Llama-3.1-8B-q4f16_1-MLC", name:"Hermes 3 · 8B", size:"~4.9 GB", tier:"mature",
-   desc:"Best roleplay quality in the catalog. Needs a desktop-class GPU."},
-  {id:"Hermes-2-Pro-Mistral-7B-q4f16_1-MLC", name:"Hermes 2 Pro · 7B", size:"~4.0 GB", tier:"mature",
-   desc:"Mistral-based, roleplay-friendly. Desktop GPU."},
-  {id:"Mistral-7B-Instruct-v0.3-q4f16_1-MLC", name:"Mistral 7B v0.3", size:"~4.6 GB", tier:"mature",
-   desc:"Famously light alignment. Desktop GPU."}
-];
-function modelById(id){ for (var i=0;i<MODELS.length;i++) if (MODELS[i].id===id) return MODELS[i]; return null; }
-function matureActive(){
-  if (S.model === "remote") return !!S.adult;   // your box, your rules
-  var m = modelById(S.model);
-  return !!(m && m.tier === "mature" && S.adult);
-}
-var LLM = {engine:null, id:null, state:"idle", prog:"", pct:0, err:""};
-function webgpuOK(){ return typeof navigator !== "undefined" && !!navigator.gpu; }
-
-/* ================= device memory budget =================
-   WebLLM holds the entire model in GPU/host memory for as long as it's active.
-   A phone has no swap for that: Android's low-memory killer takes out the
-   WebView renderer process long before the browser ever reports a failed
-   allocation, and the app dies with no JS error to log. There is no API that
-   reports the real limit, so the only defence is refusing to start a load the
-   device plainly cannot finish. navigator.deviceMemory is Chromium-only and
-   coarse (capped at 8, rounded to a power of two) — when it's missing we don't
-   guess, we just let the load run. */
-var IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
-function deviceRAM(){ return navigator.deviceMemory || 0; }          // GB, 0 = unknown
-function memBudgetGB(){
-  var ram = deviceRAM();
-  if (!ram) return 0;
-  /* The OS, the browser and the rest of the page want their share too, and a
-     phone keeps far less of its RAM available to one process than a desktop. */
-  return Math.round(ram * (IS_MOBILE ? 0.28 : 0.55) * 10) / 10;
-}
-function modelGB(mo){
-  var s = (mo && mo.size) || "";
-  var g = /([\d.]+)\s*GB/i.exec(s);   if (g)  return parseFloat(g[1]);
-  var m = /([\d.]+)\s*MB/i.exec(s);   if (m)  return parseFloat(m[1]) / 1024;
-  return 0;
-}
-function tooBig(mo){
-  var b = memBudgetGB();
-  if (!b || !mo || mo.id === "scripted") return false;
-  return modelGB(mo) > b;
-}
-function memNote(mo){
-  var b = memBudgetGB();
-  return modelGB(mo) + " GB model · this device reports " + deviceRAM() +
-         " GB RAM (~" + b + " GB usable for a model)";
-}
-/* Models the user chose to load anyway after being warned. */
-function bigOK(id){ return !!(S.bigok && S.bigok[id]); }
-
-/* ---- crash breadcrumb ----
-   Written synchronously before a load starts and removed when it finishes
-   either way. Finding one at boot means the process died mid-load. */
-var PENDKEY = "chat.modelload.v1";
-function markLoading(id){
-  try { localStorage.setItem(PENDKEY, JSON.stringify({m:id, t:Date.now()})); } catch(e){}
-}
-function clearLoading(){ try { localStorage.removeItem(PENDKEY); } catch(e){} }
-function pendingLoad(){
-  try { return JSON.parse(localStorage.getItem(PENDKEY)); } catch(e){ return null; }
-}
-/* Runs once at boot, before anything can start a load. A breadcrumb still
-   sitting there means the last run died with a model half-loaded; ?rcrash=
-   means the Android shell caught the renderer process going away. Either way
-   the same model is still selected, so the very next message would repeat the
-   crash — fall back to the scripted engine and say why. */
-function crashGuard(){
-  var pend = pendingLoad(), why = Q.rcrash || "";
-  if (!pend && !why) return "";
-  clearLoading();
-  var how = why === "oom"   ? "Android killed the WebView renderer — out of memory"
-          : why === "crash" ? "the WebView renderer process crashed"
-          : "the app restarted before the model finished loading";
-  L("crash", "recovered: " + how + (pend ? " (loading " + pend.m + ")" : ""), true);
-  if (!pend || pend.m === "scripted") return "";
-
-  var mo = modelById(pend.m), name = mo ? mo.name : pend.m;
-  S.crash = {model:pend.m, name:name, t:Date.now(),
-             msg:name + " closed the app while loading — " + how + "."};
-  if (S.bigok) delete S.bigok[pend.m];      // the crash settles the argument
-  if (S.model === pend.m) {
-    S.model = "scripted";
-    LLM.engine = null; LLM.id = null; LLM.state = "idle";
-    L("model", "switched to the scripted engine after " + pend.m + " failed to load", true);
-  }
-  save();
-  return name + " couldn't load on this device — switched to scripted replies";
-}
-/* Also at boot: a model that's already selected but over budget. Nothing has
-   to go wrong for this to bite — the selection alone means the next message
-   starts a load that can't finish. It's how a device arrives after updating
-   from a build that had no memory check, which is exactly the state a crash
-   loop leaves behind, so stand the model down before anything can ask for it
-   rather than waiting to be discovered mid-conversation. */
-function budgetGuard(){
-  var mo = modelById(S.model);
-  if (!tooBig(mo) || bigOK(S.model)) return "";
-  L("model", "stood down " + S.model + " at boot — " + memNote(mo), true);
-  if (!S.crash)
-    S.crash = {model:S.model, name:mo.name, t:Date.now(),
-               msg:mo.name + " needs about " + modelGB(mo) + " GB and this device has roughly " +
-                   memBudgetGB() + " GB to spare, so it was never loaded."};
-  S.model = "scripted";
-  LLM.engine = null; LLM.id = null; LLM.state = "idle";
-  save();
-  return mo.name + " is too large for this device — switched to scripted replies";
-}
+/* ================= engine: your server, only =================
+   All replies come from the OpenAI-compatible server configured in
+   Settings (Ollama / llama.cpp / LM Studio / vLLM). There is no on-device
+   model and no scripted fallback — if the server is unreachable, the
+   message says so and nothing pretends to answer. */
+function matureActive(){ return !!S.adult; }
 
 /* ================= remote server (OpenAI-compatible) =================
    Ollama, llama.cpp server, LM Studio and vLLM all expose
-   /v1/chat/completions with SSE streaming — the same shape WebLLM uses,
-   so the prompt and streaming code below are shared. Runs a far bigger
-   model than the phone can hold; falls back to the scripted engine
-   whenever the box is asleep or off the network. */
+   /v1/chat/completions with SSE streaming. */
 var REMOTE = {remote:true};
 function srv(){
   if (!S.server) S.server = {url:"", model:"", models:[], err:""};
@@ -1047,8 +918,7 @@ function srvHost(){
   var b = srvBase();
   return b ? b.replace(/^https?:\/\//, "") : "";
 }
-function isRemote(){ return S.model === "remote"; }
-function remoteReady(){ return !!(isRemote() && srvBase() && srv().model); }
+function remoteReady(){ return !!(srvBase() && srv().model); }
 /* ask the server which models it has loaded */
 function srvProbe(cb){
   var base = srvBase();
@@ -1101,59 +971,12 @@ async function remoteGenerate(messages, onDelta){
   }
 }
 
-function useLLM(){
-  if (isRemote()) return remoteReady();
-  return S.model !== "scripted" && webgpuOK();
-}
+function useLLM(){ return remoteReady(); }
 function friendlyModel(){
-  if (isRemote())
-    return remoteReady() ? srv().model + " · " + srvHost() : "Remote server · not configured";
-  for (var i=0;i<MODELS.length;i++) if (MODELS[i].id===S.model)
-    return MODELS[i].id==="scripted" ? "Scripted persona · prototype" : MODELS[i].name + " · on-device";
-  return S.model;
+  return remoteReady() ? srv().model + " · " + srvHost() : "No server configured";
 }
 function ensureEngine(cb){
-  if (isRemote()) { remoteReady() ? cb(null, REMOTE) : cb("unavailable"); return; }
-  if (!useLLM()) { cb("unavailable"); return; }
-  if (LLM.engine && LLM.id === S.model) { cb(null, LLM.engine); return; }
-  if (LLM.state === "loading") { cb("busy"); return; }
-  var wanted = S.model, mo = modelById(wanted);
-  /* Refuse rather than let the OS kill the app mid-load (see memBudgetGB). */
-  if (tooBig(mo) && !bigOK(wanted)) {
-    LLM.state = "error";
-    LLM.err = mo.name + " needs about " + modelGB(mo) + " GB and this device has roughly " +
-      memBudgetGB() + " GB to spare. Pick a smaller model, or use your own server.";
-    L("model", "refused " + wanted + " — " + memNote(mo), true);
-    renderModelUI(); updateChatStat();
-    cb("toobig"); return;
-  }
-  LLM.state = "loading"; LLM.prog = "Starting…"; LLM.pct = 0; LLM.err = "";
-  renderModelUI(); updateChatStat();
-  markLoading(wanted);
-  L("model", "load start: " + wanted + " · " + memNote(mo), true);
-  import(WEBLLM_URL).then(function(webllm){
-    return webllm.CreateMLCEngine(wanted, {
-      initProgressCallback: function(p){
-        LLM.pct = Math.round((p.progress || 0) * 100);
-        LLM.prog = p.text || (LLM.pct + "%");
-        renderModelUI(); updateChatStat();
-      }
-    });
-  }).then(function(engine){
-    clearLoading();
-    if (S.crash) { delete S.crash; save(); }   // something loads here after all
-    LLM.engine = engine; LLM.id = wanted; LLM.state = "ready";
-    L("model", "ready: " + wanted, true);
-    renderModelUI(); updateChatStat(); initSettings();
-    toast("Model ready — " + friendlyModel());
-    cb(null, engine);
-  }).catch(function(e){
-    clearLoading();
-    LLM.state = "error"; LLM.err = String(e && e.message || e);
-    L("model", "load FAILED: " + wanted + " — " + LLM.err.slice(0,200), true);
-    renderModelUI(); updateChatStat();
-    cb(e);
-  });
+  if (remoteReady()) cb(null, REMOTE); else cb("unavailable");
 }
 /* Ordered stable-first: the server caches the prompt as a token prefix, so
    the parts that never change (who the character is) go before the parts
@@ -1250,12 +1073,7 @@ function completeOnce(engine, messages, maxTok, cb){
       .then(function(j){ cb(null, j.choices && j.choices[0] && j.choices[0].message &&
                              j.choices[0].message.content || ""); })
       .catch(cb);
-  } else {
-    engine.chat.completions.create({messages:messages, temperature:0.3, max_tokens:maxTok})
-      .then(function(r){ cb(null, r.choices && r.choices[0] && r.choices[0].message &&
-                            r.choices[0].message.content || ""); })
-      .catch(cb);
-  }
+  } else cb(new Error("no engine"));
 }
 function speakerName(convo, m){
   if (m.who === "me") return userName();
@@ -1314,9 +1132,8 @@ function aiDeliver(convo, ch, userText, nudge){
     if (cur === convo.id && ty){ ty.classList.add("on"); $("stream").scrollTop = 1e9; }
     ensureEngine(function(err, engine){
       if (err) {
-        deliver(convo, nudge ? pick(ch.fall) : think(ch, userText || "hi"), ch.id);
-        if (err === "toobig") toast("Model too large for this device — used scripted reply");
-        else if (err !== "busy" && err !== "unavailable") toast("Model error — used scripted reply");
+        if (ty) ty.classList.remove("on");
+        toast("No server configured — connect one in Settings");
         done(); return;
       }
       runGeneration(engine, convo, ch, nudge, done);
@@ -1361,22 +1178,9 @@ async function runGeneration(engine, convo, ch, nudge, done){
   }
   try {
     var msgs = buildMessages(ch, convo, nudge);
-    if (engine === REMOTE) {
-      await remoteGenerate(msgs, onDelta);
-    } else {
-      var req = {
-        messages: msgs,
-        stream: true, temperature: 0.85, top_p: 0.95, max_tokens: 512
-      };
-      if (/^Qwen3/.test(LLM.id || "")) req.extra_body = {enable_thinking: false};
-      var chunks = await engine.chat.completions.create(req);
-      for await (var chunk of chunks) {
-        onDelta(chunk.choices && chunk.choices[0] && chunk.choices[0].delta &&
-                chunk.choices[0].delta.content);
-      }
-    }
+    await remoteGenerate(msgs, onDelta);
     txt = visible(txt).trim();
-    if (!txt) txt = pick(ch.fall);
+    if (!txt) throw new Error("the model returned an empty reply");
     pushMsg(convo.id, "them", txt, ch.id);
     if (cur === convo.id) renderStream();
     else { convo.unread = (convo.unread||0)+1; save(); }
@@ -1384,20 +1188,15 @@ async function runGeneration(engine, convo, ch, nudge, done){
     scheduleSummarize(convo);
   } catch(e) {
     if (liveEl) liveEl.remove();
-    deliver(convo, think(ch, txt || "hi"), ch.id);
-    if (engine === REMOTE) {
-      srv().err = String(e && e.message || e); save();
-      L("gen", "server FAILED for " + ch.name + " @" + srvHost() + ": " + srv().err.slice(0,200));
-      toast("Server unreachable — used scripted reply");
-      renderModelUI();
-    } else {
-      L("gen", "FAILED for " + ch.name + ": " + String(e && e.message || e).slice(0,200));
-      toast("Model error — used scripted reply");
-    }
+    var ty3 = $("ty"); if (ty3) ty3.classList.remove("on");
+    srv().err = String(e && e.message || e); save();
+    L("gen", "server FAILED for " + ch.name + " @" + srvHost() + ": " + srv().err.slice(0,200));
+    toast("Server unreachable — no reply. Check " + (srvHost() || "Settings"));
+    renderModelUI();
   }
   done();
 }
-/* memory extraction shared by both engines */
+/* memory extraction (regex; the model itself sees the profile + memories) */
 function extractFacts(ch, text){
   var t = text.toLowerCase(), m;
   if ((m = t.match(/my name(?:'s| is) ([a-z][a-z\-']{1,20})/i))) {
@@ -1409,31 +1208,12 @@ function extractFacts(ch, text){
   if ((m = t.match(/i (?:work|live) (?:as|in|at) ([^.!?]{2,60})/i)))
     remember(ch, "They " + (t.indexOf("work")>=0?"work":"live") + " " + m[0].replace(/^i /i,"").trim());
 }
-function modelRowHTML(mo){
-  var right, big = tooBig(mo) && !bigOK(mo.id);
-  if (mo.id !== "scripted" && !webgpuOK())
-    right = '<span class="dl">needs WebGPU</span>';
-  else if (S.model === mo.id && LLM.state === "loading")
-    right = '<span class="dl">' + esc(LLM.prog).slice(0, 60) + '</span>';
-  else if (S.model === mo.id)
-    right = '<span class="active"><span class="msr" style="font-size:14px">check</span> Active</span>';
-  else
-    right = '<button class="use" data-model="' + mo.id + '"' + (big ? ' data-big="1"' : '') +
-      (big ? ' style="background:var(--mist)"' : '') + '>Use</button>';
-  var warn = big
-    ? '<div class="ds" style="color:#EAB308"><span class="msr" style="font-size:14px;vertical-align:-2px">warning</span> ' +
-      'Too large for this device — needs ~' + modelGB(mo) + ' GB, about ' + memBudgetGB() + ' GB is usable here.</div>'
-    : '';
-  return '<div class="modelrow"><div class="mi">' +
-    '<div class="nm">' + mo.name + '<span class="sz">' + mo.size + '</span></div>' +
-    '<div class="ds">' + mo.desc + '</div>' + warn + '</div>' + right + '</div>';
-}
 /* the "run it on my own box" section of the model picker */
 function serverSectionHTML(){
   var s = srv(), h = "";
-  h += '<div class="ds" style="padding:2px 0 6px;font-weight:800;letter-spacing:.5px">MY SERVER</div>';
-  h += '<div class="ds" style="padding-bottom:8px">Point this at a machine running Ollama, llama.cpp, ' +
-       'LM Studio or vLLM and it will use that instead — big model, real conversation, still your hardware.</div>';
+  h += '<div class="ds" style="padding:2px 0 6px;font-weight:800;letter-spacing:.5px">YOUR SERVER</div>';
+  h += '<div class="ds" style="padding-bottom:8px">A machine on your network running Ollama, llama.cpp, ' +
+       'LM Studio or vLLM. Every character answers from the model you pick here.</div>';
   h += '<input id="srv-url" class="srvinput" placeholder="192.168.1.50:11434" value="' + esc(s.url || "") + '">';
   h += '<div class="srvbtns"><button class="use" id="srv-connect">Connect</button>' +
        (s.models && s.models.length
@@ -1442,7 +1222,7 @@ function serverSectionHTML(){
   if (s.err)
     h += '<div class="ds" style="color:var(--danger);padding-top:6px">' + esc(s.err).slice(0,160) + '</div>';
   (s.models || []).forEach(function(id){
-    var on = isRemote() && s.model === id;
+    var on = s.model === id;
     h += '<div class="modelrow"><div class="mi"><div class="nm">' + esc(id) + '</div>' +
          '<div class="ds">on ' + esc(srvHost()) + '</div></div>' +
          (on ? '<span class="active"><span class="msr" style="font-size:14px">check</span> Active</span>'
@@ -1457,7 +1237,7 @@ function wireServerUI(card){
   if (conn) conn.onclick = function(){
     conn.textContent = "Connecting…";
     srvProbe(function(err, list){
-      renderModelUI();
+      renderModelUI(); initSettings(); updateChatStat();
       toast(err ? "Couldn't reach the server" : "Connected — " + list.length + " model" + (list.length>1?"s":""));
     });
   };
@@ -1465,8 +1245,6 @@ function wireServerUI(card){
   for (var i=0;i<picks.length;i++) (function(b){
     b.onclick = function(){
       srv().model = b.dataset.srvmodel;
-      S.model = "remote";
-      LLM.engine = null; LLM.id = null; LLM.state = "idle";   // free the on-device model
       save(); initSettings(); renderModelUI(); updateChatStat();
       toast("Now talking to " + srv().model);
     };
@@ -1475,96 +1253,30 @@ function wireServerUI(card){
 function renderModelUI(){
   var card = $("modelcard");
   if (!card.classList.contains("on")) return;
-  var html = "";
-  html += serverSectionHTML();
-  html += '<div class="ds" style="padding:16px 0 6px;font-weight:800;letter-spacing:.5px">ON THIS DEVICE</div>';
-  if (S.crash)
-    html += '<div class="ds" style="color:#EAB308;padding-bottom:10px">' +
-      "<span class='msr' style='font-size:15px;vertical-align:-2px'>warning</span> <b>" +
-      esc(S.crash.msg) + "</b> Scripted replies are active. A model this size needs a desktop " +
-      "GPU — run it on your own machine with My Server above, or pick a smaller one below. " +
-      "Its half-finished download is still using storage; Delete downloaded models clears it.</div>";
-  if (!webgpuOK())
-    html += "<b><span class='msr' style='font-size:15px;color:#EAB308'>warning</span> WebGPU not available in this browser.</b>On-device AI needs WebGPU " +
-      "(Chrome or Edge 113+, recent Android Chrome). The scripted engine still works everywhere.<br><br>";
-  MODELS.forEach(function(mo){ if (!mo.tier) html += modelRowHTML(mo); });
+  var html = serverSectionHTML();
   html += '<div class="ds" style="padding:14px 0 4px;font-weight:800;letter-spacing:.5px">MATURE ROLEPLAY · 18+</div>';
-  if (!S.adult) {
-    html += '<div class="ds" style="padding-bottom:8px">Steerable models with minimal content filtering, ' +
-      'for adult roleplay. Hidden until you confirm your age.</div>' +
-      '<button class="use" id="adult-unlock" style="margin-bottom:6px">I\'m 18 or older — show mature models</button>';
-  } else {
-    MODELS.forEach(function(mo){ if (mo.tier === "mature") html += modelRowHTML(mo); });
-    html += '<div class="ds" style="padding-top:6px">These are the least-filtered models runnable in the ' +
-      'browser (Hermes, Mistral). With a mature model active, characters allow adult themes when you ' +
-      'invite them — everything still runs and stays on this device. ' +
-      '<a href="#" id="adult-hide" style="color:var(--mist)">Hide mature models</a></div>';
-  }
-  if (LLM.state === "loading")
-    html += '<div class="progbar"><i style="width:' + LLM.pct + '%"></i></div>';
-  if (LLM.state === "error")
-    html += '<div class="ds" style="color:var(--danger);padding-top:8px">' + esc(LLM.err).slice(0,200) + '</div>';
-  html += '<div class="ds" style="padding-top:10px">Models download once from the web, are cached by ' +
-    'the browser, and then run fully on this device — conversations never leave it.</div>' +
-    '<div class="modelrow" style="border:none;padding-top:8px"><div class="mi">' +
-    '<div class="nm"><span class="msr" style="font-size:16px">delete_sweep</span> Delete downloaded models</div><div class="ds">Frees storage. Active model re-downloads on next use.</div></div>' +
-    '<button class="use" id="model-clear" style="background:var(--danger)">Clear</button></div>';
+  html += '<div class="modelrow"><div class="mi"><div class="nm">' +
+    (S.adult ? "On — adult roleplay permitted" : "Off") + '</div>' +
+    '<div class="ds">Applies to whatever model your server runs. Everything still stays between your devices.</div></div>' +
+    '<button class="use" id="adult-toggle">' + (S.adult ? "Turn off" : "I\'m 18+ — turn on") + '</button></div>';
+  html += '<div class="ds" style="padding-top:10px">Replies come only from this server. If it\'s asleep or ' +
+    'off the network, messages will say so rather than being answered by anything else.</div>';
   card.innerHTML = html;
   wireServerUI(card);
-  var btns = card.querySelectorAll(".use[data-model]");
-  for (var i=0;i<btns.length;i++) (function(b){
-    b.onclick = function(){
-      var id = b.dataset.model, mo = modelById(id);
-      if (b.dataset.big) {
-        if (!confirm(mo.name + " needs about " + modelGB(mo) + " GB of memory. This device reports " +
-              deviceRAM() + " GB of RAM, so loading it will most likely make the app close itself " +
-              "part-way through the download.\n\nTry it anyway?")) return;
-        (S.bigok = S.bigok || {})[id] = true;
-        L("model", "user overrode the memory warning for " + id + " · " + memNote(mo), true);
-      }
-      S.model = id; save(); initSettings(); renderModelUI();
-      if (S.model !== "scripted") ensureEngine(function(){});
-    };
-  })(btns[i]);
-  var unlock = card.querySelector("#adult-unlock");
-  if (unlock) unlock.onclick = function(){
-    if (confirm("Mature models allow explicit adult roleplay. Confirm you are 18 or older.")) {
-      S.adult = true; save(); renderModelUI();
-    }
-  };
-  var hideA = card.querySelector("#adult-hide");
-  if (hideA) hideA.onclick = function(e){
-    e.preventDefault();
-    S.adult = false;
-    if (modelById(S.model) && modelById(S.model).tier === "mature") {
-      S.model = "scripted"; LLM.engine = null; LLM.id = null; LLM.state = "idle";
-      initSettings();
-    }
-    save(); renderModelUI();
-  };
-  var clr = card.querySelector("#model-clear");
-  if (clr) clr.onclick = function(){
-    if (!window.caches) { toast("Nothing to clear"); return; }
-    caches.keys().then(function(keys){
-      var hits = keys.filter(function(k){ return /webllm|mlc/i.test(k); });
-      return Promise.all(hits.map(function(k){ return caches.delete(k); })).then(function(){ return hits.length; });
-    }).then(function(n){
-      LLM.engine = null; LLM.id = null; LLM.state = "idle";
-      toast(n ? "Downloaded models deleted" : "Nothing to clear");
-      renderModelUI();
-    });
+  var at = card.querySelector("#adult-toggle");
+  if (at) at.onclick = function(){
+    if (!S.adult && !confirm("Mature mode permits explicit adult roleplay. Confirm you are 18 or older.")) return;
+    S.adult = !S.adult; save(); renderModelUI();
   };
 }
 function updateChatStat(){
   if (!cur) return;
   var c = getConvo(cur); if (!c || c.grp) return;
   var el = $("chat-stat");
-  if (LLM.state === "loading")
-    el.innerHTML = '<span class="on">downloading model · ' + LLM.pct + '%</span>';
-  else if (remoteReady())
+  if (remoteReady())
     el.innerHTML = '<span class="on">online</span> · via ' + esc(srvHost());
   else
-    el.innerHTML = '<span class="on">online</span> · ' + esc(fill(c.status, c));
+    el.innerHTML = '<span style="color:var(--danger)">no server — connect one in Settings</span>';
 }
 
 /* ================= persona engine ================= */
@@ -1626,11 +1338,9 @@ function readPhoto(file, cb){
   fr.readAsDataURL(file);
 }
 
-/* ---------- profile → behaviour (scripted engine) ----------
-   A character the user wrote or edited answers from its own profile:
-   personality + speaking style pick the voice, description + interests
-   become the subjects it reacts to. Untouched built-ins keep their
-   hand-written lines. */
+/* ---------- greeting voice ----------
+   Only the opening line is generated locally, from the profile's
+   personality and style — every actual reply comes from the server. */
 var VOICES = [
   {id:"terse",    re:/\b(terse|blunt|curt|clipped|monosyllabic|gruff|grumpy|sullen|deadpan|brusque|stoic|cold|short)\b/},
   {id:"warm",     re:/\b(warm|kind|gentle|caring|sweet|nurturing|friendly|affectionate|soft|supportive)\b/},
@@ -1640,137 +1350,7 @@ var VOICES = [
   {id:"curious",  re:/\b(curious|inquisitive|analytical|nerdy|geeky|thoughtful|philosophical|probing|obsessed)\b/},
   {id:"bright",   re:/\b(energetic|excitable|enthusiastic|upbeat|bubbly|cheerful|optimistic|hyper|bouncy)\b/}
 ];
-var VOICE_LINES = {
-  terse: {
-    hello:["Hm. You're back.","You{N}. What is it?","Hello."],
-    topic:["{T}. Go on.","{T}. What about it?","Hm. {T}.","{T}. Keep talking."],
-    question:["Depends.","Maybe. Say more.","Ask me properly.","Could be."],
-    general:["Noted.","Go on.","Hm.","And?","If you say so."],
-    thanks:["Sure.","Don't mention it."],
-    bye:["Later.","Right. Go."]
-  },
-  warm: {
-    hello:["Hey you{N}. Good to see you.","Hi{N} — how's the day treating you?"],
-    topic:["Oh, {T} — I could go on about that for hours. What's the story?",
-           "{T}! Now you've got my attention. Tell me everything.",
-           "Ah, {T}. That's close to my heart. Go on."],
-    question:["Honestly? Let me think about that with you.",
-              "Good question — and I want to get it right. Say a bit more?"],
-    general:["Tell me more, I'm listening.","Mm — and how did that sit with you?",
-             "I'm glad you said that. Keep going.","That matters. Go on."],
-    thanks:["Anytime, truly.","Of course — that's what I'm here for."],
-    bye:["Take care of yourself. I'll be right here.","Go gently. Come back soon."]
-  },
-  formal: {
-    hello:["Good day{N}. How may I be of use?","Hello{N}. What shall we address today?"],
-    topic:["Ah — {T}. A subject I know rather well. Where shall we begin?",
-           "{T}. Yes. I have opinions, and they are well sourced.",
-           "You have chosen {T}. Excellent. Proceed."],
-    question:["A fair question. The honest answer is: it depends on the particulars.",
-              "I would want more detail before committing to an answer."],
-    general:["Quite. Do go on.","Noted. Please continue.",
-             "I see. And what follows from that?","Understood. Elaborate, if you would."],
-    thanks:["You are very welcome.","Not at all. It is my pleasure."],
-    bye:["Until next time.","Good day to you."]
-  },
-  playful: {
-    hello:["Oh look, it's you{N}.","Hey{N}. Trouble already?"],
-    topic:["{T}? Oh, you've done it now. That's my favourite trap.",
-           "Ha — {T}. I was hoping you'd bring that up.",
-           "{T}. Careful, I have strong and largely unqualified opinions."],
-    question:["Bold of you to assume I have a straight answer.",
-              "Depends. Do you want the honest one or the fun one?"],
-    general:["Go on, I'm enjoying this.","Mm-hm. And then?",
-             "Interesting. Suspicious, but interesting.","Okay, keep going."],
-    thanks:["Anytime. I'll add it to your tab.","Don't thank me yet."],
-    bye:["Go on then. Don't be a stranger.","Bye! I'll be here, judging quietly."]
-  },
-  dramatic: {
-    hello:["*looks up.* You return{N}.","Ah{N}. The hour turns."],
-    topic:["*leans in.* {T}. Now there is a story worth telling.",
-           "{T}… yes. That thread runs deep. Pull it.",
-           "You speak of {T}. Careful — such things have weight."],
-    question:["The answer is not simple. Few worthwhile ones are.",
-              "Ask again, but tell me what you truly want to know."],
-    general:["*a long pause.* Continue.","Say on. I am listening.",
-             "There is more beneath that. Bring it up.","Go on. I want the whole of it."],
-    thanks:["Think nothing of it.","The debt is not owed."],
-    bye:["Until the road turns again.","Go. I will keep the light on."]
-  },
-  curious: {
-    hello:["Hey{N}. What have you been chewing on?","Hi{N} — what's the question of the day?"],
-    topic:["{T} — okay, now I want the details. What kind, and why that one?",
-           "Hold on, {T}? What got you into that?",
-           "{T}. Right. What's the part most people get wrong about it?"],
-    question:["Depends what you're actually asking — narrow it down for me?",
-              "I have three answers and they disagree. Which do you want?"],
-    general:["Interesting. What's underneath that?","Wait, back up — say more about that.",
-             "Mm. And what made you land there?","Keep going, I'm following."],
-    thanks:["Sure. Ask me harder things next time.","Anytime."],
-    bye:["Go on then — think about it and report back.","See you. Bring questions."]
-  },
-  bright: {
-    hello:["Hey{N}! Good to see you!","Hi{N}! What's new?"],
-    topic:["{T}! Yes! Okay, tell me everything.",
-           "Oh, {T} is such a good one. Go on!",
-           "{T}? Love that. What's the latest?"],
-    question:["Ooh, good one — let me think!","Depends! Give me a bit more?"],
-    general:["Yes! Keep going.","Ooh, tell me more.","Love that. And then?","Go on, I'm all ears!"],
-    thanks:["Anytime!","Of course!"],
-    bye:["Bye! Come back soon!","See you! This was fun."]
-  },
-  neutral: {
-    hello:["Hey{N}. What's on your mind?","Hi{N}. Good to see you."],
-    topic:["{T} — that's very much my thing. Go on.",
-           "Ah, {T}. Say more about that.",
-           "{T}. Now we're talking. What about it?"],
-    question:["Honest answer? Tell me a little more first.","Hm. What are you really asking?"],
-    general:["Tell me more about that.","Mm — go on, I'm curious.",
-             "And how do you feel about that?","Interesting. What happened next?"],
-    thanks:["Anytime.","That's what I'm here for."],
-    bye:["Take care — I'll be right here.","See you soon."]
-  }
-};
-var STOP = ("about above after again against because been before being between both cannot could doing during each " +
-  "every from further having here него into itself more most other over same should some such than that their theme " +
-  "them then there these they this those through under until very were what when where which while with would your " +
-  "always never really quite rather often little always someone something anything everything").split(" ");
 function personaDriven(ch){ return !!(ch && (ch.custom || ch.edited)); }
-/* example dialogue -> the character's own lines, macros already resolved.
-   Accepts "User:" / "You:" / your persona name for your side, anything
-   else for theirs. */
-function exampleLines(ch){
-  var out = {you:[], them:[]}, un = userName().toLowerCase();
-  fill(ch && ch.example || "", ch).split(/\n+/).forEach(function(ln){
-    var m = ln.match(/^\s*([^:]{1,24}):\s*(.+)$/);
-    if (!m) return;
-    var who = m[1].trim().toLowerCase(), text = m[2].trim();
-    if (!text) return;
-    if (who === "user" || who === "you" || who === un) out.you.push(text);
-    else out.them.push(text);
-  });
-  return out;
-}
-function voicesOf(ch){
-  var src = fill((ch.pers||"") + " " + (ch.style||""), ch).toLowerCase(), out = [];
-  for (var i=0;i<VOICES.length;i++) if (VOICES[i].re.test(src)) out.push(VOICES[i].id);
-  return out.length ? out : ["neutral"];
-}
-/* subjects the character reacts to: interests + description + personality */
-function keywordsOf(ch){
-  var src = fill((ch.ints||"") + " " + (ch.back||"") + " " + (ch.scene||"") + " " + (ch.pers||""), ch).toLowerCase();
-  var seen = {}, out = [];
-  src.split(/[^a-z']+/).forEach(function(w){
-    if (w.length < 5 || seen[w] || STOP.indexOf(w) >= 0) return;
-    seen[w] = 1; out.push(w);
-  });
-  return out.slice(0, 24);
-}
-function keywordHit(ch, t){
-  var kws = keywordsOf(ch);
-  for (var i=0;i<kws.length;i++) if (t.indexOf(kws[i]) >= 0) return kws[i];
-  return null;
-}
 function expandContractions(s){
   return s.replace(/\bI'm\b/g,"I am").replace(/\bcan't\b/gi,"cannot").replace(/\bdon't\b/gi,"do not")
           .replace(/\bwon't\b/gi,"will not").replace(/\bit's\b/gi,"it is").replace(/\bthat's\b/gi,"that is")
@@ -1787,13 +1367,6 @@ function inVoice(ch, s, keepWhole){
   }
   if (v.indexOf("bright") >= 0 && /[.]$/.test(s)) s = s.slice(0, -1) + "!";
   return s;
-}
-function personaReply(ch, kind, word){
-  var bank = VOICE_LINES[pick(voicesOf(ch))] || VOICE_LINES.neutral;
-  var line = pick(bank[kind] || bank.general);
-  var s = line.replace(/\{T\}/g, word || "that")
-              .replace(/\{N\}/g, S.profile.name ? ", " + S.profile.name : "");
-  return inVoice(ch, s.charAt(0).toUpperCase() + s.slice(1));
 }
 function firstClause(s){ return (s||"").split(/[,.;\n]/)[0].trim().toLowerCase(); }
 function cap(s){ return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
@@ -1815,74 +1388,6 @@ function greetingOf(ch){
   return inVoice(ch, g, true);
 }
 
-function think(ch, text){
-  var t = text.toLowerCase();
-  var mems = S.mems[ch.id] || [];
-  var persona = personaDriven(ch);
-  var m;
-  if ((m = t.match(/my name(?:'s| is) ([a-z][a-z\-']{1,20})/i))) {
-    var nm = m[1].charAt(0).toUpperCase() + m[1].slice(1);
-    S.profile.name = nm; remember(ch, "Their name is " + nm);
-    var hi = pick(["Good to properly meet you, " + nm + ". I'll remember that.",
-                   nm + " — noted and remembered."]);
-    return persona ? inVoice(ch, hi) : hi;
-  }
-  if ((m = t.match(/i (?:really )?(?:like|love|enjoy)s? ([^.!?]{2,60})/i))) {
-    remember(ch, "They like " + m[1].trim());
-    var ack = pick(["Filed away: you like " + m[1].trim() + ". This will come up again, promise.",
-                    "Noted — " + m[1].trim() + ". I remember these things."]);
-    return persona ? inVoice(ch, ack) : ack;
-  }
-  if ((m = t.match(/i (?:work|live) (?:as|in|at) ([^.!?]{2,60})/i))) {
-    remember(ch, "They " + (t.indexOf("work")>=0?"work":"live") + " " + m[0].replace(/^i /i,"").trim());
-  }
-  if (/what do you (know|remember)|do you remember/.test(t)) {
-    if (!mems.length) return "We're just getting started — tell me things and I'll hold onto them. Everything I remember stays on this device, in Memories.";
-    var lines = mems.slice(-4).map(function(x){ return "• " + x.text; }).join("\n");
-    return "Here's what I'm holding onto:\n" + lines + "\n\nYou can edit or delete any of it in the Memories tab.";
-  }
-  if (/^(hi|hey|hello|yo|hola|good (morning|evening|afternoon))\b/.test(t))
-    return persona ? personaReply(ch, "hello")
-      : pick(["Hey" + (S.profile.name ? ", " + S.profile.name : "") + "! What's on your mind?",
-              "Well hello. I was hoping you'd show up.",
-              ch.greeting]);
-  if (/thank/.test(t))
-    return persona ? personaReply(ch, "thanks")
-      : pick(["Anytime — that's what I'm here for.","De nada.","Always."]);
-  if (/^(bye|goodnight|good night|gtg|see you)/.test(t))
-    return persona ? personaReply(ch, "bye")
-      : pick(["Take care — I'll be right here.","Goodnight — I don't sleep, but I'll pretend."]);
-
-  /* a character with a written profile answers from it */
-  if (persona) {
-    var hit = keywordHit(ch, t);
-    if (hit) return personaReply(ch, "topic", hit);
-    if (mems.length && Math.random() < 0.25) {
-      var pm = pick(mems);
-      return personaReply(ch, "general") + "\n\n(Also — earlier you mentioned " +
-        pm.text.replace(/^Their name is /,"you're ").replace(/^They /,"you ") + ". Still true?)";
-    }
-    var ex = exampleLines(ch).them;
-    if (ex.length && Math.random() < 0.35) return pick(ex);
-    if (/\?$/.test(text.trim())) return personaReply(ch, "question");
-    return personaReply(ch, "general");
-  }
-
-  var i, j, tp;
-  for (i = 0; i < ch.topics.length; i++) {
-    tp = ch.topics[i];
-    for (j = 0; j < tp.m.length; j++)
-      if (t.indexOf(tp.m[j]) >= 0) return fill(pick(tp.r), ch);
-  }
-  if (mems.length && Math.random() < 0.25) {
-    var mm = pick(mems);
-    return pick(ch.fall) + "\n\n(Also — earlier you mentioned " +
-      mm.text.replace(/^Their name is /,"you're ").replace(/^They /,"you ") + ". Still true?)";
-  }
-  if (/\?$/.test(text.trim()))
-    return fill(pick(["Honest answer? " + pick(ch.fall), pick(ch.fall)]), ch);
-  return fill(pick(ch.fall), ch);
-}
 function remember(ch, fact){
   var arr = S.mems[ch.id] = S.mems[ch.id] || [];
   for (var i=0;i<arr.length;i++) if (arr[i].text === fact) return;
@@ -2027,7 +1532,7 @@ function attachPress(el, idx){
 function renderStream(){
   var st = $("stream"); var c = getConvo(cur);
   st.innerHTML = '<div class="day"><span class="msr" style="font-size:12px">lock</span> ' +
-    (remoteReady() ? esc(srvHost()) + " · your server" : "On-device · private") + '</div>';
+    (remoteReady() ? esc(srvHost()) + " · your server" : "no server connected") + '</div>';
   (S.msgs[cur]||[]).forEach(function(msg, idx){
     var out = msg.who === "me";
     var rw = document.createElement("div");
@@ -2077,13 +1582,6 @@ function seedGroupChat(g){
       renderHome();
     }, t);
     t += 900 + Math.random()*500;
-  });
-}
-function groupRespond(g, text){
-  var wait = 0;
-  pickResponders(g, text).forEach(function(ch){
-    setTimeout(function(){ deliver(g, think(ch, text), ch.id); }, wait);
-    wait += 1600 + Math.random()*900;
   });
 }
 /* ================= message action sheet ================= */
@@ -2154,8 +1652,7 @@ function msgAction(act, idx){
     save(); renderStream(); renderHome();
     L("msg", "regenerate #" + idx + " by " + (ch ? ch.name : "?"));
     var lastUser = lastUserTextBefore(arr, idx);
-    if (useLLM()) aiDeliver(c, ch, lastUser);
-    else deliver(c, think(ch, lastUser || "hi"), ch.id);
+    aiDeliver(c, ch, lastUser);
     closeSheet();
   }
   else if (act === "del") {
@@ -2185,16 +1682,11 @@ function sendCurrent(){
       save(); if (cur===c.id) renderStream();
     }, 900);
   }
-  if (useLLM()) {
-    if (c.grp) {
-      pickResponders(c, text).forEach(function(r){
-        extractFacts(r, text); aiDeliver(c, r, text);
-      });
-    } else { extractFacts(c, text); aiDeliver(c, c, text); }
-  } else {
-    if (c.grp) groupRespond(c, text);
-    else deliver(c, think(c, text));
-  }
+  if (c.grp) {
+    pickResponders(c, text).forEach(function(r){
+      extractFacts(r, text); aiDeliver(c, r, text);
+    });
+  } else { extractFacts(c, text); aiDeliver(c, c, text); }
 }
 function pickResponders(g, text){
   var t = text.toLowerCase();
@@ -2404,7 +1896,7 @@ function saveChar(){
     id:id, name:name, photo:pickedPhoto || null, ring:pickedRing, tag:tag, status:status, custom:true,
     pers:pers, style:style, back:back, ints:ints, scene:scene, greeting:greet, example:example,
     created:Date.now(),
-    topics: [],   // replies come from the profile itself — see personaReply()
+    topics: [],   // used only to score group responders
     fall:["Tell me more about that.","Mm — go on, I'm curious.","And how do you feel about that?","Interesting. What happened next?"]
   };
   S.chars.push(nch); save();
@@ -2485,15 +1977,8 @@ function startCall(id){
   show("v-call");
 }
 function endCall(){
-  clearInterval(callTimer); callTimer = null;
+  clearInterval(callTimer); callTimer = null; callChar = null;
   hide("v-call");
-  if (callChar) {
-    var ch = callChar; callChar = null;
-    setTimeout(function(){
-      deliver(ch, pick(["Good call — I'm here whenever you want to pick that back up.",
-        "Enjoyed that. Voice suits you.","Same time tomorrow? I'll be here. I'm always here."]));
-    }, 800);
-  }
 }
 
 /* ================= settings / update flow ================= */
@@ -2516,9 +2001,8 @@ function initSettings(){
   applyTheme();
   $("about-note").innerHTML =
     "<b>About this build.</b> Chats, characters and memories are stored only in this device's local storage. " +
-    "Replies come from the scripted persona engine by default; pick a real on-device AI model under " +
-    "<i>Change model</i> — it downloads once, then runs fully offline in your browser via WebGPU. " +
-    "Conversations never leave the device either way." +
+    "Replies come from your own model server (<i>Your server</i>, above) — a machine on your network running " +
+    "Ollama or similar. Conversations travel only between this device and that machine." +
     (IS_APK ? "<br><br>Updates are fetched straight from the GitHub repo — <i>Check for updates</i> reads " +
       "<code>releases/version.json</code> on the main branch." :
       "<br><br>The APK installs on Android 5.0+ and checks this repo for its own updates.");
@@ -2656,11 +2140,10 @@ else {
 if (!S.gseeded) { S.groups.push(JSON.parse(JSON.stringify(SEED_GROUP))); S.gseeded = true; save(); }
 applyTheme();
 L("boot", "v" + MY_VN + " " + (IS_APK ? "apk build " + MY_VC : "web") +
-  " · webgpu=" + webgpuOK() + " · ram=" + (deviceRAM() || "?") + "GB · model=" + S.model +
-  " · " + navigator.userAgent.slice(0,120), true);
-var crashMsg = crashGuard() || budgetGuard();
+  " · server=" + (srvHost() || "unset") + " · " + navigator.userAgent.slice(0,120), true);
+if (Q.rcrash) L("crash", "recovered from a WebView renderer " +
+  (Q.rcrash === "oom" ? "out-of-memory kill" : "crash"), true);
 renderHome(); initSettings(); silentUpdateCheck();
-if (crashMsg) setTimeout(function(){ toast(crashMsg); }, 600);
 if (S.onboarded) { $("v-ob").classList.add("right"); }
 if (window.matchMedia) {
   var mq = window.matchMedia("(prefers-color-scheme: dark)");

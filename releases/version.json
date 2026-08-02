@@ -1,6 +1,6 @@
 {
-  "versionCode": 14,
-  "versionName": "0.5.0",
+  "versionCode": 15,
+  "versionName": "0.6.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Characters remember the whole conversation. The history window grows from 16 to 48 messages, and everything older is folded into a rolling summary the character keeps reading — so message 300 can still reference message 5. Pinned memories are now always sent. Tuned sampling for long roleplay. Built for a real model server; the scripted engine is unaffected."
+  "notes": "Server-only. The on-device model catalog and the scripted reply engine are gone — every reply now comes from the model server you connect under Settings → Your server, and if it's unreachable the app says so instead of answering with canned lines. Slimmer, honest about where words come from, built for one good model on your own box."
 }
