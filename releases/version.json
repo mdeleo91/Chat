@@ -1,6 +1,6 @@
 {
-  "versionCode": 26,
-  "versionName": "0.13.1",
+  "versionCode": 27,
+  "versionName": "0.13.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "See where every photo comes from. The troubleshooting log now records each picture's full route — selfie or photo, FLUX or GLM, how many references and LoRAs went along — on success, not just failure, so a wrong-face selfie is diagnosable at a glance. Characters are also told more firmly that any picture showing themselves must be a selfie, since only selfies use the reference photos."
+  "notes": "Selfies hold the face. Reference-based selfies now address FLUX Kontext as an edit of exactly this person — identical face, hair and build — and style LoRAs are automatically damped to 70% on selfies so they can't out-vote the identity. Characters also stop tagging scenery as selfies: a picture of what they're looking at is a photo, and only pictures they appear in go through the face pipeline."
 }

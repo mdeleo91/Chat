@@ -1030,10 +1030,19 @@ function lorasFor(ch){
 }
 function falImage(desc, ch, isSelfie, cb, onFail){
   var refs = isSelfie ? (ch && ch.refimgs || []) : [];
+  var loras = lorasFor(ch);
+  /* Kontext keeps a face best when addressed as an edit of "this person",
+     and when style LoRAs are damped so they can't out-vote the identity */
+  if (refs.length)
+    loras = loras.map(function(l){
+      return {path: l.path, scale: Math.round(((l.scale || 1) * 0.7) * 100) / 100};
+    });
   var body = {
-    prompt: (refs.length ? "A new photo of the same person as the reference image. " : "") +
-      imgPrompt(ch, desc, isSelfie),
-    loras: lorasFor(ch),
+    prompt: (refs.length
+      ? "This is a photo of a person. Create a new photo of exactly this same person — identical " +
+        "face, hair and build, unmistakably them — now: "
+      : "") + imgPrompt(ch, desc, isSelfie),
+    loras: loras,
     output_format: "jpeg",
     sync_mode: true
   };
@@ -1218,9 +1227,10 @@ function sysPrompt(ch, convo){
     p += "You can send a photo of your own: end your message with [photo: a short visual description " +
       "of the picture] on its own line — or [selfie: description] when you yourself appear in it. " +
       "Use them when you'd naturally share a picture — what you're looking at, something you made, " +
-      "yourself — or when the user asks for one. IMPORTANT: any picture that shows you, your face or " +
-      "your body — including mirror shots and pictures of you doing something — must use the selfie " +
-      "tag, never photo. At most one per message; don't also describe sending it in your text.\n";
+      "yourself — or when the user asks for one. Choosing the tag: selfie is for any picture you " +
+      "appear in (your face or body, mirror shots included); photo is for everything else — rooms, " +
+      "views, objects, food, other people. A picture of what you're looking at is a photo, not a " +
+      "selfie. At most one per message; don't also describe sending it in your text.\n";
   p += "Reply like a text message: short (1-3 sentences unless the user asks for more), natural, " +
     "in character, plain text without markdown. Never mention being a language model.\n";
   /* --- volatile from here down --- */
