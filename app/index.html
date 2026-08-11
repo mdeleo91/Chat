@@ -1010,7 +1010,8 @@ function imgResponse(p, tag, cb, onFail){
 var FAL_T2I_URL = "https://fal.run/fal-ai/flux-lora";
 var FAL_I2I_URL = "https://fal.run/fal-ai/flux-kontext-lora";
 function fal(){
-  if (!S.fal) S.fal = {key:"", lora:"", err:""};
+  if (!S.fal) S.fal = {key:"", lora:"", trigger:"", err:""};
+  if (S.fal.trigger === undefined) S.fal.trigger = "";
   return S.fal;
 }
 function falReady(){ return !!(fal().key || "").trim(); }
@@ -1037,11 +1038,12 @@ function falImage(desc, ch, isSelfie, cb, onFail){
     loras = loras.map(function(l){
       return {path: l.path, scale: Math.round(((l.scale || 1) * 0.7) * 100) / 100};
     });
+  var trig = (fal().trigger || "").trim();
   var body = {
     prompt: (refs.length
       ? "This is a photo of a person. Create a new photo of exactly this same person — identical " +
         "face, hair and build, unmistakably them — now: "
-      : "") + imgPrompt(ch, desc, isSelfie),
+      : "") + imgPrompt(ch, desc, isSelfie) + (trig ? "\n" + trig : ""),
     loras: loras,
     output_format: "jpeg",
     sync_mode: true
@@ -1501,10 +1503,16 @@ function deliverPhoto(convo, ch, desc, isSelfie){
   /* FLUX first when a fal key is set — falling back to GLM if fal errors —
      otherwise straight to GLM */
   var refs = (ch && ch.refimgs || []).length;
+  var damp = isSelfie && refs && falReady() ? 0.7 : 1;
+  var llist = falReady() ? lorasFor(ch).map(function(l){
+    return l.path.split("/").pop().split("?")[0] + "@" +
+           Math.round(((l.scale || 1) * damp) * 100) / 100;
+  }).join(",") : "";
   L("img", "route: " + (isSelfie ? "selfie" : "photo") + " · engine=" +
     (falReady() ? "flux" : "glm") + " · refs=" + refs +
     (isSelfie ? "" : " (plain photos never use refs)") +
-    " · loras=" + (falReady() ? lorasFor(ch).length : 0) +
+    " · loras=" + (llist || "none") +
+    ((fal().trigger || "").trim() ? " · trigger set" : "") +
     " · “" + desc.slice(0, 60) + "”", true);
   var viaGlm = function(){
     if (isSelfie) glmSelfie(desc, ch, onDone);
@@ -1564,6 +1572,10 @@ function falSectionHTML(){
        'every photo; an amateur-photography LoRA here is the single biggest realism upgrade.</div>';
   h += '<textarea id="fal-lora" class="srvinput" rows="2" style="resize:none" ' +
        'placeholder="https://…/amateur_photo.safetensors 0.8">' + esc(f.lora || "") + '</textarea>';
+  h += '<div class="ds" style="padding:8px 0 4px">LoRA trigger words — appended to every FLUX ' +
+       'prompt. Copy them from the LoRA\'s page; many LoRAs barely activate without them.</div>';
+  h += '<input id="fal-trigger" class="srvinput" placeholder="e.g. amateur photo" ' +
+       'value="' + esc(f.trigger || "") + '">';
   return h;
 }
 function wireFalUI(card){
@@ -1571,6 +1583,8 @@ function wireFalUI(card){
   if (key) key.oninput = function(){ fal().key = key.value; save(); };
   var lr = card.querySelector("#fal-lora");
   if (lr) lr.onchange = function(){ fal().lora = lr.value; save(); };
+  var tg = card.querySelector("#fal-trigger");
+  if (tg) tg.onchange = function(){ fal().trigger = tg.value; save(); };
 }
 function wireGlmUI(card){
   var key = card.querySelector("#glm-key");
