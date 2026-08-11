@@ -187,6 +187,7 @@
   .mrow.in .msg{background:var(--surface);border-bottom-left-radius:5px}
   .mrow.out .msg{background:var(--out);border-bottom-right-radius:5px}
   .msg .who{display:block;font-size:11.5px;font-weight:800;margin-bottom:2px}
+  .msg .mimg{display:block;max-width:100%;border-radius:12px;margin:2px 0 6px}
   .msg .mt{float:right;font-size:10px;color:var(--mist);margin:8px -4px 0 8px}
   .msg .mt .tick{color:var(--acc-deep);font-size:12px}
   .msg .react{position:absolute;bottom:-12px;right:8px;background:var(--surface);
@@ -465,6 +466,9 @@
     <div class="scenebar"><button class="scenepill" id="scene-pill"></button></div>
     <div class="stream" id="stream"></div>
     <div class="composer">
+      <button class="rndbtn" id="attach" title="Send a photo">
+        <span class="msr" style="font-size:20px">image</span></button>
+      <input type="file" id="attach-file" accept="image/*" hidden>
       <textarea class="cfield" id="input" rows="1" placeholder="Message…"></textarea>
       <button class="rndbtn" id="mic" title="Voice call">
         <span class="msr" style="font-size:20px">mic</span></button>
@@ -936,9 +940,11 @@ function remoteReady(){ return !!(srvBase() && srv().model); }
    leave the network and go to Z.ai — the UI says so wherever it applies. */
 var GLM_URL = "https://api.z.ai/api/paas/v4/chat/completions";
 var GLM_DEFAULT_MODEL = "glm-5.2";
+var GLM_VISION_MODEL = "glm-5v-turbo";   // used automatically when a photo is in the conversation
 function glm(){
   if (!S.glm) S.glm = {key:"", model:GLM_DEFAULT_MODEL, err:""};
   if (!S.glm.model) S.glm.model = GLM_DEFAULT_MODEL;
+  if (!S.glm.vmodel) S.glm.vmodel = GLM_VISION_MODEL;
   return S.glm;
 }
 function glmReady(){ return !!(glm().key || "").trim(); }
@@ -994,10 +1000,22 @@ function srvProbe(cb){
     save(); cb(srv().err);
   });
 }
+/* photos ride along as OpenAI-style image_url content parts; a request that
+   carries one needs a model with eyes */
+function messagesHaveImage(messages){
+  return messages.some(function(m){
+    return Array.isArray(m.content) && m.content.some(function(p){
+      return p.type === "image_url";
+    });
+  });
+}
 /* stream a completion from whichever engine is selected */
 async function remoteGenerate(messages, onDelta){
+  var model = apiModel();
+  if (engine() === "glm" && messagesHaveImage(messages))
+    model = glm().vmodel || GLM_VISION_MODEL;
   var body = {
-    model: apiModel(), messages: messages, stream: true,
+    model: model, messages: messages, stream: true,
     temperature: 0.85, top_p: 0.95, max_tokens: 512,
     presence_penalty: 0.3, frequency_penalty: 0.3
   };
@@ -1108,14 +1126,28 @@ function histWindow(convo){
 }
 function buildMessages(ch, convo, nudge){
   var msgs = [{role:"system", content:sysPrompt(ch, convo)}];
+  /* content is a plain string until a photo forces the array-of-parts form */
+  function toParts(c){
+    if (Array.isArray(c)) return c;
+    return c ? [{type:"text", text:c}] : [];
+  }
   function add(role, content){
     var last = msgs[msgs.length-1];
-    if (last.role === role) last.content += "\n" + content;
-    else msgs.push({role:role, content:content});
+    if (last.role === role) {
+      if (typeof last.content === "string" && typeof content === "string")
+        last.content += "\n" + content;
+      else last.content = toParts(last.content).concat(toParts(content));
+    } else msgs.push({role:role, content:content});
   }
   histWindow(convo).forEach(function(m){
     if (m.who === "scene") add("user", "[Scene: " + m.text + "]");
-    else if (m.who === "me") add("user", m.text);
+    else if (m.who === "me") {
+      if (m.img) {
+        var parts = [{type:"image_url", image_url:{url:m.img}}];
+        if (m.text) parts.push({type:"text", text:m.text});
+        add("user", parts);
+      } else add("user", m.text);
+    }
     else if (convo.grp && m.by !== ch.id) {
       var by = getChar(m.by);
       add("user", (by ? by.name : "Someone") + ": " + m.text);
@@ -1154,7 +1186,9 @@ function scheduleSummarize(convo){
   var pending = sm ? arr.filter(function(m){ return m.ts > sm.ts; }) : arr.slice();
   if (pending.length <= HIST_CAP) return;
   var chunk = pending.slice(0, EVICT_CHUNK);
-  var transcript = chunk.map(function(m){ return speakerName(convo, m) + ": " + m.text; }).join("\n");
+  var transcript = chunk.map(function(m){
+    return speakerName(convo, m) + ": " + (m.img ? "[sent a photo] " : "") + m.text;
+  }).join("\n");
   SUMBUSY[convo.id] = true;
   enqueue(function(done){
     ensureEngine(function(err, engine){
@@ -1301,8 +1335,13 @@ function glmSectionHTML(){
        'conversations on this engine are sent to Z.ai.</div>';
   h += '<input id="glm-key" class="srvinput" type="password" autocomplete="off" ' +
        'placeholder="Z.ai API key" value="' + esc(g.key || "") + '">';
-  h += '<input id="glm-model" class="srvinput" style="margin-top:8px" ' +
+  h += '<div class="ds" style="padding:8px 0 4px">Text model</div>';
+  h += '<input id="glm-model" class="srvinput" ' +
        'placeholder="' + GLM_DEFAULT_MODEL + '" value="' + esc(g.model || "") + '">';
+  h += '<div class="ds" style="padding:8px 0 4px">Vision model — takes over automatically while a ' +
+       'photo is in the conversation, then hands back</div>';
+  h += '<input id="glm-vmodel" class="srvinput" ' +
+       'placeholder="' + GLM_VISION_MODEL + '" value="' + esc(g.vmodel || "") + '">';
   h += '<div class="srvbtns"><button class="use" id="glm-test">Test key</button>' +
        '<span class="dl">' + esc(g.model || GLM_DEFAULT_MODEL) + ' · flagship</span></div>';
   if (g.err)
@@ -1316,6 +1355,11 @@ function wireGlmUI(card){
   if (mdl) mdl.onchange = function(){
     glm().model = mdl.value.trim() || GLM_DEFAULT_MODEL;
     save(); initSettings(); updateChatStat();
+  };
+  var vmdl = card.querySelector("#glm-vmodel");
+  if (vmdl) vmdl.onchange = function(){
+    glm().vmodel = vmdl.value.trim() || GLM_VISION_MODEL;
+    save(); updateChatStat();
   };
   var test = card.querySelector("#glm-test");
   if (test) test.onclick = function(){
@@ -1331,7 +1375,8 @@ function serverSectionHTML(){
   var s = srv(), h = "";
   h += '<div class="ds" style="padding:14px 0 6px;font-weight:800;letter-spacing:.5px">YOUR SERVER</div>';
   h += '<div class="ds" style="padding-bottom:8px">A machine on your network running Ollama, llama.cpp, ' +
-       'LM Studio or vLLM. Private: conversations only travel between your devices.</div>';
+       'LM Studio or vLLM. Private: conversations only travel between your devices. Photos you send go ' +
+       'to whatever model is loaded — it needs to be a vision model (qwen-VL, llava…) to see them.</div>';
   h += '<input id="srv-url" class="srvinput" placeholder="192.168.1.50:11434" value="' + esc(s.url || "") + '">';
   h += '<div class="srvbtns"><button class="use" id="srv-connect">Connect</button>' +
        (s.models && s.models.length
@@ -1404,9 +1449,15 @@ function updateChatStat(){
   if (!cur) return;
   var c = getConvo(cur); if (!c || c.grp) return;
   var el = $("chat-stat");
-  if (engineReady())
-    el.innerHTML = '<span class="on">online</span> · via ' +
-      esc(engine() === "glm" ? glm().model + " (Z.ai)" : srvHost());
+  if (engineReady()) {
+    var label;
+    if (engine() === "glm") {
+      /* a photo still in the window means the vision model is answering */
+      var vis = histWindow(c).some(function(m){ return !!m.img; });
+      label = (vis ? glm().vmodel : glm().model) + " (Z.ai)";
+    } else label = srvHost();
+    el.innerHTML = '<span class="on">online</span> · via ' + esc(label);
+  }
   else
     el.innerHTML = '<span style="color:var(--danger)">' + (engine() === "glm"
       ? "no GLM API key — add one in Settings"
@@ -1463,6 +1514,28 @@ function readPhoto(file, cb){
       var side = Math.min(img.width, img.height);
       g.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, N, N);
       try { cb(cv.toDataURL("image/jpeg", 0.82)); }
+      catch (e) { toast("Couldn't process that image"); }
+    };
+    img.onerror = function(){ toast("That file isn't an image"); };
+    img.src = fr.result;
+  };
+  fr.onerror = function(){ toast("Couldn't read that file"); };
+  fr.readAsDataURL(file);
+}
+/* downscale a picked photo for sending in chat: keeps aspect ratio, fits in
+   localStorage, and is plenty of pixels for a vision model to look at */
+function readChatPhoto(file, cb){
+  if (!file) return;
+  var fr = new FileReader();
+  fr.onload = function(){
+    var img = new Image();
+    img.onload = function(){
+      var MAX = 896, k = Math.min(1, MAX / Math.max(img.width, img.height));
+      var cv = document.createElement("canvas");
+      cv.width = Math.max(1, Math.round(img.width * k));
+      cv.height = Math.max(1, Math.round(img.height * k));
+      cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+      try { cb(cv.toDataURL("image/jpeg", 0.8)); }
       catch (e) { toast("Couldn't process that image"); }
     };
     img.onerror = function(){ toast("That file isn't an image"); };
@@ -1590,10 +1663,13 @@ function renderHome(){
     var lm = lastMsg(c.id);
     var prev;
     if (lm) {
+      var body = lm.img
+        ? '<span class="msr" style="font-size:12px">image</span> ' + esc(lm.text || "Photo")
+        : esc(lm.text);
       if (lm.who === "scene") prev = '<span class="msr" style="font-size:12px">theaters</span> ' + esc(lm.text);
-      else if (lm.who === "me") prev = '<span class="tick msr">done_all</span> ' + esc(lm.text);
-      else if (c.grp) { var by = getChar(lm.by); prev = esc((by?by.name:"?") + ": " + lm.text); }
-      else prev = esc(lm.text);
+      else if (lm.who === "me") prev = '<span class="tick msr">done_all</span> ' + body;
+      else if (c.grp) { var by = getChar(lm.by); prev = esc((by?by.name:"?") + ": ") + body; }
+      else prev = body;
     } else prev = esc(c.grp ? c.members.length + " members" : fill(c.status, c));
     var row = document.createElement("div"); row.className = "row";
     row.innerHTML =
@@ -1686,7 +1762,7 @@ function renderStream(){
       rw.innerHTML = avatarEl(by || {name:"?"}, "xs");
       inner += '<span class="who" style="color:'+(by?by.ring:"var(--acc)")+'">'+esc(by?by.name:"?")+'</span>';
     }
-    inner += esc(msg.text) +
+    inner += (msg.img ? '<img class="mimg" src="' + msg.img + '">' : '') + esc(msg.text) +
       '<span class="mt">'+fmtClock(msg.ts)+(out?' <span class="tick msr">done_all</span>':'')+'</span>' +
       (msg.react?'<span class="react"><span class="msr fill">'+esc(msg.react)+'</span></span>':'');
     var b = document.createElement("div"); b.className = "msg"; b.innerHTML = inner;
@@ -1697,8 +1773,9 @@ function renderStream(){
   ty.innerHTML="<i></i><i></i><i></i>"; st.appendChild(ty);
   st.scrollTop = st.scrollHeight;
 }
-function pushMsg(id, who, text, by){
-  (S.msgs[id] = S.msgs[id] || []).push({who:who, text:text, ts:Date.now(), by:by||null, react:null});
+function pushMsg(id, who, text, by, img){
+  (S.msgs[id] = S.msgs[id] || []).push({who:who, text:text, ts:Date.now(), by:by||null,
+    react:null, img:img||null});
   save();
 }
 function deliver(c, reply, by){
@@ -1788,7 +1865,7 @@ function openMsgSheet(idx){
   var mine = m.who === "me";
   var sh = $("asheet");
   sh.innerHTML = '<div class="grip"></div>' +
-    '<div class="as-msg">' + esc(m.text.slice(0,180)) + '</div>' +
+    '<div class="as-msg">' + esc((m.text || (m.img ? "Photo" : "")).slice(0,180)) + '</div>' +
     '<button class="as-btn" data-act="copy"><span class="msr">content_copy</span>Copy text</button>' +
     (mine ? '<button class="as-btn" data-act="edit"><span class="msr">edit</span>Edit message</button>'
           : '<button class="as-btn" data-act="regen"><span class="msr">refresh</span>Regenerate reply</button>') +
@@ -1864,20 +1941,30 @@ function sendCurrent(){
   if (!cur) return;
   if (!text) { continueConvo(); return; }
   inp.value = ""; inp.style.height = "auto";
-  var c = getConvo(cur);
-  pushMsg(cur, "me", text);
-  renderStream(); renderHome();
-  if (/!|thank|love|great|awesome/i.test(text) && Math.random() < 0.5) {
+  sendUserMessage(text, null);
+}
+/* shared by the send button (text only) and the attach button (photo,
+   with whatever was in the field as its caption) */
+function sendUserMessage(text, img){
+  var c = getConvo(cur); if (!c) return;
+  pushMsg(cur, "me", text, null, img);
+  renderStream(); renderHome(); updateChatStat();
+  if (text && /!|thank|love|great|awesome/i.test(text) && Math.random() < 0.5) {
     setTimeout(function(){
       var arr = S.msgs[cur]; arr[arr.length-1].react = pick(REACTIONS);
       save(); if (cur===c.id) renderStream();
     }, 900);
   }
+  var routeText = text || "[photo]";   // group-responder scoring needs something
   if (c.grp) {
-    pickResponders(c, text).forEach(function(r){
-      extractFacts(r, text); aiDeliver(c, r, text);
+    pickResponders(c, routeText).forEach(function(r){
+      if (text) extractFacts(r, text);
+      aiDeliver(c, r, routeText);
     });
-  } else { extractFacts(c, text); aiDeliver(c, c, text); }
+  } else {
+    if (text) extractFacts(c, text);
+    aiDeliver(c, c, routeText);
+  }
 }
 function pickResponders(g, text){
   var t = text.toLowerCase();
@@ -2377,6 +2464,16 @@ $("chat-contact").onclick = function(){ var c = getConvo(cur); if (c && !c.grp) 
 $("chat-call").onclick = function(){ if (cur) startCall(cur); };
 $("mic").onclick = function(){ if (cur && !getConvo(cur).grp) startCall(cur); else toast("Voice calls are 1-on-1 for now"); };
 $("send").onclick = sendCurrent;
+$("attach").onclick = function(){ if (cur) $("attach-file").click(); };
+$("attach-file").addEventListener("change", function(){
+  var f = this.files && this.files[0]; this.value = "";
+  if (!f || !cur) return;
+  readChatPhoto(f, function(dataUrl){
+    var inp = $("input"), caption = inp.value.trim();
+    inp.value = ""; inp.style.height = "auto";
+    sendUserMessage(caption, dataUrl);
+  });
+});
 $("input").addEventListener("keydown", function(e){
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendCurrent(); }
 });

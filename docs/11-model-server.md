@@ -92,6 +92,11 @@ Exactly what the on-device path builds — same code, in `sysPrompt()` and
 - that character's stored memories (most recent 12)
 - group-chat context, when the conversation is a group
 - the last 16 messages of history
+- photos you've sent, as base64 `image_url` content parts — on GLM cloud these
+  automatically switch the request to the vision model (`glm-5v-turbo` by
+  default) until the photo leaves the history window; on your own server they
+  go to whatever model is loaded, which needs to be a vision model (qwen-VL,
+  llava…) to see them
 
 Sampling is `temperature 0.85`, `top_p 0.95`, `max_tokens 512`, with presence and
 frequency penalties at `0.3` to stop the repetition loops that roleplay

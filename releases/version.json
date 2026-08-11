@@ -1,6 +1,6 @@
 {
-  "versionCode": 17,
-  "versionName": "0.7.0",
+  "versionCode": 18,
+  "versionName": "0.8.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Two engines. Settings → Change model now toggles where replies come from: your own server on the network (private, as before) or GLM cloud — Z.ai's flagship glm-5.2 with an API key, so characters answer anywhere you have internet. Only the selected engine ever replies."
+  "notes": "Send photos. A new attach button in the chat puts a picture in the conversation — the character sees it and reacts. On GLM cloud the app hops to the vision model (glm-5v-turbo) just for messages where a photo is in play, then returns to glm-5.2; your own server gets photos too if it runs a vision model. Whatever's in the message box when you attach becomes the caption."
 }
