@@ -42,6 +42,12 @@ frame). The description is rendered by the image model and delivered as its
 own picture bubble; the description — not the pixels — stays in history, so
 the character remembers what it showed.
 
+With mature mode on, characters may additionally mark an individual picture
+`[selfie 18+: …]` / `[photo 18+: …]` when the moment is itself intimate —
+only those photos lift fal's safety checker and match `18+`-gated LoRAs;
+everyday pictures during a mature chat stay tame. With mature mode off the
+marker is ignored.
+
 - Generated shots come out portrait with a "throwaway phone snapshot" style
   baked into the prompt; a character's **Photo style** field replaces that
   default.

@@ -1,6 +1,6 @@
 {
-  "versionCode": 33,
-  "versionName": "0.14.3",
+  "versionCode": 34,
+  "versionName": "0.15.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "18+ as a LoRA condition. Word-matching mature LoRAs against photo descriptions was unreliable — the text model writes them tamely, so the keywords never hit. Putting 18+ in a LoRA's When field now loads it whenever Mature roleplay is on, alone or alongside regular keywords."
+  "notes": "Mature per moment, not per toggle. With Mature roleplay on, characters now decide photo-by-photo: only pictures they mark 18+ — when the conversation has actually gone there — lift the safety checker and load 18+-gated LoRAs. Date-night escalation gets mature images; the morning coffee selfie stays tame, with zero LoRA bleed. The marker is remembered in the chat history and shows in the route log."
 }

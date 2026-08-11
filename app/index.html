@@ -1047,7 +1047,7 @@ function chLoraList(ch){
 /* which LoRAs actually apply to this photo, plus their trigger add-ons.
    Empty "when" = every photo (style LoRAs); keywords = only when the photo's
    description mentions one, so subject LoRAs can't bleed into other shots. */
-function lorasFor(ch, desc){
+function lorasFor(ch, desc, isMature){
   var t = (desc || "").toLowerCase();
   var loras = [], adds = [];
   fal().loras.concat(chLoraList(ch)).forEach(function(l){
@@ -1055,11 +1055,11 @@ function lorasFor(ch, desc){
     if (!path) return;
     var kws = (l.when || "").split(",")
       .map(function(k){ return k.trim().toLowerCase(); }).filter(Boolean);
-    /* "18+" is a special keyword: matches whenever mature mode is on —
-       far more reliable than word-matching descriptions the text model
-       writes tamely */
+    /* "18+" is a special keyword: matches when the character marked this
+       photo mature (only possible while mature mode is on) — far more
+       reliable than word-matching descriptions the text model writes tamely */
     if (kws.length && !kws.some(function(k){
-      return k === "18+" ? matureActive() : t.indexOf(k) >= 0;
+      return k === "18+" ? !!isMature : t.indexOf(k) >= 0;
     })) return;
     if ((l.add || "").trim()) adds.push(l.add.trim());
     loras.push(l.scale ? {path: path, scale: l.scale} : {path: path});
@@ -1076,7 +1076,7 @@ function loraRowsHTML(list){
       '<button class="icb lr-x" title="Remove LoRA"><span class="msr" style="font-size:16px">close</span></button></div>' +
       '<div class="lr2"><div style="width:88px"><span class="lbl">STRENGTH</span>' +
       '<input class="srvinput lr-scale" inputmode="decimal" placeholder="1.0" value="' + (l.scale || "") + '"></div>' +
-      '<div style="flex:1"><span class="lbl">WHEN — keywords, comma separated; empty = every photo; 18+ = while mature mode is on</span>' +
+      '<div style="flex:1"><span class="lbl">WHEN — keywords, comma separated; empty = every photo; 18+ = only photos the character marks mature</span>' +
       '<input class="srvinput lr-when" placeholder="always" value="' + esc(l.when || "") + '"></div></div>' +
       '<span class="lbl">TRIGGER WORDS — sent along when this LoRA loads</span>' +
       '<input class="srvinput lr-add" placeholder="none" value="' + esc(l.add || "") + '">' +
@@ -1106,9 +1106,9 @@ function wireLoraList(root, list, onChange){
     }
   });
 }
-function falImage(desc, ch, isSelfie, cb, onFail){
+function falImage(desc, ch, isSelfie, isMature, cb, onFail){
   var refs = isSelfie ? (ch && ch.refimgs || []) : [];
-  var lf = lorasFor(ch, desc), loras = lf.loras;
+  var lf = lorasFor(ch, desc, isMature), loras = lf.loras;
   /* Kontext keeps a face best when addressed as an edit of "this person",
      and when style LoRAs are damped so they can't out-vote the identity */
   if (refs.length)
@@ -1125,9 +1125,10 @@ function falImage(desc, ch, isSelfie, cb, onFail){
     loras: loras,
     output_format: "jpeg",
     sync_mode: true,
-    /* follows the 18+ toggle: mature mode off => fal's safety checker stays on.
-       Only ever for fictional characters — never reference photos of real people. */
-    enable_safety_checker: !matureActive()
+    /* the checker lifts only for photos the character marked 18+ (which
+       requires mature mode on). Only ever for fictional characters — never
+       reference photos of real people. */
+    enable_safety_checker: !isMature
   };
   var url = refs.length ? FAL_I2I_URL : FAL_T2I_URL;
   if (refs.length) body.image_url = refs[0];
@@ -1314,7 +1315,12 @@ function sysPrompt(ch, convo){
       "appear in (your face or body, mirror shots included), and its description must describe you — " +
       "your expression, pose, what you're wearing. photo is for everything else — rooms, views, " +
       "objects, food, other people; if asked for a picture of a place or thing, send the place or " +
-      "thing, without you in it. At most one per message; don't also describe sending it in your text.\n";
+      "thing, without you in it. At most one per message; don't also describe sending it in your text.\n" +
+      (matureActive()
+        ? "When the conversation has turned intimate and the picture itself is meant to be risqué or " +
+          "explicit, add 18+ to the tag: [selfie 18+: …] or [photo 18+: …]. Ordinary pictures during " +
+          "flirty conversation stay untagged — reserve 18+ for pictures that are themselves mature.\n"
+        : "");
   p += "Reply like a text message: short (1-3 sentences unless the user asks for more), natural, " +
     "in character, plain text without markdown. Never mention being a language model.\n";
   /* --- volatile from here down --- */
@@ -1389,7 +1395,8 @@ function buildMessages(ch, convo, nudge){
          model remembers what it "showed" without re-uploading pixels */
       var t = m.text || "";
       if (m.img && m.imgd)
-        t = (t ? t + "\n" : "") + "[" + (m.sf ? "selfie" : "photo") + ": " + m.imgd + "]";
+        t = (t ? t + "\n" : "") + "[" + (m.sf ? "selfie" : "photo") +
+            (m.mat ? " 18+" : "") + ": " + m.imgd + "]";
       add("assistant", t);
     }
   });
@@ -1510,8 +1517,8 @@ async function runGeneration(convo, ch, nudge, done){
   /* the [photo: …] tag is protocol, not prose — keep it off the screen even
      mid-stream, including a partially received one at the end */
   function hidePhotoTag(t){
-    return t.replace(/\[(?:photo|selfie):[^\]]*\]\s*/gi, "")
-            .replace(/\[(?:photo|selfie):[^\]]*$/i, "");
+    return t.replace(/\[(?:photo|selfie)[^\]:]*:[^\]]*\]\s*/gi, "")
+            .replace(/\[(?:photo|selfie)[^\]:]*:[^\]]*$/i, "");
   }
   function onDelta(delta){
     if (!delta) return;
@@ -1529,9 +1536,12 @@ async function runGeneration(convo, ch, nudge, done){
     await remoteGenerate(msgs, onDelta);
     txt = visible(txt).trim();
     /* the character may have decided to send a picture */
-    var photoDesc = null, isSelfie = false;
-    txt = txt.replace(/\[(photo|selfie):\s*([^\]]{3,400})\]/i, function(_, kind, d){
-      photoDesc = d.trim(); isSelfie = kind.toLowerCase() === "selfie"; return "";
+    var photoDesc = null, isSelfie = false, isMature = false;
+    txt = txt.replace(/\[(photo|selfie)(\s*18\+)?\s*:\s*([^\]]{3,400})\]/i, function(_, kind, mat, d){
+      photoDesc = d.trim();
+      isSelfie = kind.toLowerCase() === "selfie";
+      isMature = !!mat && matureActive();
+      return "";
     }).trim();
     /* models over-tag selfies ("your classroom" → selfie), and the identity
        prefix then paints the person instead of the scene. If the description
@@ -1549,7 +1559,7 @@ async function runGeneration(convo, ch, nudge, done){
       renderHome();
     } else if (liveEl) liveEl.remove();
     scheduleSummarize(convo);
-    if (photoDesc) deliverPhoto(convo, ch, photoDesc, isSelfie);
+    if (photoDesc) deliverPhoto(convo, ch, photoDesc, isSelfie, isMature);
   } catch(e) {
     if (liveEl) liveEl.remove();
     var ty3 = $("ty"); if (ty3) ty3.classList.remove("on");
@@ -1563,7 +1573,7 @@ async function runGeneration(convo, ch, nudge, done){
 }
 /* the picture a character chose to send, generated then delivered as its own
    message — typing dots show while CogView paints */
-function deliverPhoto(convo, ch, desc, isSelfie){
+function deliverPhoto(convo, ch, desc, isSelfie, isMature){
   var ty = $("ty");
   if (cur === convo.id && ty){ ty.classList.add("on"); $("stream").scrollTop = 1e9; }
   var onDone = function(url){
@@ -1575,7 +1585,7 @@ function deliverPhoto(convo, ch, desc, isSelfie){
     }
     pushMsg(convo.id, "them", "", ch.id, url);
     var arr = S.msgs[convo.id], pm = arr[arr.length - 1];
-    pm.imgd = desc; if (isSelfie) pm.sf = true;
+    pm.imgd = desc; if (isSelfie) pm.sf = true; if (isMature) pm.mat = true;
     save();
     if (cur === convo.id) renderStream();
     else { convo.unread = (convo.unread||0)+1; save(); }
@@ -1585,12 +1595,12 @@ function deliverPhoto(convo, ch, desc, isSelfie){
      otherwise straight to GLM */
   var refs = (ch && ch.refimgs || []).length;
   var damp = isSelfie && refs && falReady() ? 0.7 : 1;
-  var llist = falReady() ? lorasFor(ch, desc).loras.map(function(l){
+  var llist = falReady() ? lorasFor(ch, desc, isMature).loras.map(function(l){
     return l.path.split("/").pop().split("?")[0] + "@" +
            Math.round(((l.scale || 1) * damp) * 100) / 100;
   }).join(",") : "";
-  L("img", "route: " + (isSelfie ? "selfie" : "photo") + " · engine=" +
-    (falReady() ? "flux" : "glm") + " · refs=" + refs +
+  L("img", "route: " + (isSelfie ? "selfie" : "photo") + (isMature ? " 18+" : "") +
+    " · engine=" + (falReady() ? "flux" : "glm") + " · refs=" + refs +
     (isSelfie ? "" : " (plain photos never use refs)") +
     " · loras=" + (llist || "none") +
     ((fal().trigger || "").trim() ? " · trigger set" : "") +
@@ -1599,7 +1609,7 @@ function deliverPhoto(convo, ch, desc, isSelfie){
     if (isSelfie) glmSelfie(desc, ch, onDone);
     else glmImage(desc, ch, false, onDone);
   };
-  if (falReady()) falImage(desc, ch, isSelfie, onDone, glmReady() ? viaGlm : null);
+  if (falReady()) falImage(desc, ch, isSelfie, isMature, onDone, glmReady() ? viaGlm : null);
   else viaGlm();
 }
 /* memory extraction (regex; the model itself sees the profile + memories) */
@@ -1703,9 +1713,10 @@ function renderModelUI(){
   html += '<div class="ds" style="padding:14px 0 4px;font-weight:800;letter-spacing:.5px">MATURE ROLEPLAY · 18+</div>';
   html += '<div class="modelrow"><div class="mi"><div class="nm">' +
     (S.adult ? "On — adult roleplay permitted" : "Off") + '</div>' +
-    '<div class="ds">Text: Z.ai\'s own content rules still apply. Images: when on, FLUX photos skip ' +
-    'fal\'s safety checker — fictional characters only, never reference photos of real people; ' +
-    'content is your responsibility under fal\'s terms. When off, the checker stays on.</div></div>' +
+    '<div class="ds">Text: Z.ai\'s own content rules still apply. Images: when on, characters may mark ' +
+    'individual photos 18+ when the moment fits — only those skip fal\'s safety checker and load ' +
+    '18+-gated LoRAs; everyday photos stay tame. Fictional characters only, never reference photos of ' +
+    'real people; content is your responsibility under fal\'s terms.</div></div>' +
     '<button class="use" id="adult-toggle">' + (S.adult ? "Turn off" : "I\'m 18+ — turn on") + '</button></div>';
   html += '<div class="ds" style="padding-top:10px">Replies come only from the API. If it\'s ' +
     'unreachable, messages will say so rather than being answered by anything else.</div>';
