@@ -977,15 +977,25 @@ function glm(){
   if (!S.glm.imodel || S.glm.imodel === "cogview-4") S.glm.imodel = GLM_IMAGE_MODEL;
   return S.glm;
 }
-/* Without direction CogView paints cinematic AI art; this makes it fake a
-   phone camera instead. A character's own PHOTO STYLE field replaces it. */
+/* Without direction the image models paint editorial photography — shallow
+   depth of field, perfect light, graded color. Telling them what NOT to do
+   barely works; describing amateur qualities positively does. A character's
+   own PHOTO STYLE field replaces this default. */
 var IMG_STYLE_DEFAULT =
-  "Casual snapshot taken on a smartphone and sent in a chat: everyday framing, " +
-  "natural imperfect lighting, ordinary realistic detail, slight softness. Not " +
-  "cinematic, not posed, not professional photography.";
-function imgPrompt(ch, desc){
+  "Mediocre smartphone snapshot taken in one second without thinking: deep depth " +
+  "of field with everything equally in focus, flat unflattering ambient light, " +
+  "dull ordinary colors with no color grading, mild sensor noise, slight motion " +
+  "blur, awkward off-center framing with a tilted angle, cluttered ordinary " +
+  "background, boring realism. A throwaway picture texted mid-conversation, the " +
+  "kind nobody would ever print.";
+/* what kind of shot a selfie physically is — applied on top of either style */
+var IMG_SELFIE_FRAME =
+  "Front-camera phone selfie held at arm's length: slight wide-angle lens " +
+  "distortion, face a little too close, imperfect unflattering angle, ambient " +
+  "light on the face.";
+function imgPrompt(ch, desc, isSelfie){
   var style = ch && ch.imgstyle ? fill(ch.imgstyle, ch) : IMG_STYLE_DEFAULT;
-  return desc + "\n\nStyle: " + style;
+  return desc + "\n\nStyle: " + (isSelfie ? IMG_SELFIE_FRAME + " " : "") + style;
 }
 /* shared response handling for both image endpoints */
 function imgResponse(p, tag, cb, onFail){
@@ -1005,12 +1015,12 @@ function imgResponse(p, tag, cb, onFail){
   });
 }
 /* generate the picture a character decided to send; cb(dataUrlOrNull) */
-function glmImage(desc, ch, cb){
+function glmImage(desc, ch, isSelfie, cb){
   imgResponse(fetch(GLM_IMG_URL, {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Bearer " + glm().key.trim()},
     /* 864x1152 = portrait 3:4, the shape a phone actually takes */
-    body: JSON.stringify({model: glm().imodel, prompt: imgPrompt(ch, desc), size: "864x1152"})
+    body: JSON.stringify({model: glm().imodel, prompt: imgPrompt(ch, desc, isSelfie), size: "864x1152"})
   }), "generation (" + glm().imodel + ")", cb);
 }
 /* a selfie, generated from the character's reference photos so the same
@@ -1028,18 +1038,18 @@ function dataUrlToBlob(u){
 function glmSelfie(desc, ch, cb){
   var refs = (ch && ch.refimgs || []).slice(0, 3);
   var blobs = refs.map(dataUrlToBlob).filter(Boolean);
-  if (!blobs.length) { glmImage(desc, ch, cb); return; }
+  if (!blobs.length) { glmImage(desc, ch, true, cb); return; }
   var fd = new FormData();
   fd.append("model", GLM_REF_MODEL);
   blobs.forEach(function(b, i){ fd.append("image", b, "ref" + i + ".jpg"); });
   fd.append("prompt", "A new photo of the same person as the reference" +
-    (blobs.length > 1 ? " images" : " image") + ". " + imgPrompt(ch, desc));
+    (blobs.length > 1 ? " images" : " image") + ". " + imgPrompt(ch, desc, true));
   fd.append("response_format", "b64_json");
   imgResponse(
     fetch(GLM_EDIT_URL, {method: "POST",
       headers: {"Authorization": "Bearer " + glm().key.trim()}, body: fd}),
     "selfie (" + GLM_REF_MODEL + ")", cb,
-    function(){ glmImage(desc, ch, cb); });
+    function(){ glmImage(desc, ch, true, cb); });
 }
 /* downscale for localStorage; if the canvas is CORS-tainted (remote URL with
    no CORS headers) keep the remote URL — displays fine, just not archived */
@@ -1446,7 +1456,7 @@ async function runGeneration(convo, ch, nudge, done){
 function deliverPhoto(convo, ch, desc, isSelfie){
   var ty = $("ty");
   if (cur === convo.id && ty){ ty.classList.add("on"); $("stream").scrollTop = 1e9; }
-  (isSelfie ? glmSelfie : glmImage)(desc, ch, function(url){
+  var onDone = function(url){
     var ty2 = $("ty"); if (ty2) ty2.classList.remove("on");
     if (!url) {
       L("img", ch.name + "'s photo failed to generate");
@@ -1460,7 +1470,9 @@ function deliverPhoto(convo, ch, desc, isSelfie){
     if (cur === convo.id) renderStream();
     else { convo.unread = (convo.unread||0)+1; save(); }
     renderHome();
-  });
+  };
+  if (isSelfie) glmSelfie(desc, ch, onDone);
+  else glmImage(desc, ch, false, onDone);
 }
 /* memory extraction (regex; the model itself sees the profile + memories) */
 function extractFacts(ch, text){

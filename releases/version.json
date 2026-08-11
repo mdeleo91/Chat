@@ -1,6 +1,6 @@
 {
-  "versionCode": 22,
-  "versionName": "0.11.0",
+  "versionCode": 23,
+  "versionName": "0.11.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Consistent selfies. Character profiles gain Selfie references — upload up to 3 photos of the person a character's selfies should show, and every selfie is generated from them (GLM-Image, identity-preserving) so the same face comes back each time. The character decides on its own whether a picture is a selfie or a regular photo, and regular photos no longer pick up selfie appearance from the style prompt."
+  "notes": "De-glamorized photos. Characters' pictures were coming out like magazine shots; the style prompt now insists on throwaway phone-snap qualities — everything in focus, flat light, dull colors, tilted framing, sensor noise — and selfies additionally get real front-camera framing: arm's length, slight wide-angle distortion, a little too close. Custom Photo styles keep the selfie framing but replace the rest."
 }
