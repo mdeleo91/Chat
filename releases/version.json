@@ -1,6 +1,6 @@
 {
-  "versionCode": 27,
-  "versionName": "0.13.2",
+  "versionCode": 28,
+  "versionName": "0.13.3",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Selfies hold the face. Reference-based selfies now address FLUX Kontext as an edit of exactly this person — identical face, hair and build — and style LoRAs are automatically damped to 70% on selfies so they can't out-vote the identity. Characters also stop tagging scenery as selfies: a picture of what they're looking at is a photo, and only pictures they appear in go through the face pipeline."
+  "notes": "No more surprise selfies. Ask for a picture of a place and you get the place: when a character mis-labels scenery as a selfie, the app now catches it — a selfie whose description doesn't mention the character at all is demoted to a regular photo before generation, so the identity pipeline can't paint them into pictures they shouldn't be in. Demotions show up in the troubleshooting log."
 }
