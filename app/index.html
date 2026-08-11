@@ -954,12 +954,13 @@ var GLM_URL = "https://api.z.ai/api/paas/v4/chat/completions";
 var GLM_IMG_URL = "https://api.z.ai/api/paas/v4/images/generations";
 var GLM_DEFAULT_MODEL = "glm-5.2";
 var GLM_VISION_MODEL = "glm-5v-turbo";   // used automatically when a photo is in the conversation
-var GLM_IMAGE_MODEL = "cogview-4";       // paints the photos characters send back
+/* Z.ai's image ids are versioned — the bare "cogview-4" alias 404s */
+var GLM_IMAGE_MODEL = "cogview-4-250304";   // paints the photos characters send back
 function glm(){
   if (!S.glm) S.glm = {key:"", model:GLM_DEFAULT_MODEL, err:""};
   if (!S.glm.model) S.glm.model = GLM_DEFAULT_MODEL;
   if (!S.glm.vmodel) S.glm.vmodel = GLM_VISION_MODEL;
-  if (!S.glm.imodel) S.glm.imodel = GLM_IMAGE_MODEL;
+  if (!S.glm.imodel || S.glm.imodel === "cogview-4") S.glm.imodel = GLM_IMAGE_MODEL;
   return S.glm;
 }
 /* generate the picture a character decided to send; cb(dataUrlOrNull) */
@@ -969,7 +970,9 @@ function glmImage(desc, cb){
     headers: {"Content-Type": "application/json", "Authorization": "Bearer " + glm().key.trim()},
     body: JSON.stringify({model: glm().imodel, prompt: desc, size: "1024x1024"})
   }).then(function(r){
-    if (!r.ok) throw new Error("HTTP " + r.status);
+    if (!r.ok) return r.text().then(function(t){
+      throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 300) : ""));
+    });
     return r.json();
   }).then(function(j){
     var d = j.data && j.data[0] || {};
@@ -977,7 +980,8 @@ function glmImage(desc, cb){
     else if (d.url) shrinkImage(d.url, cb);
     else cb(null);
   }).catch(function(e){
-    L("img", "generation failed: " + String(e && e.message || e).slice(0, 120));
+    L("img", "generation failed (" + glm().imodel + "): " +
+      String(e && e.message || e).slice(0, 360), true);
     cb(null);
   });
 }
