@@ -1,6 +1,6 @@
 {
-  "versionCode": 41,
-  "versionName": "0.16.1",
+  "versionCode": 42,
+  "versionName": "0.16.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Black-image diagnosis. A black photo that reports ok is either the provider's checker blacking it out or a LoRA trained for the wrong FLUX variant making the model output solid black — two different fixes. The success log line now includes the provider's nsfw flag when present, which tells the two apart at a glance."
+  "notes": "Second safety knob. The provider's nsfw flag came back true on a marked photo even with the checker flag disabled, so 18+ requests now also send fal's safety_tolerance at its most permissive API level, and every success line states which checker state the request carried. If images still come back black after this, the block is at the fal account level rather than in the request."
 }

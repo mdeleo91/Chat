@@ -1271,6 +1271,9 @@ function falImage(desc, ch, isSelfie, isMature, cb, onFail){
        reference photos of real people. */
     enable_safety_checker: !isMature
   };
+  /* the nsfw-flag came back true despite the flag above, so belt-and-braces:
+     the pro-tier tolerance knob rides along on marked photos too */
+  if (isMature) body.safety_tolerance = 5;
   var url = refs.length ? FAL_I2I_URL : FAL_T2I_URL;
   if (refs.length) body.image_url = refs[0];
   else body.image_size = "portrait_4_3";
@@ -1279,7 +1282,8 @@ function falImage(desc, ch, isSelfie, isMature, cb, onFail){
     headers: {"Content-Type": "application/json", "Authorization": "Key " + fal().key.trim()},
     body: JSON.stringify(body)
   }), (isSelfie ? "selfie" : "photo") + " (flux" + (refs.length ? "-kontext" : "") +
-      (body.loras.length ? ", " + body.loras.length + " lora" + (body.loras.length > 1 ? "s" : "") : "") + ")",
+      (body.loras.length ? ", " + body.loras.length + " lora" + (body.loras.length > 1 ? "s" : "") : "") +
+      ", checker " + (body.enable_safety_checker ? "on" : "off") + ")",
     cb, onFail);
 }
 /* generate the picture a character decided to send; cb(dataUrlOrNull) */
