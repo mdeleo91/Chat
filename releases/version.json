@@ -1,6 +1,6 @@
 {
-  "versionCode": 30,
-  "versionName": "0.14.0",
+  "versionCode": 31,
+  "versionName": "0.14.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Conditional LoRAs. LoRA lines now take when: keywords — a golf LoRA with 'when: golf, swing, course' loads only for photos that are actually about golf instead of bleeding into every shot — and add: trigger words that ride along just on those photos. Lines without when: still apply everywhere, which is what style LoRAs want. Works in both the Settings box and each character's LoRA field."
+  "notes": "LoRA editor. No more one-line syntax to get wrong: each LoRA is now a card with its own fields — URL, strength, when-keywords (empty = every photo), and trigger words that ride along when it loads. Same editor in Settings and in each character's profile, and anything saved in the old text format carries over automatically."
 }

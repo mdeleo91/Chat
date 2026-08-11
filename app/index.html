@@ -281,6 +281,12 @@
     display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
   .refadd{width:64px;height:64px;border-radius:12px;border:2px dashed var(--line);background:none;
     color:var(--mist);font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .lorarow{border:1px solid var(--line);border-radius:12px;padding:10px;margin-top:8px;background:var(--surface)}
+  .lorarow .lr1{display:flex;gap:8px;align-items:center}
+  .lorarow .lr2{display:flex;gap:8px;margin-top:8px}
+  .lorarow .lbl{font-size:10.5px;font-weight:700;color:var(--mist);letter-spacing:.5px;
+    display:block;margin:8px 0 3px}
+  .lorarow .lr1 .lbl{margin:0}
   .photorow{display:flex;gap:16px;align-items:center;padding:6px 18px 10px}
   .photocol{display:flex;flex-direction:column;gap:8px;align-items:flex-start;flex:1;min-width:0}
   .photocol .btn{padding:9px 16px;font-size:13.5px}
@@ -575,7 +581,8 @@
         <div class="refrow" id="nc-refs"></div></div>
       <input type="file" accept="image/*" id="nc-ref-file" style="display:none">
       <div class="field"><label>LORAS (FLUX ONLY)</label>
-        <textarea id="nc-loras" rows="2" placeholder="LoRA URLs for this character's photos, one per line, optionally followed by a space and strength — e.g. a likeness LoRA of {{char}}. Needs the fal.ai key in Settings; added on top of the global style LoRAs."></textarea></div>
+        <div class="phint">Only for {{char}}'s photos — e.g. a likeness LoRA — added on top of the LoRAs in Settings. Needs the fal.ai key there.</div>
+        <div id="nc-loras-rows"></div></div>
       <div class="field"><label>GREETING <span style="font-weight:400;text-transform:none">— optional, written by you</span></label>
         <textarea id="nc-greet" rows="4" placeholder="Their opening message. Third person works best; set the scene, include a line of their dialogue, end on something {{user}} can answer. Leave blank and one gets written from the profile."></textarea></div>
       <div class="field"><label>EXAMPLE CONVERSATION <span style="font-weight:400;text-transform:none">— optional</span></label>
@@ -1009,50 +1016,90 @@ function imgResponse(p, tag, cb, onFail){
    image as a data URI, so nothing depends on fal's CDN afterwards. */
 var FAL_T2I_URL = "https://fal.run/fal-ai/flux-lora";
 var FAL_I2I_URL = "https://fal.run/fal-ai/flux-kontext-lora";
+/* a LoRA entry: {path, scale|null, when:"kw, kw" (empty = always), add:"trigger words"} */
+function normLoras(x){
+  if (!x) return [];
+  if (typeof x !== "string") return x;
+  /* migrate the old one-line text syntax: URL [strength] [when: …] [add: …] */
+  return x.split("\n").map(function(s){ return s.trim(); }).filter(Boolean)
+    .map(function(line){
+      var add = "", when = "", i;
+      if ((i = line.indexOf(" add: ")) >= 0) { add = line.slice(i + 6).trim(); line = line.slice(0, i).trim(); }
+      if ((i = line.indexOf(" when: ")) >= 0) { when = line.slice(i + 7).trim(); line = line.slice(0, i).trim(); }
+      var m = line.match(/^(\S+)(?:\s+([0-9.]+))?$/);
+      if (!m) return null;
+      return {path: m[1], scale: m[2] ? parseFloat(m[2]) : null, when: when, add: add};
+    }).filter(Boolean);
+}
 function fal(){
-  if (!S.fal) S.fal = {key:"", lora:"", trigger:"", err:""};
+  if (!S.fal) S.fal = {key:"", loras:[], trigger:"", err:""};
+  if (typeof S.fal.lora === "string") { S.fal.loras = normLoras(S.fal.lora); delete S.fal.lora; }
+  if (!S.fal.loras) S.fal.loras = [];
   if (S.fal.trigger === undefined) S.fal.trigger = "";
   return S.fal;
 }
 function falReady(){ return !!(fal().key || "").trim(); }
-/* One LoRA per line:
-     URL [strength] [when: keyword, keyword…] [add: trigger words]
-   No "when:" -> applies to every photo (right for style LoRAs).
-   With "when:" -> only when the photo's description mentions a keyword,
-   so subject LoRAs (golf, cooking…) can't bleed into unrelated shots.
-   "add:" rides its trigger words along only when the LoRA loads. */
-function parseLoras(str){
-  return (str || "").split("\n").map(function(s){ return s.trim(); }).filter(Boolean)
-    .map(function(line){
-      var add = "", when = null, i;
-      if ((i = line.indexOf(" add: ")) >= 0) {
-        add = line.slice(i + 6).trim();
-        line = line.slice(0, i).trim();
-      }
-      if ((i = line.indexOf(" when: ")) >= 0) {
-        when = line.slice(i + 7).split(",")
-          .map(function(k){ return k.trim().toLowerCase(); }).filter(Boolean);
-        line = line.slice(0, i).trim();
-      }
-      var m = line.match(/^(\S+)(?:\s+([0-9.]+))?$/);
-      if (!m) return null;
-      var l = {path: m[1]};
-      if (m[2]) l.scale = parseFloat(m[2]);
-      if (when && when.length) l.when = when;
-      if (add) l.add = add;
-      return l;
-    }).filter(Boolean);
+function chLoraList(ch){
+  if (!ch) return [];
+  if (typeof ch.loras === "string") { ch.loraList = normLoras(ch.loras); delete ch.loras; }
+  return ch.loraList || [];
 }
-/* which LoRAs actually apply to this photo, plus their trigger add-ons */
+/* which LoRAs actually apply to this photo, plus their trigger add-ons.
+   Empty "when" = every photo (style LoRAs); keywords = only when the photo's
+   description mentions one, so subject LoRAs can't bleed into other shots. */
 function lorasFor(ch, desc){
   var t = (desc || "").toLowerCase();
   var loras = [], adds = [];
-  parseLoras(fal().lora).concat(parseLoras(ch && ch.loras)).forEach(function(l){
-    if (l.when && !l.when.some(function(k){ return t.indexOf(k) >= 0; })) return;
-    if (l.add) adds.push(l.add);
-    loras.push(l.scale ? {path: l.path, scale: l.scale} : {path: l.path});
+  fal().loras.concat(chLoraList(ch)).forEach(function(l){
+    var path = (l.path || "").trim();
+    if (!path) return;
+    var kws = (l.when || "").split(",")
+      .map(function(k){ return k.trim().toLowerCase(); }).filter(Boolean);
+    if (kws.length && !kws.some(function(k){ return t.indexOf(k) >= 0; })) return;
+    if ((l.add || "").trim()) adds.push(l.add.trim());
+    loras.push(l.scale ? {path: path, scale: l.scale} : {path: path});
   });
   return {loras: loras, adds: adds};
+}
+/* structured editor rows for a LoRA list — used by Settings and the
+   character form; wireLoraList attaches delegated handlers to a container */
+function loraRowsHTML(list){
+  var h = "";
+  list.forEach(function(l, i){
+    h += '<div class="lorarow" data-i="' + i + '">' +
+      '<div class="lr1"><input class="srvinput lr-path" placeholder=".safetensors URL" value="' + esc(l.path || "") + '">' +
+      '<button class="icb lr-x" title="Remove LoRA"><span class="msr" style="font-size:16px">close</span></button></div>' +
+      '<div class="lr2"><div style="width:88px"><span class="lbl">STRENGTH</span>' +
+      '<input class="srvinput lr-scale" inputmode="decimal" placeholder="1.0" value="' + (l.scale || "") + '"></div>' +
+      '<div style="flex:1"><span class="lbl">WHEN — keywords, comma separated; empty = every photo</span>' +
+      '<input class="srvinput lr-when" placeholder="always" value="' + esc(l.when || "") + '"></div></div>' +
+      '<span class="lbl">TRIGGER WORDS — sent along when this LoRA loads</span>' +
+      '<input class="srvinput lr-add" placeholder="none" value="' + esc(l.add || "") + '">' +
+      '</div>';
+  });
+  h += '<button class="use lora-add" style="margin-top:10px">Add LoRA</button>';
+  return h;
+}
+function wireLoraList(root, list, onChange){
+  root.addEventListener("change", function(e){
+    var row = e.target.closest ? e.target.closest(".lorarow") : null;
+    if (!row) return;
+    var l = list[+row.dataset.i]; if (!l) return;
+    if (e.target.classList.contains("lr-path")) l.path = e.target.value.trim();
+    else if (e.target.classList.contains("lr-scale")) l.scale = parseFloat(e.target.value) || null;
+    else if (e.target.classList.contains("lr-when")) l.when = e.target.value;
+    else if (e.target.classList.contains("lr-add")) l.add = e.target.value;
+    else return;
+    onChange(false);
+  });
+  root.addEventListener("click", function(e){
+    var x = e.target.closest ? e.target.closest(".lr-x") : null;
+    if (x) { list.splice(+x.closest(".lorarow").dataset.i, 1); onChange(true); return; }
+    if (e.target.closest && e.target.closest(".lora-add")) {
+      list.push({path:"", scale:null, when:"", add:""});
+      onChange(true);
+    }
+  });
 }
 function falImage(desc, ch, isSelfie, cb, onFail){
   var refs = isSelfie ? (ch && ch.refimgs || []) : [];
@@ -1593,15 +1640,12 @@ function falSectionHTML(){
        'through FLUX Kontext. Billed per image on the fal account; text replies stay on GLM.</div>';
   h += '<input id="fal-key" class="srvinput" type="password" autocomplete="off" ' +
        'placeholder="fal.ai API key" value="' + esc(f.key || "") + '">';
-  h += '<div class="ds" style="padding:8px 0 4px">LoRAs — one per line: URL, optional strength, ' +
-       'then optionally <b>when:</b> keywords (comma separated) so it loads only for matching photos, ' +
-       'and <b>add:</b> trigger words that ride along with it. Without when:, a LoRA applies to every ' +
-       'photo — right for style LoRAs, wrong for subjects (a golf LoRA without when: makes everything ' +
-       'golfy).<br>e.g. <code>https://…/golf.safetensors 0.9 when: golf, swing, course add: golf photo</code></div>';
-  h += '<textarea id="fal-lora" class="srvinput" rows="3" style="resize:none" ' +
-       'placeholder="https://…/amateur_photo.safetensors 0.8">' + esc(f.lora || "") + '</textarea>';
-  h += '<div class="ds" style="padding:8px 0 4px">LoRA trigger words — appended to every FLUX ' +
-       'prompt. Copy them from the LoRA\'s page; many LoRAs barely activate without them.</div>';
+  h += '<div class="ds" style="padding:8px 0 0">LoRAs — leave <b>when</b> empty for style LoRAs ' +
+       'that shape every photo; give subject LoRAs (golf, cooking…) keywords so they only load for ' +
+       'matching photos instead of bleeding into everything.</div>';
+  h += '<div id="fal-loras">' + loraRowsHTML(f.loras) + '</div>';
+  h += '<div class="ds" style="padding:10px 0 4px">Global trigger words — appended to every FLUX ' +
+       'prompt (for the always-on style LoRAs).</div>';
   h += '<input id="fal-trigger" class="srvinput" placeholder="e.g. amateur photo" ' +
        'value="' + esc(f.trigger || "") + '">';
   return h;
@@ -1609,8 +1653,11 @@ function falSectionHTML(){
 function wireFalUI(card){
   var key = card.querySelector("#fal-key");
   if (key) key.oninput = function(){ fal().key = key.value; save(); };
-  var lr = card.querySelector("#fal-lora");
-  if (lr) lr.onchange = function(){ fal().lora = lr.value; save(); };
+  var rows = card.querySelector("#fal-loras");
+  if (rows) wireLoraList(rows, fal().loras, function(structural){
+    save();
+    if (structural) renderModelUI();
+  });
   var tg = card.querySelector("#fal-trigger");
   if (tg) tg.onchange = function(){ fal().trigger = tg.value; save(); };
 }
@@ -2306,7 +2353,7 @@ function showMacroBar(on){
   if (rows) rows.classList.toggle("macropad", !!on);
 }
 function wireMacroChips(){
-  var fields = ["nc-name","nc-back","nc-pers","nc-style","nc-int","nc-tag","nc-status","nc-scene","nc-imgstyle","nc-loras","nc-greet","nc-ex"];
+  var fields = ["nc-name","nc-back","nc-pers","nc-style","nc-int","nc-tag","nc-status","nc-scene","nc-imgstyle","nc-greet","nc-ex"];
   fields.forEach(function(id){
     var el = $(id);
     if (!el || el._macroWired) return;
@@ -2346,8 +2393,13 @@ function updateMacroHint(){
   h.textContent = "→ " + (nm || "this character") + " · " + userName();
 }
 var pickedRing = RINGS[0];
-/* selfie reference photos being edited in the form */
+/* selfie reference photos and LoRA list being edited in the form */
 var editRefs = [];
+var editLoras = [];
+function renderCharLoras(){ $("nc-loras-rows").innerHTML = loraRowsHTML(editLoras); }
+wireLoraList($("nc-loras-rows"), editLoras, function(structural){
+  if (structural) renderCharLoras();
+});
 function renderRefRow(){
   var row = $("nc-refs"), h = "";
   editRefs.forEach(function(u, i){
@@ -2373,7 +2425,10 @@ function openCharForm(id){
   $("nc-status").value = ch ? (ch.status||"") : "";
   $("nc-scene").value  = ch ? (ch.scene||"") : "";
   $("nc-imgstyle").value = ch ? (ch.imgstyle||"") : "";
-  $("nc-loras").value = ch ? (ch.loras||"") : "";
+  /* mutate in place — the row wiring holds a reference to this array */
+  editLoras.length = 0;
+  chLoraList(ch).forEach(function(l){ editLoras.push({path:l.path, scale:l.scale, when:l.when, add:l.add}); });
+  renderCharLoras();
   $("nc-greet").value  = ch ? (ch.greeting||"") : "";
   $("nc-ex").value     = ch ? (ch.example||"") : "";
   editRefs = ch ? (ch.refimgs || []).slice() : [];
@@ -2391,14 +2446,16 @@ function saveChar(){
   var status = $("nc-status").value.trim() || "around, somewhere";
   var scene = $("nc-scene").value.trim();
   var imgstyle = $("nc-imgstyle").value.trim();
-  var loras = $("nc-loras").value.trim();
+  var loras = editLoras.filter(function(l){ return (l.path||"").trim(); })
+    .map(function(l){ return {path:l.path.trim(), scale:l.scale||null, when:l.when||"", add:l.add||""}; });
   var greet = $("nc-greet").value.trim();
   var example = $("nc-ex").value.trim();
   if (editId) {
     var ch = getChar(editId);
     ch.name=name; ch.pers=pers; ch.style=style; ch.back=back; ch.ints=ints;
     ch.tag=tag; ch.status=status; ch.scene=scene; ch.imgstyle=imgstyle;
-    ch.loras=loras; ch.greeting=greet; ch.example=example;
+    ch.loraList=loras; delete ch.loras;
+    ch.greeting=greet; ch.example=example;
     if (editRefs.length) ch.refimgs = editRefs.slice(); else delete ch.refimgs;
     if (pickedPhoto) ch.photo = pickedPhoto; else delete ch.photo;
     ch.edited = true;               // the profile now drives replies, and survives updates
@@ -2410,7 +2467,7 @@ function saveChar(){
   var nch = {
     id:id, name:name, photo:pickedPhoto || null, ring:pickedRing, tag:tag, status:status, custom:true,
     pers:pers, style:style, back:back, ints:ints, scene:scene, imgstyle:imgstyle,
-    loras:loras, refimgs: editRefs.length ? editRefs.slice() : undefined,
+    loraList:loras, refimgs: editRefs.length ? editRefs.slice() : undefined,
     greeting:greet, example:example,
     created:Date.now(),
     topics: [],   // used only to score group responders
