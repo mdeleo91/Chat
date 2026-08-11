@@ -1,6 +1,6 @@
 {
-  "versionCode": 21,
-  "versionName": "0.10.0",
+  "versionCode": 22,
+  "versionName": "0.11.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Photos that look texted, not generated. Characters' pictures now come out portrait, styled as casual phone snapshots instead of cinematic AI art. And each character gets a Photo style field in the editor — describe the look (grainy flip-phone, golden-hour film, anything) and what they look like in selfies, and every photo they send follows it. {{char}} and {{user}} work there too."
+  "notes": "Consistent selfies. Character profiles gain Selfie references — upload up to 3 photos of the person a character's selfies should show, and every selfie is generated from them (GLM-Image, identity-preserving) so the same face comes back each time. The character decides on its own whether a picture is a selfie or a regular photo, and regular photos no longer pick up selfie appearance from the style prompt."
 }

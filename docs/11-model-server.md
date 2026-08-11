@@ -28,9 +28,16 @@ renders the description with the image model (`cogview-4-250304` by default,
 billed per image) and delivers it as its own picture bubble. Generated shots
 come out portrait (864×1152) with a "casual smartphone snapshot" style baked
 into the prompt so they read as texted photos rather than AI art; a
-character's **Photo style** field in the editor replaces that default — look,
-era, film stock, and what the character looks like in selfies (the image model
-can't see the chat, so appearance lives here). The description — not
+character's **Photo style** field in the editor replaces that default.
+
+The model distinguishes `[selfie: …]` from `[photo: …]` on its own. Selfies
+route through GLM-Image's identity-preserving `/images/edits` API using the
+character's **Selfie references** — up to three photos uploaded in the editor
+of the person the selfies should show — so the same face comes back every
+time. Other photos ignore the references entirely. With no references
+uploaded, selfies fall back to plain text-to-image (put appearance in Photo
+style in that case), and a failed edit falls back the same way rather than
+dropping the picture. The description — not
 the pixels — stays in the history, so the character remembers what it showed
 you. The local-server engine has no image generator, so its characters only
 describe pictures in prose.
