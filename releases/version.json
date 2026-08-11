@@ -1,6 +1,6 @@
 {
-  "versionCode": 20,
-  "versionName": "0.9.1",
+  "versionCode": 21,
+  "versionName": "0.10.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Fixes characters' photos not coming through: Z.ai's image API wants the versioned model id (cogview-4-250304), and the shorthand the app used isn't one. Existing installs are migrated automatically, and image-generation failures now record the API's actual error in Settings → Troubleshooting logs."
+  "notes": "Photos that look texted, not generated. Characters' pictures now come out portrait, styled as casual phone snapshots instead of cinematic AI art. And each character gets a Photo style field in the editor — describe the look (grainy flip-phone, golden-hour film, anything) and what they look like in selfies, and every photo they send follows it. {{char}} and {{user}} work there too."
 }

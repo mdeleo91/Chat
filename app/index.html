@@ -560,6 +560,8 @@
       <div class="field"><label>INTERESTS</label><input id="nc-int" placeholder="Subjects they light up about…"></div>
       <div class="field"><label>SCENARIO <span style="font-weight:400;text-transform:none">— optional</span></label>
         <textarea id="nc-scene" rows="2" placeholder="The setting and situation the roleplay always sits in. e.g. Set in 18th century Europe, {{char}} is a witch and the Inquisition hunts magic."></textarea></div>
+      <div class="field"><label>PHOTO STYLE</label>
+        <textarea id="nc-imgstyle" rows="3" placeholder="How the photos {{char}} sends should look. Leave blank for a natural phone-snap look. The image model can't see the chat, so appearance details belong here too — e.g. Selfies show a woman in her 20s with short red hair. Grainy, badly framed, always a bit too close."></textarea></div>
       <div class="field"><label>GREETING <span style="font-weight:400;text-transform:none">— optional, written by you</span></label>
         <textarea id="nc-greet" rows="4" placeholder="Their opening message. Third person works best; set the scene, include a line of their dialogue, end on something {{user}} can answer. Leave blank and one gets written from the profile."></textarea></div>
       <div class="field"><label>EXAMPLE CONVERSATION <span style="font-weight:400;text-transform:none">— optional</span></label>
@@ -963,12 +965,23 @@ function glm(){
   if (!S.glm.imodel || S.glm.imodel === "cogview-4") S.glm.imodel = GLM_IMAGE_MODEL;
   return S.glm;
 }
+/* Without direction CogView paints cinematic AI art; this makes it fake a
+   phone camera instead. A character's own PHOTO STYLE field replaces it. */
+var IMG_STYLE_DEFAULT =
+  "Casual snapshot taken on a smartphone and sent in a chat: everyday framing, " +
+  "natural imperfect lighting, ordinary realistic detail, slight softness. Not " +
+  "cinematic, not posed, not professional photography.";
+function imgPrompt(ch, desc){
+  var style = ch && ch.imgstyle ? fill(ch.imgstyle, ch) : IMG_STYLE_DEFAULT;
+  return desc + "\n\nStyle: " + style;
+}
 /* generate the picture a character decided to send; cb(dataUrlOrNull) */
-function glmImage(desc, cb){
+function glmImage(desc, ch, cb){
   fetch(GLM_IMG_URL, {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Bearer " + glm().key.trim()},
-    body: JSON.stringify({model: glm().imodel, prompt: desc, size: "1024x1024"})
+    /* 864x1152 = portrait 3:4, the shape a phone actually takes */
+    body: JSON.stringify({model: glm().imodel, prompt: imgPrompt(ch, desc), size: "864x1152"})
   }).then(function(r){
     if (!r.ok) return r.text().then(function(t){
       throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 300) : ""));
@@ -1387,7 +1400,7 @@ async function runGeneration(convo, ch, nudge, done){
 function deliverPhoto(convo, ch, desc){
   var ty = $("ty");
   if (cur === convo.id && ty){ ty.classList.add("on"); $("stream").scrollTop = 1e9; }
-  glmImage(desc, function(url){
+  glmImage(desc, ch, function(url){
     var ty2 = $("ty"); if (ty2) ty2.classList.remove("on");
     if (!url) {
       L("img", ch.name + "'s photo failed to generate");
@@ -2206,7 +2219,7 @@ function showMacroBar(on){
   if (rows) rows.classList.toggle("macropad", !!on);
 }
 function wireMacroChips(){
-  var fields = ["nc-name","nc-back","nc-pers","nc-style","nc-int","nc-tag","nc-status","nc-scene","nc-greet","nc-ex"];
+  var fields = ["nc-name","nc-back","nc-pers","nc-style","nc-int","nc-tag","nc-status","nc-scene","nc-imgstyle","nc-greet","nc-ex"];
   fields.forEach(function(id){
     var el = $(id);
     if (!el || el._macroWired) return;
@@ -2260,6 +2273,7 @@ function openCharForm(id){
   $("nc-tag").value = ch ? (ch.tag||"") : "";
   $("nc-status").value = ch ? (ch.status||"") : "";
   $("nc-scene").value  = ch ? (ch.scene||"") : "";
+  $("nc-imgstyle").value = ch ? (ch.imgstyle||"") : "";
   $("nc-greet").value  = ch ? (ch.greeting||"") : "";
   $("nc-ex").value     = ch ? (ch.example||"") : "";
   lastField = null;
@@ -2274,12 +2288,14 @@ function saveChar(){
   var tag = $("nc-tag").value.trim() || "Companion";
   var status = $("nc-status").value.trim() || "around, somewhere";
   var scene = $("nc-scene").value.trim();
+  var imgstyle = $("nc-imgstyle").value.trim();
   var greet = $("nc-greet").value.trim();
   var example = $("nc-ex").value.trim();
   if (editId) {
     var ch = getChar(editId);
     ch.name=name; ch.pers=pers; ch.style=style; ch.back=back; ch.ints=ints;
-    ch.tag=tag; ch.status=status; ch.scene=scene; ch.greeting=greet; ch.example=example;
+    ch.tag=tag; ch.status=status; ch.scene=scene; ch.imgstyle=imgstyle;
+    ch.greeting=greet; ch.example=example;
     if (pickedPhoto) ch.photo = pickedPhoto; else delete ch.photo;
     ch.edited = true;               // the profile now drives replies, and survives updates
     save(); hide("v-new"); openProfile(editId); renderHome(); renderContacts();
@@ -2289,7 +2305,8 @@ function saveChar(){
   var id = "c" + Date.now();
   var nch = {
     id:id, name:name, photo:pickedPhoto || null, ring:pickedRing, tag:tag, status:status, custom:true,
-    pers:pers, style:style, back:back, ints:ints, scene:scene, greeting:greet, example:example,
+    pers:pers, style:style, back:back, ints:ints, scene:scene, imgstyle:imgstyle,
+    greeting:greet, example:example,
     created:Date.now(),
     topics: [],   // used only to score group responders
     fall:["Tell me more about that.","Mm — go on, I'm curious.","And how do you feel about that?","Interesting. What happened next?"]
