@@ -1055,7 +1055,12 @@ function lorasFor(ch, desc){
     if (!path) return;
     var kws = (l.when || "").split(",")
       .map(function(k){ return k.trim().toLowerCase(); }).filter(Boolean);
-    if (kws.length && !kws.some(function(k){ return t.indexOf(k) >= 0; })) return;
+    /* "18+" is a special keyword: matches whenever mature mode is on —
+       far more reliable than word-matching descriptions the text model
+       writes tamely */
+    if (kws.length && !kws.some(function(k){
+      return k === "18+" ? matureActive() : t.indexOf(k) >= 0;
+    })) return;
     if ((l.add || "").trim()) adds.push(l.add.trim());
     loras.push(l.scale ? {path: path, scale: l.scale} : {path: path});
   });
@@ -1071,7 +1076,7 @@ function loraRowsHTML(list){
       '<button class="icb lr-x" title="Remove LoRA"><span class="msr" style="font-size:16px">close</span></button></div>' +
       '<div class="lr2"><div style="width:88px"><span class="lbl">STRENGTH</span>' +
       '<input class="srvinput lr-scale" inputmode="decimal" placeholder="1.0" value="' + (l.scale || "") + '"></div>' +
-      '<div style="flex:1"><span class="lbl">WHEN — keywords, comma separated; empty = every photo</span>' +
+      '<div style="flex:1"><span class="lbl">WHEN — keywords, comma separated; empty = every photo; 18+ = while mature mode is on</span>' +
       '<input class="srvinput lr-when" placeholder="always" value="' + esc(l.when || "") + '"></div></div>' +
       '<span class="lbl">TRIGGER WORDS — sent along when this LoRA loads</span>' +
       '<input class="srvinput lr-add" placeholder="none" value="' + esc(l.add || "") + '">' +

@@ -1,6 +1,6 @@
 {
-  "versionCode": 32,
-  "versionName": "0.14.2",
+  "versionCode": 33,
+  "versionName": "0.14.3",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Images follow the 18+ toggle. With Mature roleplay on, FLUX photos skip fal's safety checker so pictures can match the tone of an adult conversation; with it off, the checker stays on as before. Fictional characters only — the reference slots are for AI-generated faces, never photos of real people — and content is your responsibility under fal's terms."
+  "notes": "18+ as a LoRA condition. Word-matching mature LoRAs against photo descriptions was unreliable — the text model writes them tamely, so the keywords never hit. Putting 18+ in a LoRA's When field now loads it whenever Mature roleplay is on, alone or alongside regular keywords."
 }
