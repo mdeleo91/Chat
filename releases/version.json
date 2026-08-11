@@ -1,6 +1,6 @@
 {
-  "versionCode": 35,
-  "versionName": "0.15.1",
+  "versionCode": 36,
+  "versionName": "0.15.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "LoRA strength typos can't kill photos anymore. fal rejects strengths above 4 outright, which sent the whole photo to the GLM fallback (wrong face, strict content rules); values now clamp into range before sending, and the strength field is labeled with the sane 0–2 range. If a Civitai LoRA download fails with a 401, append your Civitai API token to its URL — the log names the failing URL."
+  "notes": "Civitai token field. Civitai LoRA downloads usually require login, which failed with a 401 and dumped photos onto the GLM fallback. Paste your Civitai API token once in Settings (under the fal.ai key) and it's appended to every civitai download link automatically — LoRA cards keep their clean URLs, and links that already carry a token are left alone."
 }

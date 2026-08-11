@@ -1032,11 +1032,21 @@ function normLoras(x){
     }).filter(Boolean);
 }
 function fal(){
-  if (!S.fal) S.fal = {key:"", loras:[], trigger:"", err:""};
+  if (!S.fal) S.fal = {key:"", loras:[], trigger:"", civitai:"", err:""};
   if (typeof S.fal.lora === "string") { S.fal.loras = normLoras(S.fal.lora); delete S.fal.lora; }
   if (!S.fal.loras) S.fal.loras = [];
   if (S.fal.trigger === undefined) S.fal.trigger = "";
+  if (S.fal.civitai === undefined) S.fal.civitai = "";
   return S.fal;
+}
+/* Civitai downloads usually require login; the token from Settings is
+   appended to their URLs at request time so LoRA cards stay clean */
+function withCivitaiToken(path){
+  var tok = (fal().civitai || "").trim();
+  if (!tok) return path;
+  if (!/^https?:\/\/(www\.)?civitai\.(com|red)\//i.test(path)) return path;
+  if (/[?&]token=/.test(path)) return path;
+  return path + (path.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(tok);
 }
 function falReady(){ return !!(fal().key || "").trim(); }
 function chLoraList(ch){
@@ -1065,6 +1075,7 @@ function lorasFor(ch, desc, isMature){
     /* fal rejects scale > 4 outright (422, photo lost to the fallback) —
        clamp here so a "8" typo for "0.8" degrades instead of failing */
     var sc = l.scale ? Math.min(4, Math.max(0, l.scale)) : null;
+    path = withCivitaiToken(path);
     loras.push(sc ? {path: path, scale: sc} : {path: path});
   });
   return {loras: loras, adds: adds};
@@ -1661,6 +1672,11 @@ function falSectionHTML(){
        'through FLUX Kontext. Billed per image on the fal account; text replies stay on GLM.</div>';
   h += '<input id="fal-key" class="srvinput" type="password" autocomplete="off" ' +
        'placeholder="fal.ai API key" value="' + esc(f.key || "") + '">';
+  h += '<div class="ds" style="padding:8px 0 4px">Civitai API token — added automatically to ' +
+       'civitai download links below (their downloads usually require login; create one under ' +
+       'Civitai account settings → API Keys).</div>';
+  h += '<input id="fal-civitai" class="srvinput" type="password" autocomplete="off" ' +
+       'placeholder="Civitai API token (optional)" value="' + esc(f.civitai || "") + '">';
   h += '<div class="ds" style="padding:8px 0 0">LoRAs — leave <b>when</b> empty for style LoRAs ' +
        'that shape every photo; give subject LoRAs (golf, cooking…) keywords so they only load for ' +
        'matching photos instead of bleeding into everything.</div>';
@@ -1674,6 +1690,8 @@ function falSectionHTML(){
 function wireFalUI(card){
   var key = card.querySelector("#fal-key");
   if (key) key.oninput = function(){ fal().key = key.value; save(); };
+  var cv = card.querySelector("#fal-civitai");
+  if (cv) cv.oninput = function(){ fal().civitai = cv.value; save(); };
   var rows = card.querySelector("#fal-loras");
   if (rows) wireLoraList(rows, fal().loras, function(structural){
     save();
