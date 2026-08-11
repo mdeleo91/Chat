@@ -1,6 +1,6 @@
 {
-  "versionCode": 34,
-  "versionName": "0.15.0",
+  "versionCode": 35,
+  "versionName": "0.15.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Mature per moment, not per toggle. With Mature roleplay on, characters now decide photo-by-photo: only pictures they mark 18+ — when the conversation has actually gone there — lift the safety checker and load 18+-gated LoRAs. Date-night escalation gets mature images; the morning coffee selfie stays tame, with zero LoRA bleed. The marker is remembered in the chat history and shows in the route log."
+  "notes": "LoRA strength typos can't kill photos anymore. fal rejects strengths above 4 outright, which sent the whole photo to the GLM fallback (wrong face, strict content rules); values now clamp into range before sending, and the strength field is labeled with the sane 0–2 range. If a Civitai LoRA download fails with a 401, append your Civitai API token to its URL — the log names the failing URL."
 }

@@ -1062,7 +1062,10 @@ function lorasFor(ch, desc, isMature){
       return k === "18+" ? !!isMature : t.indexOf(k) >= 0;
     })) return;
     if ((l.add || "").trim()) adds.push(l.add.trim());
-    loras.push(l.scale ? {path: path, scale: l.scale} : {path: path});
+    /* fal rejects scale > 4 outright (422, photo lost to the fallback) —
+       clamp here so a "8" typo for "0.8" degrades instead of failing */
+    var sc = l.scale ? Math.min(4, Math.max(0, l.scale)) : null;
+    loras.push(sc ? {path: path, scale: sc} : {path: path});
   });
   return {loras: loras, adds: adds};
 }
@@ -1074,7 +1077,7 @@ function loraRowsHTML(list){
     h += '<div class="lorarow" data-i="' + i + '">' +
       '<div class="lr1"><input class="srvinput lr-path" placeholder=".safetensors URL" value="' + esc(l.path || "") + '">' +
       '<button class="icb lr-x" title="Remove LoRA"><span class="msr" style="font-size:16px">close</span></button></div>' +
-      '<div class="lr2"><div style="width:88px"><span class="lbl">STRENGTH</span>' +
+      '<div class="lr2"><div style="width:88px"><span class="lbl">STRENGTH 0–2</span>' +
       '<input class="srvinput lr-scale" inputmode="decimal" placeholder="1.0" value="' + (l.scale || "") + '"></div>' +
       '<div style="flex:1"><span class="lbl">WHEN — keywords, comma separated; empty = every photo; 18+ = only photos the character marks mature</span>' +
       '<input class="srvinput lr-when" placeholder="always" value="' + esc(l.when || "") + '"></div></div>' +
