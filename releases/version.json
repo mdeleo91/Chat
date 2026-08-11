@@ -1,6 +1,6 @@
 {
-  "versionCode": 40,
-  "versionName": "0.16.0",
+  "versionCode": 41,
+  "versionName": "0.16.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "References everywhere, via training. A Train face LoRA button in the character editor turns the reference photos into a likeness LoRA on fal (a few minutes, roughly $2) and adds it to the character automatically, trigger word included — so the face from your references holds in every photo, including the 18+ shots where reference images can't ride along. Reference slots also grow from 3 to 10; more references train a better likeness."
+  "notes": "Black-image diagnosis. A black photo that reports ok is either the provider's checker blacking it out or a LoRA trained for the wrong FLUX variant making the model output solid black — two different fixes. The success log line now includes the provider's nsfw flag when present, which tells the two apart at a glance."
 }

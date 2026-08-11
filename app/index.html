@@ -1000,7 +1000,10 @@ function imgResponse(p, tag, cb, onFail){
   }).then(function(j){
     var d = (j.data && j.data[0]) || (j.images && j.images[0]) || {};
     if (!d.b64_json && !d.url) throw new Error("no image in the response");
-    L("img", tag + " ok", true);
+    /* a black image with "ok" is either the provider's checker blacking it
+       out (this flag) or a LoRA base mismatch making the model output NaNs */
+    L("img", tag + " ok" + (j.has_nsfw_concepts !== undefined
+      ? " · nsfw-flag=" + JSON.stringify(j.has_nsfw_concepts) : ""), true);
     if (d.b64_json) shrinkImage("data:image/png;base64," + d.b64_json, cb);
     else shrinkImage(d.url, cb);
   }).catch(function(e){
