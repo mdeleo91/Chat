@@ -1560,12 +1560,19 @@ async function runGeneration(convo, ch, nudge, done){
     txt = visible(txt).trim();
     /* the character may have decided to send a picture */
     var photoDesc = null, isSelfie = false, isMature = false;
-    txt = txt.replace(/\[(photo|selfie)(\s*18\+)?\s*:\s*([^\]]{3,400})\]/i, function(_, kind, mat, d){
+    function grabTag(_, kind, mat, d){
       photoDesc = d.trim();
       isSelfie = kind.toLowerCase() === "selfie";
       isMature = !!mat && matureActive();
       return "";
-    }).trim();
+    }
+    /* no tight length cap — detailed 18+ prompts overflowed the old 400-char
+       limit and the raw tag leaked into the chat as text */
+    txt = txt.replace(/\[(photo|selfie)(\s*18\+)?\s*:\s*([^\]]{3,2000})\]/i, grabTag).trim();
+    /* the model sometimes forgets the closing bracket — take the tag to
+       end-of-message rather than printing it */
+    if (!photoDesc)
+      txt = txt.replace(/\[(photo|selfie)(\s*18\+)?\s*:\s*([^\]]{3,2000})$/i, grabTag).trim();
     /* models over-tag selfies ("your classroom" → selfie), and the identity
        prefix then paints the person instead of the scene. If the description
        contains no self-reference at all, it isn't a selfie — demote it. */

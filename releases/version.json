@@ -1,6 +1,6 @@
 {
-  "versionCode": 37,
-  "versionName": "0.15.3",
+  "versionCode": 38,
+  "versionName": "0.15.4",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "18+ photos written from the moment. Characters now author their mature photo descriptions as frank image prompts drawn from what's actually happening in the conversation — the description goes only to the image generator, never on screen — so each 18+ picture matches its scene instead of a generic template. An optional Settings box can append constants (style tags, LoRA trigger words) to marked photos; leave it empty otherwise."
+  "notes": "No more leaked photo prompts. Detailed 18+ descriptions could overflow the tag parser's length limit — the raw [selfie 18+: …] text then appeared in the chat instead of an image. The parser now takes long descriptions and recovers tags missing their closing bracket, so the prompt always becomes a picture."
 }
