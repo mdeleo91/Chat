@@ -1,6 +1,6 @@
 {
-  "versionCode": 31,
-  "versionName": "0.14.1",
+  "versionCode": 32,
+  "versionName": "0.14.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "LoRA editor. No more one-line syntax to get wrong: each LoRA is now a card with its own fields — URL, strength, when-keywords (empty = every photo), and trigger words that ride along when it loads. Same editor in Settings and in each character's profile, and anything saved in the old text format carries over automatically."
+  "notes": "Images follow the 18+ toggle. With Mature roleplay on, FLUX photos skip fal's safety checker so pictures can match the tone of an adult conversation; with it off, the checker stays on as before. Fictional characters only — the reference slots are for AI-generated faces, never photos of real people — and content is your responsibility under fal's terms."
 }

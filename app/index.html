@@ -577,7 +577,7 @@
       <div class="field"><label>PHOTO STYLE</label>
         <textarea id="nc-imgstyle" rows="3" placeholder="How the photos {{char}} sends should look. Leave blank for a natural phone-snap look. e.g. Grainy, badly framed, always a bit too close. Slightly overexposed film look."></textarea></div>
       <div class="field"><label>SELFIE REFERENCES</label>
-        <div class="phint">Up to 3 photos of the person {{char}}'s selfies should show. Selfies are generated from these (sent to the image API each time); other photos ignore them. Without references, selfies fall back to Photo style — describe appearance there instead.</div>
+        <div class="phint">Up to 3 photos of the person {{char}}'s selfies should show — fictional/AI-generated characters only, never photos of a real person. Sent to the image API each time; other photos ignore them. Without references, selfies fall back to Photo style — describe appearance there instead.</div>
         <div class="refrow" id="nc-refs"></div></div>
       <input type="file" accept="image/*" id="nc-ref-file" style="display:none">
       <div class="field"><label>LORAS (FLUX ONLY)</label>
@@ -1119,7 +1119,10 @@ function falImage(desc, ch, isSelfie, cb, onFail){
       : "") + imgPrompt(ch, desc, isSelfie) + (trig ? "\n" + trig : ""),
     loras: loras,
     output_format: "jpeg",
-    sync_mode: true
+    sync_mode: true,
+    /* follows the 18+ toggle: mature mode off => fal's safety checker stays on.
+       Only ever for fictional characters — never reference photos of real people. */
+    enable_safety_checker: !matureActive()
   };
   var url = refs.length ? FAL_I2I_URL : FAL_T2I_URL;
   if (refs.length) body.image_url = refs[0];
@@ -1695,7 +1698,9 @@ function renderModelUI(){
   html += '<div class="ds" style="padding:14px 0 4px;font-weight:800;letter-spacing:.5px">MATURE ROLEPLAY · 18+</div>';
   html += '<div class="modelrow"><div class="mi"><div class="nm">' +
     (S.adult ? "On — adult roleplay permitted" : "Off") + '</div>' +
-    '<div class="ds">Z.ai\'s own content rules still apply to whatever the models will answer.</div></div>' +
+    '<div class="ds">Text: Z.ai\'s own content rules still apply. Images: when on, FLUX photos skip ' +
+    'fal\'s safety checker — fictional characters only, never reference photos of real people; ' +
+    'content is your responsibility under fal\'s terms. When off, the checker stays on.</div></div>' +
     '<button class="use" id="adult-toggle">' + (S.adult ? "Turn off" : "I\'m 18+ — turn on") + '</button></div>';
   html += '<div class="ds" style="padding-top:10px">Replies come only from the API. If it\'s ' +
     'unreachable, messages will say so rather than being answered by anything else.</div>';
