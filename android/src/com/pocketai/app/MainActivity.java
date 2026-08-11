@@ -2,10 +2,14 @@ package com.pocketai.app;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.view.ViewGroup;
+
+import java.util.List;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -25,6 +29,11 @@ public class MainActivity extends Activity {
     /** Pending <input type="file"> callback, held while the picker is open. */
     private ValueCallback<Uri[]> filePicker;
     private static final int REQ_FILE = 7;
+    private static final int REQ_CAM = 8;
+
+    /** content:// address the camera app writes the shot to (PhotoProvider). */
+    private static final Uri CAM_URI =
+            Uri.parse("content://" + PhotoProvider.AUTHORITY + "/shot.jpg");
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -62,6 +71,10 @@ public class MainActivity extends Activity {
                                              FileChooserParams params) {
                 if (filePicker != null) filePicker.onReceiveValue(null);
                 filePicker = callback;
+                // capture attribute on the input => the page wants the camera
+                boolean capture = false;
+                try { capture = params.isCaptureEnabled(); } catch (Throwable ignored) { }
+                if (capture && startCamera()) return true;
                 try {
                     startActivityForResult(params.createIntent(), REQ_FILE);
                     return true;
@@ -119,6 +132,31 @@ public class MainActivity extends Activity {
         web.loadUrl(url);
     }
 
+    /**
+     * Fires the system camera pointed at PhotoProvider's one file. EXTRA_OUTPUT
+     * isn't covered by intent grant flags (it's an extra, not the data URI), so
+     * write access is granted per-package to every activity that could handle
+     * the intent. Returns false — falling back to the normal picker — if no
+     * camera app exists or the intent can't start.
+     */
+    private boolean startCamera() {
+        try {
+            PhotoProvider.shot(this).delete();     // no stale frame if cancelled
+            Intent it = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            it.putExtra(MediaStore.EXTRA_OUTPUT, CAM_URI);
+            List<ResolveInfo> cams = getPackageManager().queryIntentActivities(it, 0);
+            if (cams.isEmpty()) return false;
+            for (ResolveInfo ri : cams)
+                grantUriPermission(ri.activityInfo.packageName, CAM_URI,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                      | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            startActivityForResult(it, REQ_CAM);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** Hands the chosen image back to the waiting page. */
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -126,6 +164,14 @@ public class MainActivity extends Activity {
             if (filePicker != null) {
                 filePicker.onReceiveValue(
                         WebChromeClient.FileChooserParams.parseResult(resultCode, data));
+                filePicker = null;
+            }
+            return;
+        }
+        if (requestCode == REQ_CAM) {
+            if (filePicker != null) {
+                boolean ok = resultCode == RESULT_OK && PhotoProvider.shot(this).length() > 0;
+                filePicker.onReceiveValue(ok ? new Uri[]{CAM_URI} : null);
                 filePicker = null;
             }
             return;

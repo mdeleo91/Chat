@@ -29,6 +29,9 @@ public class WebChromeClient {
         /** Intent that opens the system picker for the page's accept types. */
         public abstract Intent createIntent();
 
+        /** True when the page's input carries the capture attribute (camera). */
+        public abstract boolean isCaptureEnabled();
+
         /** Turns an onActivityResult back into the URI list the page expects. */
         public static Uri[] parseResult(int resultCode, Intent data) {
             return null;

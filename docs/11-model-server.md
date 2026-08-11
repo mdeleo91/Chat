@@ -20,7 +20,15 @@ It works from anywhere with internet — no home server, no Tailscale — but it
 inverts the privacy story: prompts (character card, persona, memories, recent
 history) are sent to Z.ai, and you pay per token. Only one engine answers at
 a time; whichever the toggle selects is the only reply path, and the model
-input accepts newer ids (e.g. a future `glm-5.5`) without a code change.
+inputs accept newer ids (e.g. a future `glm-5.5`) without a code change.
+
+On this engine characters can also send photos back: the system prompt teaches
+the model a `[photo: description]` tag, and when a reply carries one the app
+renders the description with the image model (`cogview-4` by default, billed
+per image) and delivers it as its own picture bubble. The description — not
+the pixels — stays in the history, so the character remembers what it showed
+you. The local-server engine has no image generator, so its characters only
+describe pictures in prose.
 
 ## Ollama, the short version
 

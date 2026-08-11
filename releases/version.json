@@ -1,6 +1,6 @@
 {
-  "versionCode": 18,
-  "versionName": "0.8.0",
+  "versionCode": 19,
+  "versionName": "0.9.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Send photos. A new attach button in the chat puts a picture in the conversation — the character sees it and reacts. On GLM cloud the app hops to the vision model (glm-5v-turbo) just for messages where a photo is in play, then returns to glm-5.2; your own server gets photos too if it runs a vision model. Whatever's in the message box when you attach becomes the caption."
+  "notes": "Photos, both directions. The attach button now offers Take a photo or Choose from gallery, and the picture sits in the composer as a preview so you can write a message before sending both together. On GLM cloud, characters can send real photos back too — generated on the spot to match what they say they're showing you. Also fixes the attach button showing text instead of an icon."
 }

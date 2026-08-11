@@ -41,7 +41,7 @@ javac -source 8 -target 8 -nowarn \
 javac -source 8 -target 8 -nowarn \
   -classpath "$OUT/stubs:$TOOLS/android-stub.jar" \
   -d "$OUT/classes" \
-  "$AND/src/com/pocketai/app/MainActivity.java" \
+  $(find "$AND/src" -name '*.java') \
   "$OUT/gen/com/pocketai/app/BuildVersion.java"
 java -cp "$TOOLS/dx.jar" com.android.dx.command.Main --dex \
   --min-sdk-version=24 --output="$OUT/apk/classes.dex" "$OUT/classes"

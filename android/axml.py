@@ -15,7 +15,8 @@ ANDROID_NS = "http://schemas.android.com/apk/res/android"
 # Framework attr resource ids (frameworks/base public.xml, stable ABI)
 ATTR_IDS = {
     "theme": 0x01010000, "label": 0x01010001, "icon": 0x01010002,
-    "name": 0x01010003, "exported": 0x01010010, "launchMode": 0x0101001D,
+    "name": 0x01010003, "exported": 0x01010010, "authorities": 0x01010018,
+    "grantUriPermissions": 0x0101001B, "launchMode": 0x0101001D,
     "configChanges": 0x0101001F, "minSdkVersion": 0x0101020C,
     "versionCode": 0x0101021B, "versionName": 0x0101021C,
     "windowSoftInputMode": 0x0101022B, "targetSdkVersion": 0x01010270,
@@ -167,7 +168,14 @@ def build_manifest(package, version_code, version_name):
                 [Elem("intent-filter", [], [
                     Elem("action", [A("name", "android.intent.action.MAIN")]),
                     Elem("category", [A("name", "android.intent.category.LAUNCHER")]),
-                ])])
+                ])]),
+              # camera output target ("Take a photo"): the system camera writes
+              # here via a per-package grant from MainActivity.startCamera()
+              Elem("provider",
+                [A("name", package + ".PhotoProvider"),
+                 A("exported", False),
+                 A("authorities", package + ".photos"),
+                 A("grantUriPermissions", True)])
             ])
         ])
     return Writer(root).build()
