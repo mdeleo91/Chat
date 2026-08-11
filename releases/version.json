@@ -1,6 +1,6 @@
 {
-  "versionCode": 23,
-  "versionName": "0.11.1",
+  "versionCode": 24,
+  "versionName": "0.12.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "De-glamorized photos. Characters' pictures were coming out like magazine shots; the style prompt now insists on throwaway phone-snap qualities — everything in focus, flat light, dull colors, tilted framing, sensor noise — and selfies additionally get real front-camera framing: arm's length, slight wide-angle distortion, a little too close. Custom Photo styles keep the selfie framing but replace the rest."
+  "notes": "API only, and real selfie references. The local-server option is gone — everything now runs on your Z.ai key. Photos switch to glm-image, Z.ai's newest image model, which actually accepts the selfie reference photos (the old path silently never used them) and follows the phone-snapshot style far better. Generated pictures are downloaded and stored on the device immediately, fixing image bubbles that broke when hosted links expired."
 }

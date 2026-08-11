@@ -761,7 +761,6 @@ function load(){
   if (!S.scenes)  S.scenes = {};    // per-conversation scene ("texting", "at dinner"…)
   if (!S.groups)  S.groups = [];
   if (S.adult === undefined) S.adult = false;
-  if (S.engine !== "glm" && S.engine !== "server") S.engine = "server";
   var migrated = false;
   (S.chars || []).concat(S.groups || []).forEach(function(c){
     if (!c.icon) { c.icon = EMOJI2ICON[c.emoji] || "person"; delete c.emoji; migrated = true; }
@@ -931,51 +930,33 @@ var CAST = [
 var SEED_GROUP = {id:"g-fwt", grp:true, name:"Fantasy Writing Team", icon:"castle", ring:"#22C55E",
   members:["nova","dm","hale"], status:"3 members"};
 
-/* ================= engine: your server, or GLM cloud =================
-   All replies come from one of two OpenAI-compatible engines, toggled in
-   Settings: the local server (Ollama / llama.cpp / LM Studio / vLLM) or
-   Z.ai's hosted GLM. There is no on-device model and no scripted
-   fallback — if the selected engine is unreachable, the message says so
-   and nothing pretends to answer. */
+/* ================= engine: Z.ai's GLM API, only =================
+   Every reply comes from Z.ai's hosted GLM over the OpenAI-style
+   /chat/completions API. There is no on-device model, no local server
+   and no scripted fallback — if the API is unreachable, the message
+   says so and nothing pretends to answer. */
 function matureActive(){ return !!S.adult; }
 
-/* ================= remote server (OpenAI-compatible) =================
-   Ollama, llama.cpp server, LM Studio and vLLM all expose
-   /v1/chat/completions with SSE streaming. */
 var REMOTE = {remote:true};
-function srv(){
-  if (!S.server) S.server = {url:"", model:"", models:[], err:""};
-  return S.server;
-}
-function srvBase(){
-  var u = (srv().url || "").trim().replace(/\s/g, "").replace(/\/+$/, "");
-  if (!u) return "";
-  if (!/^https?:\/\//i.test(u)) u = "http://" + u;
-  return u.replace(/\/v1$/, "");
-}
-function srvHost(){
-  var b = srvBase();
-  return b ? b.replace(/^https?:\/\//, "") : "";
-}
-function remoteReady(){ return !!(srvBase() && srv().model); }
-
-/* ================= GLM cloud (Z.ai) =================
-   Same OpenAI-style /chat/completions wire format as the local server,
-   spoken to Z.ai's hosted API instead. Settings → Change model toggles
-   which of the two answers. Unlike the local path, messages sent here
-   leave the network and go to Z.ai — the UI says so wherever it applies. */
 var GLM_URL = "https://api.z.ai/api/paas/v4/chat/completions";
 var GLM_IMG_URL = "https://api.z.ai/api/paas/v4/images/generations";
 var GLM_DEFAULT_MODEL = "glm-5.2";
 var GLM_VISION_MODEL = "glm-5v-turbo";   // used automatically when a photo is in the conversation
-/* Z.ai's image ids are versioned — the bare "cogview-4" alias 404s */
-var GLM_IMAGE_MODEL = "cogview-4-250304";   // paints the photos characters send back
+/* glm-image: Z.ai's newest image model — better instruction-following than
+   CogView and the one that accepts reference images. Old cogview defaults
+   are migrated; a deliberately different choice is left alone. */
+var GLM_IMAGE_MODEL = "glm-image";          // paints the photos characters send back
 function glm(){
   if (!S.glm) S.glm = {key:"", model:GLM_DEFAULT_MODEL, err:""};
   if (!S.glm.model) S.glm.model = GLM_DEFAULT_MODEL;
   if (!S.glm.vmodel) S.glm.vmodel = GLM_VISION_MODEL;
-  if (!S.glm.imodel || S.glm.imodel === "cogview-4") S.glm.imodel = GLM_IMAGE_MODEL;
+  if (!S.glm.imodel || /^cogview-4/.test(S.glm.imodel)) S.glm.imodel = GLM_IMAGE_MODEL;
   return S.glm;
+}
+/* each model family has its own allowed size grid; both of these are the
+   portrait "phone shaped" option */
+function imgSize(model){
+  return /glm-image/.test(model) ? "1056x1568" : "864x1152";
 }
 /* Without direction the image models paint editorial photography — shallow
    depth of field, perfect light, graded color. Telling them what NOT to do
@@ -1019,67 +1000,69 @@ function glmImage(desc, ch, isSelfie, cb){
   imgResponse(fetch(GLM_IMG_URL, {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Bearer " + glm().key.trim()},
-    /* 864x1152 = portrait 3:4, the shape a phone actually takes */
-    body: JSON.stringify({model: glm().imodel, prompt: imgPrompt(ch, desc, isSelfie), size: "864x1152"})
+    body: JSON.stringify({model: glm().imodel, prompt: imgPrompt(ch, desc, isSelfie),
+      size: imgSize(glm().imodel)})
   }), "generation (" + glm().imodel + ")", cb);
 }
 /* a selfie, generated from the character's reference photos so the same
-   person shows up every time (GLM-Image, identity-preserving edits API).
-   No references, or the edit fails => plain text-to-image fallback. */
-var GLM_EDIT_URL = "https://api.z.ai/api/paas/v4/images/edits";
+   person shows up every time: glm-image with the references passed as
+   image_url data URIs on the same generations endpoint (the OpenAI-style
+   /images/edits path does not exist on api.z.ai — it 404s). No references,
+   or a rejected request => plain text-to-image fallback, and the API's
+   error body lands in the troubleshooting log. */
 var GLM_REF_MODEL = "glm-image";
-function dataUrlToBlob(u){
-  var m = u.match(/^data:([^;]+);base64,(.*)$/);
-  if (!m) return null;
-  var bin = atob(m[2]), arr = new Uint8Array(bin.length);
-  for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return new Blob([arr], {type: m[1]});
-}
 function glmSelfie(desc, ch, cb){
   var refs = (ch && ch.refimgs || []).slice(0, 3);
-  var blobs = refs.map(dataUrlToBlob).filter(Boolean);
-  if (!blobs.length) { glmImage(desc, ch, true, cb); return; }
-  var fd = new FormData();
-  fd.append("model", GLM_REF_MODEL);
-  blobs.forEach(function(b, i){ fd.append("image", b, "ref" + i + ".jpg"); });
-  fd.append("prompt", "A new photo of the same person as the reference" +
-    (blobs.length > 1 ? " images" : " image") + ". " + imgPrompt(ch, desc, true));
-  fd.append("response_format", "b64_json");
-  imgResponse(
-    fetch(GLM_EDIT_URL, {method: "POST",
-      headers: {"Authorization": "Bearer " + glm().key.trim()}, body: fd}),
-    "selfie (" + GLM_REF_MODEL + ")", cb,
+  if (!refs.length) { glmImage(desc, ch, true, cb); return; }
+  imgResponse(fetch(GLM_IMG_URL, {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + glm().key.trim()},
+    body: JSON.stringify({
+      model: GLM_REF_MODEL,
+      prompt: "A new photo of the same person as the reference image" +
+        (refs.length > 1 ? "s" : "") + ". " + imgPrompt(ch, desc, true),
+      image_url: refs,
+      size: imgSize(GLM_REF_MODEL)
+    })
+  }), "selfie (" + GLM_REF_MODEL + ")", cb,
     function(){ glmImage(desc, ch, true, cb); });
 }
-/* downscale for localStorage; if the canvas is CORS-tainted (remote URL with
-   no CORS headers) keep the remote URL — displays fine, just not archived */
+/* The API hands back a hosted URL that expires — storing it is how a chat
+   ends up with broken image bubbles later. Download the pixels immediately
+   and keep them as a downscaled JPEG; the harder 0.68 compression also
+   knocks some of the AI sheen off. Only if the download itself fails (the
+   web build against a CDN without CORS headers) fall back to the raw URL. */
 function shrinkImage(src, cb){
+  if (/^https?:/i.test(src)) {
+    fetch(src).then(function(r){
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.blob();
+    }).then(function(b){
+      var fr = new FileReader();
+      fr.onload = function(){ shrinkDataUrl(fr.result, cb, src); };
+      fr.onerror = function(){ cb(src); };
+      fr.readAsDataURL(b);
+    }).catch(function(){ cb(src); });
+  } else shrinkDataUrl(src, cb, null);
+}
+function shrinkDataUrl(u, cb, remoteFallback){
   var img = new Image();
   img.onload = function(){
-    var MAX = 640, k = Math.min(1, MAX / Math.max(img.width, img.height));
+    var MAX = 720, k = Math.min(1, MAX / Math.max(img.width, img.height));
     var cv = document.createElement("canvas");
     cv.width = Math.max(1, Math.round(img.width * k));
     cv.height = Math.max(1, Math.round(img.height * k));
     cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
-    try { cb(cv.toDataURL("image/jpeg", 0.8)); } catch (e) { cb(src); }
+    try { cb(cv.toDataURL("image/jpeg", 0.68)); }
+    catch (e) { cb(remoteFallback || null); }
   };
-  img.onerror = function(){ cb(src.indexOf("data:") === 0 ? null : src); };
-  img.crossOrigin = "anonymous";
-  img.src = src;
+  img.onerror = function(){ cb(remoteFallback || null); };
+  img.src = u;
 }
 function glmReady(){ return !!(glm().key || "").trim(); }
-/* which engine is selected, and the request pieces that differ between them */
-function engine(){ return S.engine === "glm" ? "glm" : "server"; }
-function engineReady(){ return engine() === "glm" ? glmReady() : remoteReady(); }
-function apiEndpoint(){ return engine() === "glm" ? GLM_URL : srvBase() + "/v1/chat/completions"; }
 function apiHeaders(){
-  var h = {"Content-Type": "application/json"};
-  if (engine() === "glm") h["Authorization"] = "Bearer " + glm().key.trim();
-  return h;
+  return {"Content-Type": "application/json", "Authorization": "Bearer " + glm().key.trim()};
 }
-function apiModel(){ return engine() === "glm" ? glm().model : srv().model; }
-function engineHost(){ return engine() === "glm" ? "Z.ai cloud" : srvHost(); }
-function engineErr(msg){ if (engine() === "glm") glm().err = msg; else srv().err = msg; }
 /* a one-token paid request — the cheapest way to prove the key works */
 function glmProbe(cb){
   var g = glm();
@@ -1101,25 +1084,6 @@ function glmProbe(cb){
     save(); cb(g.err);
   });
 }
-/* ask the server which models it has loaded */
-function srvProbe(cb){
-  var base = srvBase();
-  if (!base) { cb("Enter the server address first"); return; }
-  fetch(base + "/v1/models", {method:"GET"}).then(function(r){
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    return r.json();
-  }).then(function(j){
-    var list = (j && j.data || []).map(function(m){ return m.id; }).filter(Boolean);
-    srv().models = list; srv().err = "";
-    if (!list.length) { cb("Connected, but the server has no models loaded"); return; }
-    if (!srv().model || list.indexOf(srv().model) < 0) srv().model = list[0];
-    save(); cb(null, list);
-  }).catch(function(e){
-    srv().models = [];
-    srv().err = String(e && e.message || e);
-    save(); cb(srv().err);
-  });
-}
 /* photos ride along as OpenAI-style image_url content parts; a request that
    carries one needs a model with eyes */
 function messagesHaveImage(messages){
@@ -1129,25 +1093,19 @@ function messagesHaveImage(messages){
     });
   });
 }
-/* stream a completion from whichever engine is selected */
+/* stream a completion; a photo in the window bumps to the vision model */
 async function remoteGenerate(messages, onDelta){
-  var model = apiModel();
-  if (engine() === "glm" && messagesHaveImage(messages))
-    model = glm().vmodel || GLM_VISION_MODEL;
-  var body = {
-    model: model, messages: messages, stream: true,
-    temperature: 0.85, top_p: 0.95, max_tokens: 512,
-    presence_penalty: 0.3, frequency_penalty: 0.3
-  };
-  if (engine() === "server") body.min_p = 0.05;   // llama.cpp-family knob; Z.ai doesn't take it
-  var r = await fetch(apiEndpoint(), {
+  var model = messagesHaveImage(messages) ? (glm().vmodel || GLM_VISION_MODEL) : glm().model;
+  var r = await fetch(GLM_URL, {
     method: "POST",
     headers: apiHeaders(),
-    body: JSON.stringify(body)
+    body: JSON.stringify({
+      model: model, messages: messages, stream: true,
+      temperature: 0.85, top_p: 0.95, max_tokens: 512,
+      presence_penalty: 0.3, frequency_penalty: 0.3
+    })
   });
-  if (!r.ok) throw new Error(engine() === "glm"
-    ? "Z.ai returned HTTP " + r.status
-    : "server returned HTTP " + r.status);
+  if (!r.ok) throw new Error("Z.ai returned HTTP " + r.status);
   var reader = r.body.getReader(), dec = new TextDecoder(), buf = "";
   for (;;) {
     var chunk = await reader.read();
@@ -1169,14 +1127,12 @@ async function remoteGenerate(messages, onDelta){
   }
 }
 
-function useLLM(){ return engineReady(); }
+function useLLM(){ return glmReady(); }
 function friendlyModel(){
-  if (engine() === "glm")
-    return glmReady() ? glm().model + " · Z.ai cloud" : "GLM cloud — no API key yet";
-  return remoteReady() ? srv().model + " · " + srvHost() : "No server configured";
+  return glmReady() ? glm().model + " · Z.ai" : "No API key yet";
 }
 function ensureEngine(cb){
-  if (engineReady()) cb(null, REMOTE); else cb("unavailable");
+  if (glmReady()) cb(null, REMOTE); else cb("unavailable");
 }
 /* Ordered stable-first: the server caches the prompt as a token prefix, so
    the parts that never change (who the character is) go before the parts
@@ -1202,7 +1158,7 @@ function sysPrompt(ch, convo){
     p += "Mature mode — the user has confirmed they are an adult: romantic and explicit adult " +
       "roleplay is permitted when the user invites it. All characters are consenting adults. " +
       "Always decline anything involving minors, real people, or non-consent.\n";
-  if (engine() === "glm" && glmReady())
+  if (glmReady())
     p += "You can send a photo of your own: end your message with [photo: a short visual description " +
       "of the picture] on its own line — or [selfie: description] when you yourself appear in it. " +
       "Use them when you'd naturally share a picture — what you're looking at, something you made, " +
@@ -1297,9 +1253,9 @@ function buildMessages(ch, convo, nudge){
 var SUMBUSY = {};
 function completeOnce(engine, messages, maxTok, cb){
   if (engine === REMOTE) {
-    fetch(apiEndpoint(), {
+    fetch(GLM_URL, {
       method:"POST", headers:apiHeaders(),
-      body: JSON.stringify({model:apiModel(), messages:messages, stream:false,
+      body: JSON.stringify({model:glm().model, messages:messages, stream:false,
         temperature:0.3, max_tokens:maxTok})
     }).then(function(r){ if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(function(j){ cb(null, j.choices && j.choices[0] && j.choices[0].message &&
@@ -1368,9 +1324,7 @@ function aiDeliver(convo, ch, userText, nudge){
     ensureEngine(function(err){
       if (err) {
         if (ty) ty.classList.remove("on");
-        toast(engine() === "glm"
-          ? "No GLM API key — add one in Settings"
-          : "No server configured — connect one in Settings");
+        toast("No API key — add your Z.ai key in Settings");
         done(); return;
       }
       runGeneration(convo, ch, nudge, done);
@@ -1425,10 +1379,9 @@ async function runGeneration(convo, ch, nudge, done){
     txt = visible(txt).trim();
     /* the character may have decided to send a picture */
     var photoDesc = null, isSelfie = false;
-    if (engine() === "glm")
-      txt = txt.replace(/\[(photo|selfie):\s*([^\]]{3,400})\]/i, function(_, kind, d){
-        photoDesc = d.trim(); isSelfie = kind.toLowerCase() === "selfie"; return "";
-      }).trim();
+    txt = txt.replace(/\[(photo|selfie):\s*([^\]]{3,400})\]/i, function(_, kind, d){
+      photoDesc = d.trim(); isSelfie = kind.toLowerCase() === "selfie"; return "";
+    }).trim();
     if (!txt && !photoDesc) throw new Error("the model returned an empty reply");
     if (txt) {
       pushMsg(convo.id, "them", txt, ch.id);
@@ -1442,11 +1395,9 @@ async function runGeneration(convo, ch, nudge, done){
     if (liveEl) liveEl.remove();
     var ty3 = $("ty"); if (ty3) ty3.classList.remove("on");
     var emsg = String(e && e.message || e);
-    engineErr(emsg); save();
-    L("gen", engine() + " FAILED for " + ch.name + " @" + engineHost() + ": " + emsg.slice(0,200));
-    toast(engine() === "glm"
-      ? "GLM didn't answer — check your API key and credit in Settings"
-      : "Server unreachable — no reply. Check " + (srvHost() || "Settings"));
+    glm().err = emsg; save();
+    L("gen", "glm FAILED for " + ch.name + " @Z.ai: " + emsg.slice(0,200));
+    toast("GLM didn't answer — check your API key and credit in Settings");
     renderModelUI();
   }
   done();
@@ -1486,24 +1437,12 @@ function extractFacts(ch, text){
   if ((m = t.match(/i (?:work|live) (?:as|in|at) ([^.!?]{2,60})/i)))
     remember(ch, "They " + (t.indexOf("work")>=0?"work":"live") + " " + m[0].replace(/^i /i,"").trim());
 }
-/* the server-vs-cloud switch at the top of the model picker */
-function engineToggleHTML(){
-  var e = engine();
-  return '<div class="ds" style="padding:2px 0 6px;font-weight:800;letter-spacing:.5px">REPLIES COME FROM</div>' +
-    '<div class="modecards" style="padding:0 0 12px">' +
-    '<button class="modecard' + (e === "server" ? " on" : "") + '" id="eng-server">' +
-      '<span class="em msr">dns</span>My server</button>' +
-    '<button class="modecard' + (e === "glm" ? " on" : "") + '" id="eng-glm">' +
-      '<span class="em msr">cloud</span>GLM cloud</button>' +
-    '</div>';
-}
-/* the "Z.ai's GLM over the internet" section of the model picker */
+/* the model picker: Z.ai's GLM API */
 function glmSectionHTML(){
   var g = glm(), h = "";
-  h += '<div class="ds" style="padding:14px 0 6px;font-weight:800;letter-spacing:.5px">GLM CLOUD (Z.AI)</div>';
-  h += '<div class="ds" style="padding-bottom:8px">Z.ai’s hosted GLM models — no home server needed, ' +
-       'works anywhere with internet. Pay-per-token with an API key from z.ai. Unlike your own server, ' +
-       'conversations on this engine are sent to Z.ai.</div>';
+  h += '<div class="ds" style="padding:2px 0 6px;font-weight:800;letter-spacing:.5px">Z.AI API</div>';
+  h += '<div class="ds" style="padding-bottom:8px">Replies come from Z.ai’s hosted GLM models — ' +
+       'pay-per-token with an API key from z.ai. Conversations are sent to Z.ai to be answered.</div>';
   h += '<input id="glm-key" class="srvinput" type="password" autocomplete="off" ' +
        'placeholder="Z.ai API key" value="' + esc(g.key || "") + '">';
   h += '<div class="ds" style="padding:8px 0 4px">Text model</div>';
@@ -1550,75 +1489,19 @@ function wireGlmUI(card){
     });
   };
 }
-/* the "run it on my own box" section of the model picker */
-function serverSectionHTML(){
-  var s = srv(), h = "";
-  h += '<div class="ds" style="padding:14px 0 6px;font-weight:800;letter-spacing:.5px">YOUR SERVER</div>';
-  h += '<div class="ds" style="padding-bottom:8px">A machine on your network running Ollama, llama.cpp, ' +
-       'LM Studio or vLLM. Private: conversations only travel between your devices. Photos you send go ' +
-       'to whatever model is loaded — it needs to be a vision model (qwen-VL, llava…) to see them.</div>';
-  h += '<input id="srv-url" class="srvinput" placeholder="192.168.1.50:11434" value="' + esc(s.url || "") + '">';
-  h += '<div class="srvbtns"><button class="use" id="srv-connect">Connect</button>' +
-       (s.models && s.models.length
-          ? '<span class="dl">' + s.models.length + ' model' + (s.models.length>1?'s':'') + ' available</span>'
-          : '') + '</div>';
-  if (s.err)
-    h += '<div class="ds" style="color:var(--danger);padding-top:6px">' + esc(s.err).slice(0,160) + '</div>';
-  (s.models || []).forEach(function(id){
-    var on = s.model === id;
-    h += '<div class="modelrow"><div class="mi"><div class="nm">' + esc(id) + '</div>' +
-         '<div class="ds">on ' + esc(srvHost()) + '</div></div>' +
-         (on ? '<span class="active"><span class="msr" style="font-size:14px">check</span> Active</span>'
-             : '<button class="use" data-srvmodel="' + esc(id) + '">Use</button>') + '</div>';
-  });
-  return h;
-}
-function wireServerUI(card){
-  var input = card.querySelector("#srv-url");
-  if (input) input.oninput = function(){ srv().url = input.value; srv().err = ""; save(); };
-  var conn = card.querySelector("#srv-connect");
-  if (conn) conn.onclick = function(){
-    conn.textContent = "Connecting…";
-    srvProbe(function(err, list){
-      renderModelUI(); initSettings(); updateChatStat();
-      toast(err ? "Couldn't reach the server" : "Connected — " + list.length + " model" + (list.length>1?"s":""));
-    });
-  };
-  var picks = card.querySelectorAll(".use[data-srvmodel]");
-  for (var i=0;i<picks.length;i++) (function(b){
-    b.onclick = function(){
-      srv().model = b.dataset.srvmodel;
-      save(); initSettings(); renderModelUI(); updateChatStat();
-      toast("Now talking to " + srv().model);
-    };
-  })(picks[i]);
-}
 function renderModelUI(){
   var card = $("modelcard");
   if (!card.classList.contains("on")) return;
-  var html = engineToggleHTML();
-  html += engine() === "glm" ? glmSectionHTML() + serverSectionHTML()
-                             : serverSectionHTML() + glmSectionHTML();
+  var html = glmSectionHTML();
   html += '<div class="ds" style="padding:14px 0 4px;font-weight:800;letter-spacing:.5px">MATURE ROLEPLAY · 18+</div>';
   html += '<div class="modelrow"><div class="mi"><div class="nm">' +
     (S.adult ? "On — adult roleplay permitted" : "Off") + '</div>' +
-    '<div class="ds">Applies to whichever engine is answering. On your own server nothing leaves your ' +
-    'devices; on GLM cloud Z.ai\'s own content rules still apply.</div></div>' +
+    '<div class="ds">Z.ai\'s own content rules still apply to whatever the models will answer.</div></div>' +
     '<button class="use" id="adult-toggle">' + (S.adult ? "Turn off" : "I\'m 18+ — turn on") + '</button></div>';
-  html += '<div class="ds" style="padding-top:10px">Replies come only from the selected engine. If it\'s ' +
+  html += '<div class="ds" style="padding-top:10px">Replies come only from the API. If it\'s ' +
     'unreachable, messages will say so rather than being answered by anything else.</div>';
   card.innerHTML = html;
-  wireServerUI(card);
   wireGlmUI(card);
-  ["server", "glm"].forEach(function(id){
-    var b = card.querySelector("#eng-" + id);
-    if (b) b.onclick = function(){
-      if (engine() === id) return;
-      S.engine = id; save();
-      renderModelUI(); initSettings(); updateChatStat();
-      toast(id === "glm" ? "Replies now come from GLM cloud" : "Replies now come from your server");
-    };
-  });
   var at = card.querySelector("#adult-toggle");
   if (at) at.onclick = function(){
     if (!S.adult && !confirm("Mature mode permits explicit adult roleplay. Confirm you are 18 or older.")) return;
@@ -1629,19 +1512,13 @@ function updateChatStat(){
   if (!cur) return;
   var c = getConvo(cur); if (!c || c.grp) return;
   var el = $("chat-stat");
-  if (engineReady()) {
-    var label;
-    if (engine() === "glm") {
-      /* a photo still in the window means the vision model is answering */
-      var vis = histWindow(c).some(function(m){ return !!m.img; });
-      label = (vis ? glm().vmodel : glm().model) + " (Z.ai)";
-    } else label = srvHost();
-    el.innerHTML = '<span class="on">online</span> · via ' + esc(label);
-  }
-  else
-    el.innerHTML = '<span style="color:var(--danger)">' + (engine() === "glm"
-      ? "no GLM API key — add one in Settings"
-      : "no server — connect one in Settings") + '</span>';
+  if (glmReady()) {
+    /* a photo still in the window means the vision model is answering */
+    var vis = histWindow(c).some(function(m){ return !!m.img; });
+    el.innerHTML = '<span class="on">online</span> · via ' +
+      esc((vis ? glm().vmodel : glm().model) + " (Z.ai)");
+  } else
+    el.innerHTML = '<span style="color:var(--danger)">no API key — add one in Settings</span>';
 }
 
 /* ================= persona engine ================= */
@@ -1923,11 +1800,8 @@ function attachPress(el, idx){
 }
 function renderStream(){
   var st = $("stream"); var c = getConvo(cur);
-  st.innerHTML = '<div class="day"><span class="msr" style="font-size:12px">' +
-    (engine() === "glm" ? "cloud" : "lock") + '</span> ' +
-    (engine() === "glm"
-      ? (glmReady() ? esc(glm().model) + " · Z.ai cloud" : "no GLM API key")
-      : (remoteReady() ? esc(srvHost()) + " · your server" : "no server connected")) + '</div>';
+  st.innerHTML = '<div class="day"><span class="msr" style="font-size:12px">cloud</span> ' +
+    (glmReady() ? esc(glm().model) + " · Z.ai" : "no API key") + '</div>';
   (S.msgs[cur]||[]).forEach(function(msg, idx){
     if (msg.who === "scene") {
       var sc = document.createElement("div"); sc.className = "day";
@@ -2489,9 +2363,8 @@ function initSettings(){
   applyTheme();
   $("about-note").innerHTML =
     "<b>About this build.</b> Chats, characters and memories are stored only in this device's local storage. " +
-    "Replies come from the engine picked under <i>Change model</i>: your own model server (a machine on " +
-    "your network running Ollama or similar — conversations travel only between this device and that " +
-    "machine), or Z.ai's GLM cloud (works anywhere, but conversations are sent to Z.ai)." +
+    "Replies and generated photos come from Z.ai's GLM API (<i>Change model</i>, above) — conversations " +
+    "are sent to Z.ai to be answered, billed per token on your API key." +
     (IS_APK ? "<br><br>Updates are fetched straight from the GitHub repo — <i>Check for updates</i> reads " +
       "<code>releases/version.json</code> on the main branch." :
       "<br><br>The APK installs on Android 5.0+ and checks this repo for its own updates.");
@@ -2629,7 +2502,7 @@ else {
 if (!S.gseeded) { S.groups.push(JSON.parse(JSON.stringify(SEED_GROUP))); S.gseeded = true; save(); }
 applyTheme();
 L("boot", "v" + MY_VN + " " + (IS_APK ? "apk build " + MY_VC : "web") +
-  " · engine=" + engine() + " · server=" + (srvHost() || "unset") +
+  " · model=" + (glmReady() ? glm().model : "no-key") +
   " · " + navigator.userAgent.slice(0,120), true);
 if (Q.rcrash) L("crash", "recovered from a WebView renderer " +
   (Q.rcrash === "oom" ? "out-of-memory kill" : "crash"), true);

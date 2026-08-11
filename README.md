@@ -22,7 +22,7 @@
 | 8 | [Risks & Technical Challenges](docs/08-risks.md) | Ranked risks with mitigations |
 | 9 | [Six-Month Development Plan](docs/09-six-month-plan.md) | Week-by-week plan, team shape, exit criteria |
 | 10 | [UI Mockups & Design Language](docs/10-ui-mockups.md) | Visual identity spec + interactive mockups |
-| 11 | [Running a model server](docs/11-model-server.md) | Point the app at Ollama/llama.cpp on your own machine for a much bigger model |
+| 11 | [The reply engine: Z.ai's GLM API](docs/11-model-server.md) | How the app talks to GLM — models, prompts, photos and selfies |
 
 ## Try It — Web & Android
 
@@ -31,7 +31,7 @@
 | 🌐 **Web version** | Open [`app/index.html`](app/index.html) in any browser (or serve it statically). Includes a **Download APK** link in Settings. Deployed on Vercel at the site root — see [Deployment](#deployment). |
 | 🤖 **Android APK** | [`releases/PocketAI.apk`](releases/PocketAI.apk) — Android 7.0+, ~18 KB, sideload-installable. Includes **Check for updates** in Settings, which reads [`releases/version.json`](releases/version.json) from this repo's `main` branch and links the newest APK. |
 
-Both are the same single-file app (`app/index.html`): the working messaging UI with six starter characters, a group chat, on-device memories (localStorage), character creation, simulated voice calls, and themes. Replies come from one of two engines, toggled under Settings → Change model: **your own model server** — a machine on your network running Ollama, llama.cpp, LM Studio or vLLM (see [docs/11-model-server.md](docs/11-model-server.md)), where conversations travel only between your device and that machine — or **GLM cloud**, Z.ai's hosted GLM models with a pay-per-token API key, which works anywhere with internet but sends conversations to Z.ai. Build pipeline: [`android/README.md`](android/README.md) — the APK is built without the Android SDK (blocked network) using Maven Central tooling and a hand-rolled binary-manifest encoder.
+Both are the same single-file app (`app/index.html`): the working messaging UI with six starter characters, a group chat, on-device memories (localStorage), character creation, simulated voice calls, and themes. Replies — and the photos characters send, including identity-consistent selfies — come from **Z.ai's GLM API** with a pay-per-token API key, configured under Settings → Change model (see [docs/11-model-server.md](docs/11-model-server.md)). Chats and memories stay in the device's local storage; conversations are sent to Z.ai to be answered. Build pipeline: [`android/README.md`](android/README.md) — the APK is built without the Android SDK (blocked network) using Maven Central tooling and a hand-rolled binary-manifest encoder.
 
 ## Interactive Mockups
 
