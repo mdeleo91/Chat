@@ -731,6 +731,7 @@ function load(){
   if (!S.scenes)  S.scenes = {};    // per-conversation scene ("texting", "at dinner"…)
   if (!S.groups)  S.groups = [];
   if (S.adult === undefined) S.adult = false;
+  if (S.engine !== "glm" && S.engine !== "server") S.engine = "server";
   var migrated = false;
   (S.chars || []).concat(S.groups || []).forEach(function(c){
     if (!c.icon) { c.icon = EMOJI2ICON[c.emoji] || "person"; delete c.emoji; migrated = true; }
@@ -900,11 +901,12 @@ var CAST = [
 var SEED_GROUP = {id:"g-fwt", grp:true, name:"Fantasy Writing Team", icon:"castle", ring:"#22C55E",
   members:["nova","dm","hale"], status:"3 members"};
 
-/* ================= engine: your server, only =================
-   All replies come from the OpenAI-compatible server configured in
-   Settings (Ollama / llama.cpp / LM Studio / vLLM). There is no on-device
-   model and no scripted fallback — if the server is unreachable, the
-   message says so and nothing pretends to answer. */
+/* ================= engine: your server, or GLM cloud =================
+   All replies come from one of two OpenAI-compatible engines, toggled in
+   Settings: the local server (Ollama / llama.cpp / LM Studio / vLLM) or
+   Z.ai's hosted GLM. There is no on-device model and no scripted
+   fallback — if the selected engine is unreachable, the message says so
+   and nothing pretends to answer. */
 function matureActive(){ return !!S.adult; }
 
 /* ================= remote server (OpenAI-compatible) =================
@@ -926,6 +928,53 @@ function srvHost(){
   return b ? b.replace(/^https?:\/\//, "") : "";
 }
 function remoteReady(){ return !!(srvBase() && srv().model); }
+
+/* ================= GLM cloud (Z.ai) =================
+   Same OpenAI-style /chat/completions wire format as the local server,
+   spoken to Z.ai's hosted API instead. Settings → Change model toggles
+   which of the two answers. Unlike the local path, messages sent here
+   leave the network and go to Z.ai — the UI says so wherever it applies. */
+var GLM_URL = "https://api.z.ai/api/paas/v4/chat/completions";
+var GLM_DEFAULT_MODEL = "glm-5.2";
+function glm(){
+  if (!S.glm) S.glm = {key:"", model:GLM_DEFAULT_MODEL, err:""};
+  if (!S.glm.model) S.glm.model = GLM_DEFAULT_MODEL;
+  return S.glm;
+}
+function glmReady(){ return !!(glm().key || "").trim(); }
+/* which engine is selected, and the request pieces that differ between them */
+function engine(){ return S.engine === "glm" ? "glm" : "server"; }
+function engineReady(){ return engine() === "glm" ? glmReady() : remoteReady(); }
+function apiEndpoint(){ return engine() === "glm" ? GLM_URL : srvBase() + "/v1/chat/completions"; }
+function apiHeaders(){
+  var h = {"Content-Type": "application/json"};
+  if (engine() === "glm") h["Authorization"] = "Bearer " + glm().key.trim();
+  return h;
+}
+function apiModel(){ return engine() === "glm" ? glm().model : srv().model; }
+function engineHost(){ return engine() === "glm" ? "Z.ai cloud" : srvHost(); }
+function engineErr(msg){ if (engine() === "glm") glm().err = msg; else srv().err = msg; }
+/* a one-token paid request — the cheapest way to prove the key works */
+function glmProbe(cb){
+  var g = glm();
+  if (!(g.key || "").trim()) { cb("Paste your Z.ai API key first"); return; }
+  fetch(GLM_URL, {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + g.key.trim()},
+    body: JSON.stringify({model: g.model, messages: [{role:"user", content:"ping"}],
+      max_tokens: 1, stream: false})
+  }).then(function(r){
+    if (!r.ok) return r.text().then(function(t){
+      throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 140) : ""));
+    });
+    return r.json();
+  }).then(function(){
+    g.err = ""; save(); cb(null);
+  }).catch(function(e){
+    g.err = String(e && e.message || e);
+    save(); cb(g.err);
+  });
+}
 /* ask the server which models it has loaded */
 function srvProbe(cb){
   var base = srvBase();
@@ -945,18 +994,22 @@ function srvProbe(cb){
     save(); cb(srv().err);
   });
 }
-/* stream a completion from the server */
+/* stream a completion from whichever engine is selected */
 async function remoteGenerate(messages, onDelta){
-  var r = await fetch(srvBase() + "/v1/chat/completions", {
+  var body = {
+    model: apiModel(), messages: messages, stream: true,
+    temperature: 0.85, top_p: 0.95, max_tokens: 512,
+    presence_penalty: 0.3, frequency_penalty: 0.3
+  };
+  if (engine() === "server") body.min_p = 0.05;   // llama.cpp-family knob; Z.ai doesn't take it
+  var r = await fetch(apiEndpoint(), {
     method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({
-      model: srv().model, messages: messages, stream: true,
-      temperature: 0.85, top_p: 0.95, min_p: 0.05, max_tokens: 512,
-      presence_penalty: 0.3, frequency_penalty: 0.3
-    })
+    headers: apiHeaders(),
+    body: JSON.stringify(body)
   });
-  if (!r.ok) throw new Error("server returned HTTP " + r.status);
+  if (!r.ok) throw new Error(engine() === "glm"
+    ? "Z.ai returned HTTP " + r.status
+    : "server returned HTTP " + r.status);
   var reader = r.body.getReader(), dec = new TextDecoder(), buf = "";
   for (;;) {
     var chunk = await reader.read();
@@ -978,12 +1031,14 @@ async function remoteGenerate(messages, onDelta){
   }
 }
 
-function useLLM(){ return remoteReady(); }
+function useLLM(){ return engineReady(); }
 function friendlyModel(){
+  if (engine() === "glm")
+    return glmReady() ? glm().model + " · Z.ai cloud" : "GLM cloud — no API key yet";
   return remoteReady() ? srv().model + " · " + srvHost() : "No server configured";
 }
 function ensureEngine(cb){
-  if (remoteReady()) cb(null, REMOTE); else cb("unavailable");
+  if (engineReady()) cb(null, REMOTE); else cb("unavailable");
 }
 /* Ordered stable-first: the server caches the prompt as a token prefix, so
    the parts that never change (who the character is) go before the parts
@@ -1077,9 +1132,9 @@ function buildMessages(ch, convo, nudge){
 var SUMBUSY = {};
 function completeOnce(engine, messages, maxTok, cb){
   if (engine === REMOTE) {
-    fetch(srvBase() + "/v1/chat/completions", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({model:srv().model, messages:messages, stream:false,
+    fetch(apiEndpoint(), {
+      method:"POST", headers:apiHeaders(),
+      body: JSON.stringify({model:apiModel(), messages:messages, stream:false,
         temperature:0.3, max_tokens:maxTok})
     }).then(function(r){ if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(function(j){ cb(null, j.choices && j.choices[0] && j.choices[0].message &&
@@ -1146,7 +1201,9 @@ function aiDeliver(convo, ch, userText, nudge){
     ensureEngine(function(err, engine){
       if (err) {
         if (ty) ty.classList.remove("on");
-        toast("No server configured — connect one in Settings");
+        toast(engine() === "glm"
+          ? "No GLM API key — add one in Settings"
+          : "No server configured — connect one in Settings");
         done(); return;
       }
       runGeneration(engine, convo, ch, nudge, done);
@@ -1202,9 +1259,12 @@ async function runGeneration(engine, convo, ch, nudge, done){
   } catch(e) {
     if (liveEl) liveEl.remove();
     var ty3 = $("ty"); if (ty3) ty3.classList.remove("on");
-    srv().err = String(e && e.message || e); save();
-    L("gen", "server FAILED for " + ch.name + " @" + srvHost() + ": " + srv().err.slice(0,200));
-    toast("Server unreachable — no reply. Check " + (srvHost() || "Settings"));
+    var emsg = String(e && e.message || e);
+    engineErr(emsg); save();
+    L("gen", engine() + " FAILED for " + ch.name + " @" + engineHost() + ": " + emsg.slice(0,200));
+    toast(engine() === "glm"
+      ? "GLM didn't answer — check your API key and credit in Settings"
+      : "Server unreachable — no reply. Check " + (srvHost() || "Settings"));
     renderModelUI();
   }
   done();
@@ -1221,12 +1281,57 @@ function extractFacts(ch, text){
   if ((m = t.match(/i (?:work|live) (?:as|in|at) ([^.!?]{2,60})/i)))
     remember(ch, "They " + (t.indexOf("work")>=0?"work":"live") + " " + m[0].replace(/^i /i,"").trim());
 }
+/* the server-vs-cloud switch at the top of the model picker */
+function engineToggleHTML(){
+  var e = engine();
+  return '<div class="ds" style="padding:2px 0 6px;font-weight:800;letter-spacing:.5px">REPLIES COME FROM</div>' +
+    '<div class="modecards" style="padding:0 0 12px">' +
+    '<button class="modecard' + (e === "server" ? " on" : "") + '" id="eng-server">' +
+      '<span class="em msr">dns</span>My server</button>' +
+    '<button class="modecard' + (e === "glm" ? " on" : "") + '" id="eng-glm">' +
+      '<span class="em msr">cloud</span>GLM cloud</button>' +
+    '</div>';
+}
+/* the "Z.ai's GLM over the internet" section of the model picker */
+function glmSectionHTML(){
+  var g = glm(), h = "";
+  h += '<div class="ds" style="padding:14px 0 6px;font-weight:800;letter-spacing:.5px">GLM CLOUD (Z.AI)</div>';
+  h += '<div class="ds" style="padding-bottom:8px">Z.ai’s hosted GLM models — no home server needed, ' +
+       'works anywhere with internet. Pay-per-token with an API key from z.ai. Unlike your own server, ' +
+       'conversations on this engine are sent to Z.ai.</div>';
+  h += '<input id="glm-key" class="srvinput" type="password" autocomplete="off" ' +
+       'placeholder="Z.ai API key" value="' + esc(g.key || "") + '">';
+  h += '<input id="glm-model" class="srvinput" style="margin-top:8px" ' +
+       'placeholder="' + GLM_DEFAULT_MODEL + '" value="' + esc(g.model || "") + '">';
+  h += '<div class="srvbtns"><button class="use" id="glm-test">Test key</button>' +
+       '<span class="dl">' + esc(g.model || GLM_DEFAULT_MODEL) + ' · flagship</span></div>';
+  if (g.err)
+    h += '<div class="ds" style="color:var(--danger);padding-top:6px">' + esc(g.err).slice(0,160) + '</div>';
+  return h;
+}
+function wireGlmUI(card){
+  var key = card.querySelector("#glm-key");
+  if (key) key.oninput = function(){ glm().key = key.value; glm().err = ""; save(); initSettings(); updateChatStat(); };
+  var mdl = card.querySelector("#glm-model");
+  if (mdl) mdl.onchange = function(){
+    glm().model = mdl.value.trim() || GLM_DEFAULT_MODEL;
+    save(); initSettings(); updateChatStat();
+  };
+  var test = card.querySelector("#glm-test");
+  if (test) test.onclick = function(){
+    test.textContent = "Testing…";
+    glmProbe(function(err){
+      renderModelUI(); initSettings(); updateChatStat();
+      toast(err ? "Key didn’t work — see the error below it" : "Key works — GLM is ready");
+    });
+  };
+}
 /* the "run it on my own box" section of the model picker */
 function serverSectionHTML(){
   var s = srv(), h = "";
-  h += '<div class="ds" style="padding:2px 0 6px;font-weight:800;letter-spacing:.5px">YOUR SERVER</div>';
+  h += '<div class="ds" style="padding:14px 0 6px;font-weight:800;letter-spacing:.5px">YOUR SERVER</div>';
   h += '<div class="ds" style="padding-bottom:8px">A machine on your network running Ollama, llama.cpp, ' +
-       'LM Studio or vLLM. Every character answers from the model you pick here.</div>';
+       'LM Studio or vLLM. Private: conversations only travel between your devices.</div>';
   h += '<input id="srv-url" class="srvinput" placeholder="192.168.1.50:11434" value="' + esc(s.url || "") + '">';
   h += '<div class="srvbtns"><button class="use" id="srv-connect">Connect</button>' +
        (s.models && s.models.length
@@ -1266,16 +1371,29 @@ function wireServerUI(card){
 function renderModelUI(){
   var card = $("modelcard");
   if (!card.classList.contains("on")) return;
-  var html = serverSectionHTML();
+  var html = engineToggleHTML();
+  html += engine() === "glm" ? glmSectionHTML() + serverSectionHTML()
+                             : serverSectionHTML() + glmSectionHTML();
   html += '<div class="ds" style="padding:14px 0 4px;font-weight:800;letter-spacing:.5px">MATURE ROLEPLAY · 18+</div>';
   html += '<div class="modelrow"><div class="mi"><div class="nm">' +
     (S.adult ? "On — adult roleplay permitted" : "Off") + '</div>' +
-    '<div class="ds">Applies to whatever model your server runs. Everything still stays between your devices.</div></div>' +
+    '<div class="ds">Applies to whichever engine is answering. On your own server nothing leaves your ' +
+    'devices; on GLM cloud Z.ai\'s own content rules still apply.</div></div>' +
     '<button class="use" id="adult-toggle">' + (S.adult ? "Turn off" : "I\'m 18+ — turn on") + '</button></div>';
-  html += '<div class="ds" style="padding-top:10px">Replies come only from this server. If it\'s asleep or ' +
-    'off the network, messages will say so rather than being answered by anything else.</div>';
+  html += '<div class="ds" style="padding-top:10px">Replies come only from the selected engine. If it\'s ' +
+    'unreachable, messages will say so rather than being answered by anything else.</div>';
   card.innerHTML = html;
   wireServerUI(card);
+  wireGlmUI(card);
+  ["server", "glm"].forEach(function(id){
+    var b = card.querySelector("#eng-" + id);
+    if (b) b.onclick = function(){
+      if (engine() === id) return;
+      S.engine = id; save();
+      renderModelUI(); initSettings(); updateChatStat();
+      toast(id === "glm" ? "Replies now come from GLM cloud" : "Replies now come from your server");
+    };
+  });
   var at = card.querySelector("#adult-toggle");
   if (at) at.onclick = function(){
     if (!S.adult && !confirm("Mature mode permits explicit adult roleplay. Confirm you are 18 or older.")) return;
@@ -1286,10 +1404,13 @@ function updateChatStat(){
   if (!cur) return;
   var c = getConvo(cur); if (!c || c.grp) return;
   var el = $("chat-stat");
-  if (remoteReady())
-    el.innerHTML = '<span class="on">online</span> · via ' + esc(srvHost());
+  if (engineReady())
+    el.innerHTML = '<span class="on">online</span> · via ' +
+      esc(engine() === "glm" ? glm().model + " (Z.ai)" : srvHost());
   else
-    el.innerHTML = '<span style="color:var(--danger)">no server — connect one in Settings</span>';
+    el.innerHTML = '<span style="color:var(--danger)">' + (engine() === "glm"
+      ? "no GLM API key — add one in Settings"
+      : "no server — connect one in Settings") + '</span>';
 }
 
 /* ================= persona engine ================= */
@@ -1545,8 +1666,11 @@ function attachPress(el, idx){
 }
 function renderStream(){
   var st = $("stream"); var c = getConvo(cur);
-  st.innerHTML = '<div class="day"><span class="msr" style="font-size:12px">lock</span> ' +
-    (remoteReady() ? esc(srvHost()) + " · your server" : "no server connected") + '</div>';
+  st.innerHTML = '<div class="day"><span class="msr" style="font-size:12px">' +
+    (engine() === "glm" ? "cloud" : "lock") + '</span> ' +
+    (engine() === "glm"
+      ? (glmReady() ? esc(glm().model) + " · Z.ai cloud" : "no GLM API key")
+      : (remoteReady() ? esc(srvHost()) + " · your server" : "no server connected")) + '</div>';
   (S.msgs[cur]||[]).forEach(function(msg, idx){
     if (msg.who === "scene") {
       var sc = document.createElement("div"); sc.className = "day";
@@ -2068,8 +2192,9 @@ function initSettings(){
   applyTheme();
   $("about-note").innerHTML =
     "<b>About this build.</b> Chats, characters and memories are stored only in this device's local storage. " +
-    "Replies come from your own model server (<i>Your server</i>, above) — a machine on your network running " +
-    "Ollama or similar. Conversations travel only between this device and that machine." +
+    "Replies come from the engine picked under <i>Change model</i>: your own model server (a machine on " +
+    "your network running Ollama or similar — conversations travel only between this device and that " +
+    "machine), or Z.ai's GLM cloud (works anywhere, but conversations are sent to Z.ai)." +
     (IS_APK ? "<br><br>Updates are fetched straight from the GitHub repo — <i>Check for updates</i> reads " +
       "<code>releases/version.json</code> on the main branch." :
       "<br><br>The APK installs on Android 5.0+ and checks this repo for its own updates.");
@@ -2207,7 +2332,8 @@ else {
 if (!S.gseeded) { S.groups.push(JSON.parse(JSON.stringify(SEED_GROUP))); S.gseeded = true; save(); }
 applyTheme();
 L("boot", "v" + MY_VN + " " + (IS_APK ? "apk build " + MY_VC : "web") +
-  " · server=" + (srvHost() || "unset") + " · " + navigator.userAgent.slice(0,120), true);
+  " · engine=" + engine() + " · server=" + (srvHost() || "unset") +
+  " · " + navigator.userAgent.slice(0,120), true);
 if (Q.rcrash) L("crash", "recovered from a WebView renderer " +
   (Q.rcrash === "oom" ? "out-of-memory kill" : "crash"), true);
 renderHome(); initSettings(); silentUpdateCheck();

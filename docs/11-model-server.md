@@ -7,9 +7,20 @@ points the app at that machine.
 
 Anything speaking the OpenAI `/v1/chat/completions` API works: **Ollama**,
 **llama.cpp** (`llama-server`), **LM Studio**, **vLLM**. The app discovers what
-you have loaded via `GET /v1/models` and streams replies over SSE. The server is
-the only reply engine: if the box is asleep, off, or off-network, the app says
-so instead of answering — keep the server reachable.
+you have loaded via `GET /v1/models` and streams replies over SSE. If the box
+is asleep, off, or off-network, the app says so instead of answering — keep the
+server reachable.
+
+## The other engine: GLM cloud
+
+The same settings screen has a **GLM cloud** toggle: instead of your server,
+replies come from Z.ai's hosted GLM (default `glm-5.2`) over the same
+OpenAI-style API at `api.z.ai`, authenticated with an API key you paste in.
+It works from anywhere with internet — no home server, no Tailscale — but it
+inverts the privacy story: prompts (character card, persona, memories, recent
+history) are sent to Z.ai, and you pay per token. Only one engine answers at
+a time; whichever the toggle selects is the only reply path, and the model
+input accepts newer ids (e.g. a future `glm-5.5`) without a code change.
 
 ## Ollama, the short version
 

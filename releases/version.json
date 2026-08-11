@@ -1,6 +1,6 @@
 {
-  "versionCode": 16,
-  "versionName": "0.6.1",
+  "versionCode": 17,
+  "versionName": "0.7.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Scenes. Every conversation gets a scene — tap the pill under the chat header and say where this is happening: texting from your phones, at dinner with the family, a long train ride. The character plays inside it until you change it, scene changes show as markers in the thread, and {{char}}/{{user}} work there too."
+  "notes": "Two engines. Settings → Change model now toggles where replies come from: your own server on the network (private, as before) or GLM cloud — Z.ai's flagship glm-5.2 with an API key, so characters answer anywhere you have internet. Only the selected engine ever replies."
 }
