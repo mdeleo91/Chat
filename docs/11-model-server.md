@@ -61,13 +61,16 @@ to FLUX — `fal-ai/flux-lora` for ordinary photos, `fal-ai/flux-kontext-lora`
 for selfies with references (the first reference rides as `image_url`) — with
 **LoRA support** on both paths:
 
-- **Style LoRAs** (Settings, applied to every photo): one `.safetensors` URL
-  per line, optionally followed by a space and a strength. An
-  amateur-photography LoRA here is the single biggest "looks like a real
-  phone photo" upgrade available.
-- **Character LoRAs** (in the character editor, FLUX only): stacked on top of
-  the style LoRAs — a likeness LoRA gives better identity consistency than
-  reference photos.
+- **LoRAs** (Settings and per character in the editor), one per line:
+  `URL [strength] [when: keyword, keyword…] [add: trigger words]`. Without
+  `when:` a LoRA applies to every photo — right for style LoRAs (an
+  amateur-photography LoRA is the single biggest "looks like a real phone
+  photo" upgrade), wrong for subject LoRAs, which would bleed into every
+  shot. With `when:` the LoRA loads only when the photo's description
+  mentions a keyword, and `add:` rides its trigger words along on exactly
+  those shots. Character-editor LoRAs stack on top of the Settings ones —
+  a likeness LoRA there gives better identity consistency than reference
+  photos. A global trigger-words box covers the always-on style LoRAs.
 
 Images are billed per generation on the fal account; text replies stay on the
 Z.ai key. If a FLUX call fails, the photo falls back to GLM (when a Z.ai key

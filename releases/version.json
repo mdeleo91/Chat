@@ -1,6 +1,6 @@
 {
-  "versionCode": 29,
-  "versionName": "0.13.4",
+  "versionCode": 30,
+  "versionName": "0.14.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "LoRA trigger words. Many LoRAs barely activate unless their trigger phrase from the model page appears in the prompt — Settings now has a trigger-words box under the Style LoRAs, appended to every FLUX prompt. The photo route log also names each LoRA with the strength actually applied (selfies damp styles to 70%), so what went into an image is never a mystery."
+  "notes": "Conditional LoRAs. LoRA lines now take when: keywords — a golf LoRA with 'when: golf, swing, course' loads only for photos that are actually about golf instead of bleeding into every shot — and add: trigger words that ride along just on those photos. Lines without when: still apply everywhere, which is what style LoRAs want. Works in both the Settings box and each character's LoRA field."
 }
