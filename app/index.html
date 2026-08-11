@@ -990,9 +990,10 @@ function imgResponse(p, tag, cb, onFail){
     return r.json();
   }).then(function(j){
     var d = (j.data && j.data[0]) || (j.images && j.images[0]) || {};
+    if (!d.b64_json && !d.url) throw new Error("no image in the response");
+    L("img", tag + " ok", true);
     if (d.b64_json) shrinkImage("data:image/png;base64," + d.b64_json, cb);
-    else if (d.url) shrinkImage(d.url, cb);
-    else throw new Error("no image in the response");
+    else shrinkImage(d.url, cb);
   }).catch(function(e){
     L("img", tag + " failed: " + String(e && e.message || e).slice(0, 360), true);
     if (onFail) onFail(); else cb(null);
@@ -1065,6 +1066,9 @@ function glmImage(desc, ch, isSelfie, cb){
 var GLM_REF_MODEL = "glm-image";
 function glmSelfie(desc, ch, cb){
   var refs = (ch && ch.refimgs || []).slice(0, 3);
+  if (refs.length)
+    L("img", "note: Z.ai has ignored reference images in testing — add a fal.ai key " +
+      "in Settings for selfies that actually match the references", true);
   if (!refs.length) { glmImage(desc, ch, true, cb); return; }
   imgResponse(fetch(GLM_IMG_URL, {
     method: "POST",
@@ -1214,8 +1218,9 @@ function sysPrompt(ch, convo){
     p += "You can send a photo of your own: end your message with [photo: a short visual description " +
       "of the picture] on its own line — or [selfie: description] when you yourself appear in it. " +
       "Use them when you'd naturally share a picture — what you're looking at, something you made, " +
-      "yourself — or when the user asks for one. Pick selfie only if you'd be in frame. At most one " +
-      "per message; don't also describe sending it in your text.\n";
+      "yourself — or when the user asks for one. IMPORTANT: any picture that shows you, your face or " +
+      "your body — including mirror shots and pictures of you doing something — must use the selfie " +
+      "tag, never photo. At most one per message; don't also describe sending it in your text.\n";
   p += "Reply like a text message: short (1-3 sentences unless the user asks for more), natural, " +
     "in character, plain text without markdown. Never mention being a language model.\n";
   /* --- volatile from here down --- */
@@ -1476,6 +1481,12 @@ function deliverPhoto(convo, ch, desc, isSelfie){
   };
   /* FLUX first when a fal key is set — falling back to GLM if fal errors —
      otherwise straight to GLM */
+  var refs = (ch && ch.refimgs || []).length;
+  L("img", "route: " + (isSelfie ? "selfie" : "photo") + " · engine=" +
+    (falReady() ? "flux" : "glm") + " · refs=" + refs +
+    (isSelfie ? "" : " (plain photos never use refs)") +
+    " · loras=" + (falReady() ? lorasFor(ch).length : 0) +
+    " · “" + desc.slice(0, 60) + "”", true);
   var viaGlm = function(){
     if (isSelfie) glmSelfie(desc, ch, onDone);
     else glmImage(desc, ch, false, onDone);

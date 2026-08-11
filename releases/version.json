@@ -1,6 +1,6 @@
 {
-  "versionCode": 25,
-  "versionName": "0.13.0",
+  "versionCode": 26,
+  "versionName": "0.13.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "FLUX with LoRAs. Add a fal.ai API key in Settings and characters' photos are painted by FLUX — far stronger photorealism — with LoRA support: global style LoRAs in Settings (an amateur-photography LoRA makes photos genuinely look phone-shot) plus per-character LoRAs in the editor, e.g. a likeness LoRA. Selfie references finally work for real through FLUX Kontext. GLM remains the text engine, and the image fallback if FLUX errors."
+  "notes": "See where every photo comes from. The troubleshooting log now records each picture's full route — selfie or photo, FLUX or GLM, how many references and LoRAs went along — on success, not just failure, so a wrong-face selfie is diagnosable at a glance. Characters are also told more firmly that any picture showing themselves must be a selfie, since only selfies use the reference photos."
 }
