@@ -1,6 +1,6 @@
 {
-  "versionCode": 36,
-  "versionName": "0.15.2",
+  "versionCode": 37,
+  "versionName": "0.15.3",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Civitai token field. Civitai LoRA downloads usually require login, which failed with a 401 and dumped photos onto the GLM fallback. Paste your Civitai API token once in Settings (under the fal.ai key) and it's appended to every civitai download link automatically — LoRA cards keep their clean URLs, and links that already carry a token are left alone."
+  "notes": "18+ photos written from the moment. Characters now author their mature photo descriptions as frank image prompts drawn from what's actually happening in the conversation — the description goes only to the image generator, never on screen — so each 18+ picture matches its scene instead of a generic template. An optional Settings box can append constants (style tags, LoRA trigger words) to marked photos; leave it empty otherwise."
 }

@@ -1037,6 +1037,7 @@ function fal(){
   if (!S.fal.loras) S.fal.loras = [];
   if (S.fal.trigger === undefined) S.fal.trigger = "";
   if (S.fal.civitai === undefined) S.fal.civitai = "";
+  if (S.fal.mat === undefined) S.fal.mat = "";
   return S.fal;
 }
 /* Civitai downloads usually require login; the token from Settings is
@@ -1129,7 +1130,11 @@ function falImage(desc, ch, isSelfie, isMature, cb, onFail){
     loras = loras.map(function(l){
       return {path: l.path, scale: Math.round(((l.scale || 1) * 0.7) * 100) / 100};
     });
+  /* the text model words 18+ descriptions tamely (its provider's rules), so
+     the user's own mature add-on rides marked photos to say what the
+     description won't */
   var trig = [(fal().trigger || "").trim()].concat(lf.adds)
+    .concat(isMature ? [(fal().mat || "").trim()] : [])
     .filter(Boolean).join("\n");
   var body = {
     prompt: (refs.length
@@ -1332,8 +1337,12 @@ function sysPrompt(ch, convo){
       "thing, without you in it. At most one per message; don't also describe sending it in your text.\n" +
       (matureActive()
         ? "When the conversation has turned intimate and the picture itself is meant to be risqué or " +
-          "explicit, add 18+ to the tag: [selfie 18+: …] or [photo 18+: …]. Ordinary pictures during " +
-          "flirty conversation stay untagged — reserve 18+ for pictures that are themselves mature.\n"
+          "explicit, add 18+ to the tag: [selfie 18+: …] or [photo 18+: …]. An 18+ description goes " +
+          "only to the image generator — the user never reads it — so write it as a frank, specific " +
+          "image prompt: state of dress or undress, pose, framing, expression and mood, in plain " +
+          "visual language, matching exactly what is happening in the conversation right now rather " +
+          "than a generic scene. Ordinary pictures during flirty conversation stay untagged — " +
+          "reserve 18+ for pictures that are themselves mature.\n"
         : "");
   p += "Reply like a text message: short (1-3 sentences unless the user asks for more), natural, " +
     "in character, plain text without markdown. Never mention being a language model.\n";
@@ -1685,6 +1694,12 @@ function falSectionHTML(){
        'prompt (for the always-on style LoRAs).</div>';
   h += '<input id="fal-trigger" class="srvinput" placeholder="e.g. amateur photo" ' +
        'value="' + esc(f.trigger || "") + '">';
+  h += '<div class="ds" style="padding:10px 0 4px">18+ add-on (optional) — extra wording appended ' +
+       'only to photos the character marks 18+. The character already writes what each mature photo ' +
+       'shows from the conversation itself; use this only for constants you want on every one ' +
+       '(style tags, LoRA activation words). Leave empty otherwise.</div>';
+  h += '<textarea id="fal-mat" class="srvinput" rows="2" style="resize:none" ' +
+       'placeholder="optional — only ever used on 18+ marked photos">' + esc(f.mat || "") + '</textarea>';
   return h;
 }
 function wireFalUI(card){
@@ -1699,6 +1714,8 @@ function wireFalUI(card){
   });
   var tg = card.querySelector("#fal-trigger");
   if (tg) tg.onchange = function(){ fal().trigger = tg.value; save(); };
+  var mt = card.querySelector("#fal-mat");
+  if (mt) mt.onchange = function(){ fal().mat = mt.value; save(); };
 }
 function wireGlmUI(card){
   var key = card.querySelector("#glm-key");
