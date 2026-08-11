@@ -1,6 +1,6 @@
 {
-  "versionCode": 39,
-  "versionName": "0.15.5",
+  "versionCode": 40,
+  "versionName": "0.16.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "18+ selfies stop fighting Kontext. The reference-photo path runs on an edit model that preserves its input picture — clothing included, by training — which is why marked selfies kept coming out tame. Those now route through plain FLUX text-to-image where content LoRAs apply at full strength; everyday selfies keep using references as before. For a consistent face on 18+ selfies, add a likeness LoRA to the character's cards."
+  "notes": "References everywhere, via training. A Train face LoRA button in the character editor turns the reference photos into a likeness LoRA on fal (a few minutes, roughly $2) and adds it to the character automatically, trigger word included — so the face from your references holds in every photo, including the 18+ shots where reference images can't ride along. Reference slots also grow from 3 to 10; more references train a better likeness."
 }

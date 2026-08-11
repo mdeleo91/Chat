@@ -577,8 +577,10 @@
       <div class="field"><label>PHOTO STYLE</label>
         <textarea id="nc-imgstyle" rows="3" placeholder="How the photos {{char}} sends should look. Leave blank for a natural phone-snap look. e.g. Grainy, badly framed, always a bit too close. Slightly overexposed film look."></textarea></div>
       <div class="field"><label>SELFIE REFERENCES</label>
-        <div class="phint">Up to 3 photos of the person {{char}}'s selfies should show — fictional/AI-generated characters only, never photos of a real person. Sent to the image API each time; other photos ignore them. Without references, selfies fall back to Photo style — describe appearance there instead.</div>
-        <div class="refrow" id="nc-refs"></div></div>
+        <div class="phint">Up to 10 photos of the person {{char}}'s selfies should show — fictional/AI-generated characters only, never photos of a real person. Sent to the image API each time; other photos ignore them. Without references, selfies fall back to Photo style — describe appearance there instead.</div>
+        <div class="refrow" id="nc-refs"></div>
+        <div class="phint" id="nc-train-stat" style="padding-top:8px"></div>
+        <button class="btn ghost" id="nc-train" style="margin-top:8px;padding:9px 16px;font-size:13.5px">Train face LoRA</button></div>
       <input type="file" accept="image/*" id="nc-ref-file" style="display:none">
       <div class="field"><label>LORAS (FLUX ONLY)</label>
         <div class="phint">Only for {{char}}'s photos — e.g. a likeness LoRA — added on top of the LoRAs in Settings. Needs the fal.ai key there.</div>
@@ -1121,6 +1123,119 @@ function wireLoraList(root, list, onChange){
     }
   });
 }
+/* ================= face LoRA training (fal) =================
+   Turns a character's reference photos into a likeness LoRA via fal's
+   portrait trainer, so the face holds even on the text-to-image paths
+   where reference photos can't ride (18+ selfies). Queue API: submit,
+   poll status, fetch result, auto-add the LoRA to the character. */
+var FAL_TRAIN_URL = "https://queue.fal.run/fal-ai/flux-lora-portrait-trainer";
+/* minimal store-only ZIP — all the trainer needs as input packaging */
+var CRC_T = (function(){
+  var t = [], c, n, k;
+  for (n = 0; n < 256; n++) {
+    c = n;
+    for (k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(u8){
+  var c = 0xFFFFFFFF;
+  for (var i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function zipStore(files){
+  var chunks = [], central = [], off = 0;
+  function u16(v){ return [v & 255, (v >> 8) & 255]; }
+  function u32(v){ return [v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >>> 24) & 255]; }
+  files.forEach(function(f){
+    var name = Array.prototype.map.call(f.name, function(c){ return c.charCodeAt(0); });
+    var crc = crc32(f.data), n = f.data.length;
+    var head = [].concat(u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0),
+      u32(crc), u32(n), u32(n), u16(name.length), u16(0));
+    chunks.push(new Uint8Array(head.concat(name)), f.data);
+    central.push({name: name, crc: crc, n: n, off: off});
+    off += head.length + name.length + n;
+  });
+  var cd = [], cdLen = 0;
+  central.forEach(function(e){
+    var rec = [].concat(u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0),
+      u32(e.crc), u32(e.n), u32(e.n), u16(e.name.length), u16(0), u16(0), u16(0), u16(0),
+      u32(0), u32(e.off));
+    cd.push(new Uint8Array(rec.concat(e.name)));
+    cdLen += rec.length + e.name.length;
+  });
+  var end = new Uint8Array([].concat(u32(0x06054b50), u16(0), u16(0),
+    u16(central.length), u16(central.length), u32(cdLen), u32(off), u16(0)));
+  var total = off + cdLen + end.length, out = new Uint8Array(total), p = 0;
+  chunks.concat(cd, [end]).forEach(function(c){ out.set(c, p); p += c.length; });
+  return out;
+}
+function faceTrigger(ch){
+  return ((ch.name || "person").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12) || "person") + "face";
+}
+function startFaceTraining(ch, refs, cb){
+  var files = refs.map(function(u, i){
+    var m = u.match(/^data:([^;]+);base64,(.*)$/);
+    if (!m) return null;
+    var bin = atob(m[2]), arr = new Uint8Array(bin.length);
+    for (var j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
+    return {name: "ref" + i + ".jpg", data: arr};
+  }).filter(Boolean);
+  if (files.length < 3) { cb("Add at least 3 reference photos first"); return; }
+  var zip = zipStore(files), b64 = "", CH = 0x8000;
+  for (var i = 0; i < zip.length; i += CH)
+    b64 += String.fromCharCode.apply(null, zip.subarray(i, i + CH));
+  b64 = btoa(b64);
+  fetch(FAL_TRAIN_URL, {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Key " + fal().key.trim()},
+    body: JSON.stringify({
+      images_data_url: "data:application/zip;base64," + b64,
+      trigger_phrase: faceTrigger(ch)
+    })
+  }).then(function(r){
+    if (!r.ok) return r.text().then(function(t){
+      throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 240) : ""));
+    });
+    return r.json();
+  }).then(function(j){
+    if (!j.request_id) throw new Error("no request id in the response");
+    ch.trainReq = {id: j.request_id, status_url: j.status_url, response_url: j.response_url, t: Date.now()};
+    save();
+    L("train", "face LoRA training started for " + ch.name + " (" + files.length + " refs)", true);
+    cb(null);
+  }).catch(function(e){
+    L("train", "training submit failed: " + String(e && e.message || e).slice(0, 300), true);
+    cb(String(e && e.message || e));
+  });
+}
+function checkFaceTraining(ch, cb){
+  var tr = ch.trainReq;
+  if (!tr) { cb("no training in progress"); return; }
+  fetch(tr.status_url, {headers: {"Authorization": "Key " + fal().key.trim()}})
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if (j.status !== "COMPLETED") { cb(null, j.status || "IN_PROGRESS"); return; }
+      return fetch(tr.response_url, {headers: {"Authorization": "Key " + fal().key.trim()}})
+        .then(function(r){ return r.json(); })
+        .then(function(res){
+          var url = (res.diffusers_lora_file && res.diffusers_lora_file.url) ||
+                    (res.lora_file && res.lora_file.url);
+          if (!url) throw new Error("training finished but the result has no LoRA file");
+          ch.loraList = (ch.loraList || []).filter(function(l){ return !l.face; });
+          ch.loraList.push({path: url, scale: 1, when: "", add: faceTrigger(ch), face: true});
+          delete ch.trainReq;
+          save();
+          L("train", "face LoRA ready for " + ch.name + " — added to their LoRA cards", true);
+          cb(null, "done");
+        });
+    }).catch(function(e){
+      L("train", "training check failed: " + String(e && e.message || e).slice(0, 240), true);
+      cb(String(e && e.message || e));
+    });
+}
+
 function falImage(desc, ch, isSelfie, isMature, cb, onFail){
   /* Kontext is an edit model that preserves its input photo — including its
      clothing; it was trained to resist undressing people. 18+ selfies
@@ -2472,13 +2587,58 @@ function renderCharLoras(){ $("nc-loras-rows").innerHTML = loraRowsHTML(editLora
 wireLoraList($("nc-loras-rows"), editLoras, function(structural){
   if (structural) renderCharLoras();
 });
+function updateTrainUI(ch){
+  var b = $("nc-train"), s = $("nc-train-stat");
+  if (!b) return;
+  var hasFace = ch && (ch.loraList || []).some(function(l){ return l.face; });
+  if (ch && ch.trainReq) {
+    b.textContent = "Check training";
+    s.textContent = "Face LoRA training in progress on fal — tap to check.";
+  } else if (hasFace) {
+    b.textContent = "Retrain face LoRA";
+    s.textContent = "Face LoRA active (in the LoRA cards below) — the face holds in every photo, 18+ included.";
+  } else {
+    b.textContent = "Train face LoRA";
+    s.textContent = "Turns the references into a likeness LoRA on fal (a few minutes, roughly $2) so the face holds in every photo — including the 18+ shots where reference photos can't be used.";
+  }
+}
+$("nc-train").onclick = function(){
+  var ch = editId ? getChar(editId) : null;
+  if (!ch) { toast("Save the character first, then train"); return; }
+  if (!falReady()) { toast("Add your fal.ai key in Settings first"); return; }
+  var b = $("nc-train");
+  if (ch.trainReq) {
+    b.textContent = "Checking…";
+    checkFaceTraining(ch, function(err, st){
+      updateTrainUI(ch);
+      if (st === "done") {
+        editLoras.length = 0;
+        chLoraList(ch).forEach(function(l){
+          editLoras.push({path:l.path, scale:l.scale, when:l.when, add:l.add, face:l.face});
+        });
+        renderCharLoras();
+        toast("Face LoRA ready — added to " + ch.name + "'s LoRA cards");
+      } else toast(err ? "Couldn't check — see Troubleshooting logs" : "Still training — check back in a minute");
+    });
+    return;
+  }
+  if (editRefs.length < 3) { toast("Add at least 3 reference photos first"); return; }
+  if (!confirm("Train a face LoRA for " + ch.name + " from " + editRefs.length +
+    " reference photos? Runs on your fal account (a few minutes, roughly $2).")) return;
+  ch.refimgs = editRefs.slice(); save();
+  b.textContent = "Starting…";
+  startFaceTraining(ch, editRefs.slice(), function(err){
+    updateTrainUI(ch);
+    toast(err ? "Couldn't start training — see Troubleshooting logs" : "Training started — check back in a few minutes");
+  });
+};
 function renderRefRow(){
   var row = $("nc-refs"), h = "";
   editRefs.forEach(function(u, i){
     h += '<div class="refthumb"><img src="' + u + '">' +
          '<button class="rx" data-i="' + i + '"><span class="msr" style="font-size:13px">close</span></button></div>';
   });
-  if (editRefs.length < 3)
+  if (editRefs.length < 10)
     h += '<button class="refadd" title="Add reference photo"><span class="msr">add</span></button>';
   row.innerHTML = h;
 }
@@ -2499,8 +2659,11 @@ function openCharForm(id){
   $("nc-imgstyle").value = ch ? (ch.imgstyle||"") : "";
   /* mutate in place — the row wiring holds a reference to this array */
   editLoras.length = 0;
-  chLoraList(ch).forEach(function(l){ editLoras.push({path:l.path, scale:l.scale, when:l.when, add:l.add}); });
+  chLoraList(ch).forEach(function(l){
+    editLoras.push({path:l.path, scale:l.scale, when:l.when, add:l.add, face:l.face});
+  });
   renderCharLoras();
+  updateTrainUI(ch);
   $("nc-greet").value  = ch ? (ch.greeting||"") : "";
   $("nc-ex").value     = ch ? (ch.example||"") : "";
   editRefs = ch ? (ch.refimgs || []).slice() : [];
@@ -2519,7 +2682,7 @@ function saveChar(){
   var scene = $("nc-scene").value.trim();
   var imgstyle = $("nc-imgstyle").value.trim();
   var loras = editLoras.filter(function(l){ return (l.path||"").trim(); })
-    .map(function(l){ return {path:l.path.trim(), scale:l.scale||null, when:l.when||"", add:l.add||""}; });
+    .map(function(l){ return {path:l.path.trim(), scale:l.scale||null, when:l.when||"", add:l.add||"", face:l.face}; });
   var greet = $("nc-greet").value.trim();
   var example = $("nc-ex").value.trim();
   if (editId) {
@@ -2916,7 +3079,7 @@ $("nc-refs").addEventListener("click", function(e){
 });
 $("nc-ref-file").onchange = function(){
   var f = this.files && this.files[0]; this.value = "";
-  if (!f || editRefs.length >= 3) return;
+  if (!f || editRefs.length >= 10) return;
   readChatPhoto(f, function(dataUrl){ editRefs.push(dataUrl); renderRefRow(); });
 };
 $("nc-photo").onclick = function(){ $("nc-file").click(); };
