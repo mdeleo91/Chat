@@ -1122,7 +1122,11 @@ function wireLoraList(root, list, onChange){
   });
 }
 function falImage(desc, ch, isSelfie, isMature, cb, onFail){
-  var refs = isSelfie ? (ch && ch.refimgs || []) : [];
+  /* Kontext is an edit model that preserves its input photo — including its
+     clothing; it was trained to resist undressing people. 18+ selfies
+     therefore go text-to-image, where content LoRAs work at full strength;
+     identity there comes from a likeness LoRA in the character's cards. */
+  var refs = isSelfie && !isMature ? (ch && ch.refimgs || []) : [];
   var lf = lorasFor(ch, desc, isMature), loras = lf.loras;
   /* Kontext keeps a face best when addressed as an edit of "this person",
      and when style LoRAs are damped so they can't out-vote the identity */
@@ -1624,6 +1628,7 @@ function deliverPhoto(convo, ch, desc, isSelfie, isMature){
   /* FLUX first when a fal key is set — falling back to GLM if fal errors —
      otherwise straight to GLM */
   var refs = (ch && ch.refimgs || []).length;
+  if (isMature && isSelfie && refs && falReady()) refs = 0;   // 18+ selfies skip Kontext
   var damp = isSelfie && refs && falReady() ? 0.7 : 1;
   var llist = falReady() ? lorasFor(ch, desc, isMature).loras.map(function(l){
     return l.path.split("/").pop().split("?")[0] + "@" +
@@ -1631,7 +1636,8 @@ function deliverPhoto(convo, ch, desc, isSelfie, isMature){
   }).join(",") : "";
   L("img", "route: " + (isSelfie ? "selfie" : "photo") + (isMature ? " 18+" : "") +
     " · engine=" + (falReady() ? "flux" : "glm") + " · refs=" + refs +
-    (isSelfie ? "" : " (plain photos never use refs)") +
+    (isSelfie ? (isMature && falReady() ? " (18+ selfies go t2i — Kontext won't undress; use a likeness LoRA for the face)" : "")
+              : " (plain photos never use refs)") +
     " · loras=" + (llist || "none") +
     ((fal().trigger || "").trim() ? " · trigger set" : "") +
     " · “" + desc.slice(0, 60) + "”", true);

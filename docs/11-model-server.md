@@ -46,7 +46,11 @@ With mature mode on, characters may additionally mark an individual picture
 `[selfie 18+: …]` / `[photo 18+: …]` when the moment is itself intimate —
 only those photos lift fal's safety checker and match `18+`-gated LoRAs;
 everyday pictures during a mature chat stay tame. With mature mode off the
-marker is ignored.
+marker is ignored. Marked selfies skip the Kontext reference path (an edit
+model that preserves its input photo, clothing included, and was trained to
+resist undressing people) and go text-to-image with LoRAs at full strength —
+face consistency there comes from a likeness LoRA in the character's cards,
+not from reference photos.
 
 - Generated shots come out portrait with a "throwaway phone snapshot" style
   baked into the prompt; a character's **Photo style** field replaces that
