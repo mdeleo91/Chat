@@ -46,10 +46,29 @@ the character remembers what it showed.
   baked into the prompt; a character's **Photo style** field replaces that
   default.
 - Selfies use the character's **Selfie references** (up to three photos in
-  the editor) passed to `glm-image` as reference images, for the same face
-  every time. No references → plain text-to-image, so put appearance in
-  Photo style in that case. A rejected reference request falls back the same
-  way and logs the API's error to Settings → Troubleshooting logs.
+  the editor) as identity references, for the same face every time. No
+  references → plain text-to-image, so put appearance in Photo style in that
+  case. A rejected reference request falls back the same way and logs the
+  API's error to Settings → Troubleshooting logs.
 - The app downloads each generated image immediately and stores downscaled
   pixels in local storage — hosted URLs expire and would leave broken
   bubbles.
+
+## FLUX via fal.ai (optional)
+
+Add a [fal.ai](https://fal.ai) API key in Settings and photos switch from GLM
+to FLUX — `fal-ai/flux-lora` for ordinary photos, `fal-ai/flux-kontext-lora`
+for selfies with references (the first reference rides as `image_url`) — with
+**LoRA support** on both paths:
+
+- **Style LoRAs** (Settings, applied to every photo): one `.safetensors` URL
+  per line, optionally followed by a space and a strength. An
+  amateur-photography LoRA here is the single biggest "looks like a real
+  phone photo" upgrade available.
+- **Character LoRAs** (in the character editor, FLUX only): stacked on top of
+  the style LoRAs — a likeness LoRA gives better identity consistency than
+  reference photos.
+
+Images are billed per generation on the fal account; text replies stay on the
+Z.ai key. If a FLUX call fails, the photo falls back to GLM (when a Z.ai key
+is present) and the error lands in the troubleshooting log.

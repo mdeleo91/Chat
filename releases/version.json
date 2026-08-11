@@ -1,6 +1,6 @@
 {
-  "versionCode": 24,
-  "versionName": "0.12.0",
+  "versionCode": 25,
+  "versionName": "0.13.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "API only, and real selfie references. The local-server option is gone — everything now runs on your Z.ai key. Photos switch to glm-image, Z.ai's newest image model, which actually accepts the selfie reference photos (the old path silently never used them) and follows the phone-snapshot style far better. Generated pictures are downloaded and stored on the device immediately, fixing image bubbles that broke when hosted links expired."
+  "notes": "FLUX with LoRAs. Add a fal.ai API key in Settings and characters' photos are painted by FLUX — far stronger photorealism — with LoRA support: global style LoRAs in Settings (an amateur-photography LoRA makes photos genuinely look phone-shot) plus per-character LoRAs in the editor, e.g. a likeness LoRA. Selfie references finally work for real through FLUX Kontext. GLM remains the text engine, and the image fallback if FLUX errors."
 }
