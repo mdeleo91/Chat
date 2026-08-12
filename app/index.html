@@ -1607,6 +1607,16 @@ async function remoteGenerate(messages, onDelta, cid){
     ? {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()}
     : apiHeaders();
   var who = viaRp ? "your vision endpoint" : "Z.ai";
+  /* the likeliest misconfiguration, caught outright: the image endpoint's
+     ID pasted into the vision field — a ComfyUI worker has no OpenAI route
+     and answers every chat request with a bare gateway 500 */
+  if (viaRp && (rp().vep || "").trim() === (rp().ep || "").trim()) {
+    var mis = new Error("the vision endpoint ID is the same as the image endpoint ID — the " +
+      "ComfyUI image worker can't read photos; deploy a separate vLLM endpoint " +
+      "(Settings → Test vision endpoint)");
+    mis.viaRp = true;
+    throw mis;
+  }
   var started = Date.now(), attempt = 0, emitted = false;
   var lastStatus = 0, sameStatus = 0;
   function msLeft(){ return RP_TOTAL_MS - (Date.now() - started); }
@@ -2366,6 +2376,8 @@ function falSectionHTML(){
        'placeholder="RunPod vision endpoint ID" value="' + esc(r.vep || "") + '">';
   h += '<input id="rp-vmodel" class="srvinput" autocomplete="off" style="margin-top:8px" ' +
        'placeholder="Qwen/Qwen2.5-VL-7B-Instruct" value="' + esc(r.vmodel || "") + '">';
+  h += '<button id="rp-vtest" class="btn" style="margin-top:8px">Test vision endpoint</button>' +
+       '<div id="rp-vtest-out" class="ds" style="padding-top:6px"></div>';
   h += '<div class="ds" style="padding:10px 0 4px">18+ add-on (optional) — extra wording appended ' +
        'only to photos the character marks 18+. The character already writes what each mature photo ' +
        'shows from the conversation itself; use this only for constants you want on every one ' +
@@ -2402,6 +2414,79 @@ function wireFalUI(card){
     rp().vmodel = rpvm.value.trim() || "Qwen/Qwen2.5-VL-7B-Instruct";
     save();
   };
+  var vt = card.querySelector("#rp-vtest");
+  if (vt) vt.onclick = function(){
+    vt.disabled = true;
+    rpVisionTest(card.querySelector("#rp-vtest-out"))
+      .then(function(){ vt.disabled = false; },
+            function(){ vt.disabled = false; });
+  };
+}
+/* one-tap diagnosis of the vision endpoint, without burning a chat message:
+   is the ID/key right at all (health), and does the worker actually speak
+   the OpenAI chat protocol (tiny completion)? Every line also goes to the
+   troubleshooting log. */
+async function rpVisionTest(out){
+  function line(t){
+    if (out) out.innerHTML += esc(t) + "<br>";
+    L("gen", "vtest: " + t, true);
+  }
+  if (out) out.innerHTML = "";
+  var vep = (rp().vep || "").trim(), key = (rp().key || "").trim();
+  if (!vep || !key) { line("Enter the RunPod API key and vision endpoint ID first."); return; }
+  if (vep === (rp().ep || "").trim()) {
+    line("✗ The vision endpoint ID is the same as the image endpoint ID. The ComfyUI image " +
+         "worker cannot read photos — deploy a separate serverless vLLM endpoint " +
+         "(quick-deploy, e.g. Qwen/Qwen2.5-VL-7B-Instruct) and put its ID here.");
+    return;
+  }
+  line("Checking endpoint health…");
+  try {
+    var hr = await fetch("https://api.runpod.ai/v2/" + vep + "/health",
+      {headers: {"Authorization": "Bearer " + key}});
+    var hb = (await hr.text() || "").trim();
+    if (!hr.ok) {
+      line("✗ Health check: HTTP " + hr.status + " — the endpoint ID or API key is wrong. " +
+           hb.slice(0, 120));
+      return;
+    }
+    line("✓ Endpoint exists · " + hb.slice(0, 140));
+  } catch (e) {
+    line("✗ Health check failed: " + String(e && e.message || e).slice(0, 120));
+    return;
+  }
+  line("Sending a tiny chat request (may cold-start a worker — up to 90s)…");
+  try {
+    var ctrl = new AbortController();
+    var tm = setTimeout(function(){ ctrl.abort(); }, 90000);
+    var cr = await fetch("https://api.runpod.ai/v2/" + vep + "/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "Authorization": "Bearer " + key},
+      body: JSON.stringify({model: rp().vmodel, stream: false, max_tokens: 16,
+        messages: [{role: "user", content: "Reply with the single word OK."}]}),
+      signal: ctrl.signal
+    });
+    clearTimeout(tm);
+    var cb = (await cr.text() || "").trim();
+    if (!cr.ok) {
+      line("✗ Chat: HTTP " + cr.status + " — " + cb.slice(0, 160));
+      if (cr.status === 500 && /internal server error/i.test(cb))
+        line("A bare gateway 500 means the worker behind this ID doesn't speak the OpenAI " +
+             "chat protocol — it isn't a vLLM deployment (or its vLLM worker image is too " +
+             "old to have the OpenAI route). Redeploy via RunPod's Serverless vLLM " +
+             "quick-deploy and use that endpoint's ID.");
+      return;
+    }
+    var j = null; try { j = JSON.parse(cb); } catch (e2) {}
+    var c = j && j.choices && j.choices[0];
+    var txt = (c && ((c.message && c.message.content) || c.text)) || "";
+    if (txt) line("✓ Chat works — the model replied “" + txt.trim().slice(0, 60) +
+                  "”. Photo-reading should work now.");
+    else line("? The endpoint answered but the reply carried no text — body: " + cb.slice(0, 160));
+  } catch (e) {
+    line("✗ Chat request failed: " + String(e && e.message || e).slice(0, 120) +
+         " — a cold start can exceed this test's 90s; try once more.");
+  }
 }
 function wireGlmUI(card){
   var key = card.querySelector("#glm-key");

@@ -1,6 +1,6 @@
 {
-  "versionCode": 59,
-  "versionName": "0.19.10",
+  "versionCode": 60,
+  "versionName": "0.19.11",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Names the vision endpoint's real error instead of retrying it for 3 minutes. The last log showed the endpoint answering HTTP 500 instantly, 42 times — a deterministic failure, not a cold start, and the app was discarding the response body that says why. Error responses are now read and logged in full ('HTTP 500 body: …'), the same status arriving three times in a row stops the retry loop immediately with a plain-language verdict pointing at the RunPod console, and the failure toast shows the endpoint's actual error instead of a generic message. Next failed photo-read, the troubleshooting log will contain the endpoint's own words for what's wrong."
+  "notes": "A Test button for the vision endpoint. The bare gateway 500 from the last log means the worker behind the vision endpoint ID doesn't speak the OpenAI chat protocol at all — the classic cause being the image endpoint's ID pasted into the vision field, or a non-vLLM deployment. Settings now has 'Test vision endpoint': one tap checks the ID and key (health), then sends a tiny chat request and prints a plain-language verdict — wrong ID or key, not-a-vLLM-endpoint, model name mismatch, or working, with the model's reply as proof. The same-ID mistake is also caught outright when sending a photo, with a message saying exactly what to fix instead of retrying a doomed request."
 }
