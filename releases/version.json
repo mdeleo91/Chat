@@ -1,6 +1,6 @@
 {
-  "versionCode": 50,
-  "versionName": "0.19.1",
+  "versionCode": 51,
+  "versionName": "0.19.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Slow replies show themselves too. The stage caption used to appear only for photos — a slow or stuck text reply was just silent dots. After five seconds the bubble now reads 'thinking' with the same ticking clock, in the chat and on the conversations list."
+  "notes": "Photo chats stop dying on shaky connections. Photos you sent used to re-upload with every single message for as long as they stayed in history, making those chats' requests huge and fragile — that's why one conversation could fail with a network error while the others worked. Now only your most recent photos upload; older ones stay as a note in the conversation, and the chat drops back to the faster text model sooner. Failure logs also now say exactly which server the request went to and how big it was, and a network blip shows an honest 'try again' instead of blaming your API key."
 }

@@ -1568,6 +1568,7 @@ function messagesHaveImage(messages){
 /* stream a completion; a photo in the window bumps to a vision model —
    Z.ai's normally, the user's own RunPod vision endpoint when mature mode
    is on and one is configured (Z.ai refuses explicit image input) */
+var LASTREQ = null;   // where the last completion request went, for honest failure logs
 async function remoteGenerate(messages, onDelta){
   var hasImg = messagesHaveImage(messages);
   var viaRp = hasImg && matureActive() && rpVisionReady();
@@ -1580,14 +1581,17 @@ async function remoteGenerate(messages, onDelta){
   var headers = viaRp
     ? {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()}
     : apiHeaders();
+  var body = JSON.stringify({
+    model: model, messages: messages, stream: true,
+    temperature: 0.85, top_p: 0.95, max_tokens: 512,
+    presence_penalty: 0.3, frequency_penalty: 0.3
+  });
+  LASTREQ = {via: viaRp ? "vision endpoint" : "Z.ai", model: model,
+             kb: Math.round(body.length / 1024)};
   var r = await fetch(url, {
     method: "POST",
     headers: headers,
-    body: JSON.stringify({
-      model: model, messages: messages, stream: true,
-      temperature: 0.85, top_p: 0.95, max_tokens: 512,
-      presence_penalty: 0.3, frequency_penalty: 0.3
-    })
+    body: body
   });
   if (!r.ok) throw new Error((viaRp ? "your vision endpoint" : "Z.ai") + " returned HTTP " + r.status);
   var reader = r.body.getReader(), dec = new TextDecoder(), buf = "";
@@ -1695,6 +1699,13 @@ function pickMemories(ch){
    folded into the rolling summary. Boundary is a timestamp, not an index,
    so rewind/delete/edit of messages can't corrupt it. */
 var HIST_CAP = 48, EVICT_CHUNK = 20, HIST_HARD = 72;
+/* photos you send upload as base64 with EVERY request while they sit in the
+   history window — a window with a few photos makes each request megabytes,
+   which is what a shaky mobile link kills first (and it pins the chat to the
+   slower vision model for dozens of messages). So pixels only ride while
+   fresh: at most IMG_PIXELS photos, none older than IMG_FRESH window entries;
+   older photos stay in history as a text note instead. */
+var IMG_PIXELS = 2, IMG_FRESH = 12;
 function histWindow(convo){
   var arr = S.msgs[convo.id] || [];
   var sm = S.sums[convo.id];
@@ -1717,13 +1728,22 @@ function buildMessages(ch, convo, nudge){
       else last.content = toParts(last.content).concat(toParts(content));
     } else msgs.push({role:role, content:content});
   }
-  histWindow(convo).forEach(function(m){
+  var w = histWindow(convo);
+  var pixelIdx = {}, kept = 0;
+  for (var pi = w.length - 1; pi >= 0 && kept < IMG_PIXELS; pi--) {
+    if (w.length - pi > IMG_FRESH) break;
+    if (w[pi].who === "me" && w[pi].img) { pixelIdx[pi] = true; kept++; }
+  }
+  w.forEach(function(m, mi){
     if (m.who === "scene") add("user", "[Scene: " + m.text + "]");
     else if (m.who === "me") {
-      if (m.img) {
+      if (m.img && pixelIdx[mi]) {
         var parts = [{type:"image_url", image_url:{url:m.img}}];
         if (m.text) parts.push({type:"text", text:m.text});
         add("user", parts);
+      } else if (m.img) {
+        add("user", (m.text ? m.text + "\n" : "") +
+          "[the user sent a photo here — it's no longer attached]");
       } else add("user", m.text);
     }
     else if (convo.grp && m.by !== ch.id) {
@@ -1970,8 +1990,14 @@ async function runGeneration(convo, ch, nudge, done){
     var ty3 = $("ty"); if (ty3) ty3.classList.remove("on");
     var emsg = String(e && e.message || e);
     glm().err = emsg; save();
-    L("gen", "glm FAILED for " + ch.name + " @Z.ai: " + emsg.slice(0,200));
-    toast("GLM didn't answer — check your API key and credit in Settings");
+    var route = LASTREQ
+      ? LASTREQ.via + " · " + LASTREQ.model + " · " + LASTREQ.kb + "KB sent"
+      : "Z.ai";
+    L("gen", "glm FAILED for " + ch.name + " @" + route + ": " + emsg.slice(0,200));
+    if (/network|fetch/i.test(emsg))
+      toast("Network hiccup — that reply didn't make it. Send again.");
+    else
+      toast("GLM didn't answer — check your API key and credit in Settings");
     renderModelUI();
   }
   done();
