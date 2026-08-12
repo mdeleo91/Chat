@@ -1,6 +1,6 @@
 {
-  "versionCode": 67,
-  "versionName": "0.20.2",
+  "versionCode": 68,
+  "versionName": "0.20.3",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "LoRA stacks are now capped by priority instead of failing. fal rejects any request with more than 3 LoRAs outright (the whole photo bounced to fallback), and FLUX output goes mushy past ~4 anyway. When more LoRAs match a photo than the engine allows, the app now keeps the most important ones — the character's own likeness LoRAs first, then the director's contextual picks, then keyword matches, then always-on styles — and logs exactly which were dropped ('lora cap 3 — dropped: …'). Trigger words of dropped LoRAs no longer ride the prompt either."
+  "notes": "The photo director explains itself when it sits out. The first capped LoRA run showed the director failing silently — no 'director:' line, no reason — leaving photos to plain keyword matching, which loaded a nude LoRA and a feet LoRA onto a clothed desk scene and skipped the one the moment needed. Director failures now log their cause ('director skipped — …') including the API's actual error body, so the next miss is diagnosable at a glance."
 }

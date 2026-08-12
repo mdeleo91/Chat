@@ -2111,7 +2111,12 @@ function completeOnce(engine, messages, maxTok, cb){
       method:"POST", headers:apiHeaders(),
       body: JSON.stringify({model:glm().model, messages:messages, stream:false,
         temperature:0.3, max_tokens:maxTok})
-    }).then(function(r){ if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    }).then(function(r){
+      if (!r.ok) return r.text().then(function(t){
+        throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 200) : ""));
+      });
+      return r.json();
+    })
       .then(function(j){ cb(null, j.choices && j.choices[0] && j.choices[0].message &&
                              j.choices[0].message.content || ""); })
       .catch(cb);
@@ -2486,7 +2491,12 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
     "and setting details drawn from the conversation. Avoid a centered, straight-on, standing " +
     "pose unless the moment truly calls for it. Under 90 words.";
   completeOnce(REMOTE, [{role: "user", content: ask}], 400, function(err, text){
-    if (err || !text) { cb(desc, null); return; }
+    if (err || !text) {
+      /* a silent director is undiagnosable — say why it sat out */
+      L("img", "director skipped — " + (err
+        ? String(err && err.message || err).slice(0, 160) : "empty reply"), true);
+      cb(desc, null); return;
+    }
     try {
       var m = String(text).match(/\{[\s\S]*\}/);
       var j = JSON.parse(m ? m[0] : text);
