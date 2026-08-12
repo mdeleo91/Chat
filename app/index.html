@@ -1300,10 +1300,16 @@ function checkFaceTraining(ch, cb){
    their content policy. LoRA files live on the endpoint's network volume,
    named by their Civitai model-version id (1821702.safetensors). */
 function rp(){
-  if (!S.rp) S.rp = {key:"", ep:""};
+  if (!S.rp) S.rp = {key:"", ep:"", vep:"", vmodel:""};
+  if (S.rp.vep === undefined) S.rp.vep = "";
+  if (!S.rp.vmodel) S.rp.vmodel = "Qwen/Qwen2.5-VL-7B-Instruct";
   return S.rp;
 }
 function rpReady(){ return !!((rp().key || "").trim() && (rp().ep || "").trim()); }
+/* optional second endpoint: a vision model behind RunPod's OpenAI-compatible
+   route, used for photo-reading in mature conversations where Z.ai's vision
+   API refuses explicit image input */
+function rpVisionReady(){ return !!((rp().key || "").trim() && (rp().vep || "").trim()); }
 function rpLoraName(path){
   var m = path.match(/civitai\.(?:com|red)\/api\/download\/models\/(\d+)/i);
   if (m) return m[1] + ".safetensors";
@@ -1559,19 +1565,31 @@ function messagesHaveImage(messages){
     });
   });
 }
-/* stream a completion; a photo in the window bumps to the vision model */
+/* stream a completion; a photo in the window bumps to a vision model —
+   Z.ai's normally, the user's own RunPod vision endpoint when mature mode
+   is on and one is configured (Z.ai refuses explicit image input) */
 async function remoteGenerate(messages, onDelta){
-  var model = messagesHaveImage(messages) ? (glm().vmodel || GLM_VISION_MODEL) : glm().model;
-  var r = await fetch(GLM_URL, {
+  var hasImg = messagesHaveImage(messages);
+  var viaRp = hasImg && matureActive() && rpVisionReady();
+  var model = hasImg
+    ? (viaRp ? rp().vmodel : (glm().vmodel || GLM_VISION_MODEL))
+    : glm().model;
+  var url = viaRp
+    ? "https://api.runpod.ai/v2/" + rp().vep.trim() + "/openai/v1/chat/completions"
+    : GLM_URL;
+  var headers = viaRp
+    ? {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()}
+    : apiHeaders();
+  var r = await fetch(url, {
     method: "POST",
-    headers: apiHeaders(),
+    headers: headers,
     body: JSON.stringify({
       model: model, messages: messages, stream: true,
       temperature: 0.85, top_p: 0.95, max_tokens: 512,
       presence_penalty: 0.3, frequency_penalty: 0.3
     })
   });
-  if (!r.ok) throw new Error("Z.ai returned HTTP " + r.status);
+  if (!r.ok) throw new Error((viaRp ? "your vision endpoint" : "Z.ai") + " returned HTTP " + r.status);
   var reader = r.body.getReader(), dec = new TextDecoder(), buf = "";
   for (;;) {
     var chunk = await reader.read();
@@ -2074,6 +2092,13 @@ function falSectionHTML(){
        'placeholder="RunPod endpoint ID" value="' + esc(r.ep || "") + '">';
   h += '<input id="rp-key" class="srvinput" type="password" autocomplete="off" style="margin-top:8px" ' +
        'placeholder="RunPod API key" value="' + esc(r.key || "") + '">';
+  h += '<div class="ds" style="padding:8px 0 4px">Vision endpoint (optional) — a second RunPod ' +
+       'endpoint (vLLM quick-deploy) that reads the photos you send during mature conversations, ' +
+       'since Z.ai refuses explicit image input. SFW conversations keep using Z.ai\'s vision.</div>';
+  h += '<input id="rp-vep" class="srvinput" autocomplete="off" ' +
+       'placeholder="RunPod vision endpoint ID" value="' + esc(r.vep || "") + '">';
+  h += '<input id="rp-vmodel" class="srvinput" autocomplete="off" style="margin-top:8px" ' +
+       'placeholder="Qwen/Qwen2.5-VL-7B-Instruct" value="' + esc(r.vmodel || "") + '">';
   h += '<div class="ds" style="padding:10px 0 4px">18+ add-on (optional) — extra wording appended ' +
        'only to photos the character marks 18+. The character already writes what each mature photo ' +
        'shows from the conversation itself; use this only for constants you want on every one ' +
@@ -2100,6 +2125,13 @@ function wireFalUI(card){
   if (rpe) rpe.oninput = function(){ rp().ep = rpe.value; save(); };
   var rpk = card.querySelector("#rp-key");
   if (rpk) rpk.oninput = function(){ rp().key = rpk.value; save(); };
+  var rpv = card.querySelector("#rp-vep");
+  if (rpv) rpv.oninput = function(){ rp().vep = rpv.value; save(); };
+  var rpvm = card.querySelector("#rp-vmodel");
+  if (rpvm) rpvm.onchange = function(){
+    rp().vmodel = rpvm.value.trim() || "Qwen/Qwen2.5-VL-7B-Instruct";
+    save();
+  };
 }
 function wireGlmUI(card){
   var key = card.querySelector("#glm-key");
@@ -2156,10 +2188,13 @@ function updateChatStat(){
   var c = getConvo(cur); if (!c || c.grp) return;
   var el = $("chat-stat");
   if (glmReady()) {
-    /* a photo still in the window means the vision model is answering */
+    /* a photo still in the window means a vision model is answering */
     var vis = histWindow(c).some(function(m){ return !!m.img; });
-    el.innerHTML = '<span class="on">online</span> · via ' +
-      esc((vis ? glm().vmodel : glm().model) + " (Z.ai)");
+    var label = !vis ? glm().model + " (Z.ai)"
+      : (matureActive() && rpVisionReady()
+          ? (rp().vmodel.split("/").pop()) + " (your GPU)"
+          : glm().vmodel + " (Z.ai)");
+    el.innerHTML = '<span class="on">online</span> · via ' + esc(label);
   } else
     el.innerHTML = '<span style="color:var(--danger)">no API key — add one in Settings</span>';
 }

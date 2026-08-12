@@ -1,6 +1,6 @@
 {
-  "versionCode": 48,
-  "versionName": "0.18.1",
+  "versionCode": 49,
+  "versionName": "0.19.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Network blips don't kill photos anymore. A dropped connection during a long GPU wait used to abort the whole job — even though it was still running server-side — and cascade into doomed fallbacks. Polling now rides out up to a minute of outage (the bubble shows 'connection hiccup — retrying') and resumes the same job when the connection returns."
+  "notes": "Your own eyes for mature photos. Z.ai's vision API refuses explicit image input, which jammed conversations after sending one. Settings now takes a second RunPod endpoint (vLLM quick-deploy with a vision model): while Mature roleplay is on, photos you send are read on your own GPU; SFW conversations keep using Z.ai's vision unchanged. The chat header shows which is looking."
 }
