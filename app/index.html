@@ -994,7 +994,41 @@ var IMG_SELFIE_FRAME =
   "light on the face.";
 function imgPrompt(ch, desc, isSelfie){
   var style = ch && ch.imgstyle ? fill(ch.imgstyle, ch) : IMG_STYLE_DEFAULT;
-  return desc + "\n\nStyle: " + (isSelfie ? IMG_SELFIE_FRAME + " " : "") + style;
+  /* the appearance anchor: image models hold onto text far better than
+     reference conditioning, so the same written face rides every selfie
+     on every engine (see ensureLook) */
+  var subj = isSelfie && ch && (ch.look || "").trim()
+    ? "Subject (the same person in every photo): " + ch.look.trim() + "\n\n" : "";
+  return subj + desc + "\n\nStyle: " + (isSelfie ? IMG_SELFIE_FRAME + " " : "") + style;
+}
+/* one-time, cached per character: a vision model reads the first reference
+   photo into concrete physical traits. glm-image mostly ignores reference
+   images (the log has said so for a while) — but it follows text, and FLUX
+   likeness improves too when the prompt and the face LoRA agree. */
+function ensureLook(ch, cb){
+  if (!ch || (ch.look || "").trim() || !(ch.refimgs || []).length || !glmReady()) { cb(); return; }
+  fetch(GLM_URL, {
+    method: "POST", headers: apiHeaders(),
+    body: JSON.stringify({model: glm().vmodel || GLM_VISION_MODEL, stream: false, max_tokens: 220,
+      messages: [{role: "user", content: [
+        {type: "image_url", image_url: {url: ch.refimgs[0]}},
+        {type: "text", text: "Describe this person's physical appearance as reusable traits " +
+          "for a portrait artist: apparent age (as an adult), face shape, hair color/length/style, " +
+          "eye color, eyebrows, skin tone, build, any notable features. One line, comma-separated, " +
+          "about 50 words. No name, no clothing, no background."}
+      ]}]})
+  }).then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      var t = j && j.choices && j.choices[0] && j.choices[0].message &&
+              j.choices[0].message.content;
+      if (t) {
+        ch.look = String(t).trim().slice(0, 400);
+        save();
+        L("img", "learned " + ch.name + "'s look from the reference: “" +
+          ch.look.slice(0, 90) + "…”", true);
+      }
+      cb();
+    }).catch(function(){ cb(); });
 }
 /* every mature prompt states the subject's adulthood outright unless the
    description already does. Non-negotiable guard (characters are adults,
@@ -1081,20 +1115,27 @@ function chLoraList(ch){
 /* which LoRAs actually apply to this photo, plus their trigger add-ons.
    Empty "when" = every photo (style LoRAs); keywords = only when the photo's
    description mentions one, so subject LoRAs can't bleed into other shots. */
-function lorasFor(ch, desc, isMature){
+function lorasFor(ch, desc, isMature, picked){
   var t = (desc || "").toLowerCase();
+  var pick = (picked || []).map(function(n){ return String(n).trim().toLowerCase(); })
+    .filter(Boolean);
   var loras = [], adds = [], names = [];
   fal().loras.concat(chLoraList(ch)).forEach(function(l){
     var path = (l.path || "").trim();
     if (!path) return;
+    var nm = ((l.name || "").trim() || path.split("/").pop().split("?")[0]).toLowerCase();
     var kws = (l.when || "").split(",")
       .map(function(k){ return k.trim().toLowerCase(); }).filter(Boolean);
     /* "18+" is a special keyword: matches when the character marked this
        photo mature (only possible while mature mode is on) — far more
        reliable than word-matching descriptions the text model writes tamely */
-    if (kws.length && !kws.some(function(k){
+    var kwOk = !kws.length || kws.some(function(k){
       return k === "18+" ? !!isMature : t.indexOf(k) >= 0;
-    })) return;
+    });
+    /* the photo director may add a LoRA by name — union with the keyword
+       baseline, except an 18+-only LoRA can never ride a SFW picture */
+    var pickOk = pick.indexOf(nm) >= 0 && (isMature || kws.indexOf("18+") < 0);
+    if (!kwOk && !pickOk) return;
     if ((l.add || "").trim()) adds.push(l.add.trim());
     /* fal rejects scale > 4 outright (422, photo lost to the fallback) —
        clamp here so a "8" typo for "0.8" degrades instead of failing */
@@ -1359,9 +1400,9 @@ function buildFluxWorkflow(prompt, loras){
   wf["8"] = {class_type: "SaveImage", inputs: {images: ["7", 0], filename_prefix: "out"}};
   return wf;
 }
-function runpodImage(desc, ch, isSelfie, cid, cb, onFail){
+function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked){
   desc = adultDesc(desc);
-  var lf = lorasFor(ch, desc, true);
+  var lf = lorasFor(ch, desc, true, picked);
   var trig = [(fal().trigger || "").trim()].concat(lf.adds)
     .concat([(fal().mat || "").trim()]).filter(Boolean).join("\n");
   var prompt = imgPrompt(ch, desc, isSelfie) + (trig ? "\n" + trig : "");
@@ -1441,14 +1482,14 @@ function rpPoll(id, tries, isSelfie, cid, nLoras, cb, onFail, netMisses){
     });
 }
 
-function falImage(desc, ch, isSelfie, isMature, cb, onFail){
+function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked){
   /* Kontext is an edit model that preserves its input photo — including its
      clothing; it was trained to resist undressing people. 18+ selfies
      therefore go text-to-image, where content LoRAs work at full strength;
      identity there comes from a likeness LoRA in the character's cards. */
   var refs = isSelfie && !isMature ? (ch && ch.refimgs || []) : [];
   if (isMature) desc = adultDesc(desc);
-  var lf = lorasFor(ch, desc, isMature), loras = lf.loras;
+  var lf = lorasFor(ch, desc, isMature, picked), loras = lf.loras;
   /* Kontext keeps a face best when addressed as an edit of "this person",
      and when style LoRAs are damped so they can't out-vote the identity */
   if (refs.length)
@@ -2391,12 +2432,71 @@ async function runGeneration(convo, ch, nudge, done){
   }
   done();
 }
+/* the photo director: one small text call that reads the last few messages
+   and plans the shot — a scene rewrite with a specific, natural pose and
+   camera (so pictures stop defaulting to square-to-camera standing), plus
+   which LoRAs by name actually fit this moment. Any failure falls back to
+   the raw description and keyword matching; the photo never gets lost here. */
+function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
+  if (!glmReady()) { cb(desc, null); return; }
+  var catalog = fal().loras.concat(chLoraList(ch)).map(function(l){
+    return {name: (l.name || "").trim() || (l.path || "").split("/").pop().split("?")[0],
+            when: (l.when || "").trim() || "always"};
+  }).filter(function(c){ return c.name; });
+  var tail = (S.msgs[convo.id] || []).slice(-8).map(function(m){
+    var who = m.who === "me" ? "User"
+      : (m.who === "scene" ? "[scene]" : ((getChar(m.by) || ch).name));
+    return who + ": " + (m.text || (m.img ? "[sent a photo]" : ""));
+  }).join("\n").slice(-1600);
+  var ask = "You are the photo director for an AI-generated picture in a roleplay chat.\n\n" +
+    "Recent conversation (most recent last):\n" + tail + "\n\n" +
+    ch.name + " is about to send a " + (isSelfie ? "selfie" : "photo") +
+    (isMature ? " (an explicit adult picture is intended and permitted; the subject is an adult)" : "") +
+    ".\nDraft description: \"" + desc + "\"\n\n" +
+    (catalog.length
+      ? "Available LoRAs — pick only the ones that genuinely fit this picture:\n" +
+        catalog.map(function(c){ return "- " + c.name + " (meant for: " + c.when + ")"; }).join("\n") + "\n\n"
+      : "") +
+    "Reply with ONLY a JSON object, no other text: {\"scene\": string, \"loras\": [names]}.\n" +
+    "scene: rewrite the draft as one vivid image prompt. Keep every subject and action detail " +
+    "from the draft, then make the pose and camera concrete and natural to this exact moment: " +
+    "camera angle and distance, what the body and hands are doing, where the eyes look, lighting " +
+    "and setting details drawn from the conversation. Avoid a centered, straight-on, standing " +
+    "pose unless the moment truly calls for it. Under 90 words.";
+  completeOnce(REMOTE, [{role: "user", content: ask}], 400, function(err, text){
+    if (err || !text) { cb(desc, null); return; }
+    try {
+      var m = String(text).match(/\{[\s\S]*\}/);
+      var j = JSON.parse(m ? m[0] : text);
+      var scene = String(j.scene || "").trim();
+      var picked = Array.isArray(j.loras) ? j.loras.map(String) : null;
+      if (scene.length >= 20) {
+        L("img", "director: “" + scene.slice(0, 110) + "” · picked=" +
+          (picked && picked.length ? picked.join(", ") : "(keyword match only)"), true);
+        cb(scene, picked);
+        return;
+      }
+    } catch (e) {}
+    L("img", "director reply unusable — using the raw description", true);
+    cb(desc, null);
+  });
+}
 /* the picture a character chose to send, generated then delivered as its own
    message — typing dots show while CogView paints */
 function deliverPhoto(convo, ch, desc, isSelfie, isMature){
   var ty = $("ty");
   if (cur === convo.id && ty){ ty.classList.add("on"); $("stream").scrollTop = 1e9; }
-  setStage(convo.id, "painting the photo");
+  setStage(convo.id, "framing the shot");
+  /* learn the face once, plan the shot, then paint */
+  ensureLook(ch, function(){
+    directPhoto(convo, ch, desc, isSelfie, isMature, function(finalDesc, picked){
+      if (CANCELREQ[convo.id]) { endGen(convo.id); return; }
+      setStage(convo.id, "painting the photo");
+      deliverPhotoNow(convo, ch, desc, finalDesc, picked, isSelfie, isMature);
+    });
+  });
+}
+function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature){
   var onDone = function(url){
     endGen(convo.id);
     var ty2 = $("ty"); if (ty2) ty2.classList.remove("on");
@@ -2407,7 +2507,9 @@ function deliverPhoto(convo, ch, desc, isSelfie, isMature){
     }
     pushMsg(convo.id, "them", "", ch.id, url);
     var arr = S.msgs[convo.id], pm = arr[arr.length - 1];
-    pm.imgd = desc; if (isSelfie) pm.sf = true; if (isMature) pm.mat = true;
+    /* the character remembers what it chose to send, not the director's
+       elaboration */
+    pm.imgd = origDesc; if (isSelfie) pm.sf = true; if (isMature) pm.mat = true;
     save();
     if (cur === convo.id) renderStream();
     else { convo.unread = (convo.unread||0)+1; save(); }
@@ -2418,7 +2520,7 @@ function deliverPhoto(convo, ch, desc, isSelfie, isMature){
   var refs = (ch && ch.refimgs || []).length;
   if (isMature && isSelfie && refs && falReady()) refs = 0;   // 18+ selfies skip Kontext
   var damp = isSelfie && refs && falReady() ? 0.7 : 1;
-  var lfLog = falReady() || rpReady() ? lorasFor(ch, desc, isMature) : {loras: [], names: []};
+  var lfLog = falReady() || rpReady() ? lorasFor(ch, desc, isMature, picked) : {loras: [], names: []};
   var llist = lfLog.loras.map(function(l, i){
     return lfLog.names[i] + "@" + Math.round(((l.scale || 1) * damp) * 100) / 100;
   }).join(",");
@@ -2434,9 +2536,9 @@ function deliverPhoto(convo, ch, desc, isSelfie, isMature){
     else glmImage(desc, ch, false, onDone);
   };
   var viaFal = falReady()
-    ? function(){ falImage(desc, ch, isSelfie, isMature, onDone, glmReady() ? viaGlm : null); }
+    ? function(){ falImage(desc, ch, isSelfie, isMature, onDone, glmReady() ? viaGlm : null, picked); }
     : null;
-  if (isMature && rpReady()) runpodImage(desc, ch, isSelfie, convo.id, onDone, viaFal || (glmReady() ? viaGlm : null));
+  if (isMature && rpReady()) runpodImage(desc, ch, isSelfie, convo.id, onDone, viaFal || (glmReady() ? viaGlm : null), picked);
   else if (viaFal) viaFal();
   else viaGlm();
 }

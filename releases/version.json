@@ -1,6 +1,6 @@
 {
-  "versionCode": 64,
-  "versionName": "0.19.15",
+  "versionCode": 65,
+  "versionName": "0.20.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Tap the typing bubble to stop a reply. The caption now ends with 'tap to stop' — one tap (and a confirm) aborts the request on the wire, halts the cold-start retries and budget extensions, stops a photo mid-poll, releases the generation queue, and clears the record so the stopped reply doesn't auto-resume on the next launch. Sending a new message after a stop works immediately. No more being held hostage by a wait you've already given up on."
+  "notes": "Smarter photos on every engine. Likeness: the first time a character with reference photos sends a selfie, a vision model reads the reference into a concrete written description of their face and build — cached on the character and injected into every future selfie prompt, because image models follow text far more faithfully than reference conditioning (this is what makes glm-image selfies finally resemble the character; FLUX improves too since prompt and face LoRA now agree). Poses: a new photo director plans each shot before it's painted — one small text call reads the last few messages and rewrites the description with a concrete pose, camera angle, and setting true to that exact moment, and picks which of your LoRAs fit by name instead of relying on keyword matching alone ('framing the shot' in the typing bubble). An 18+-only LoRA can never be picked into a SFW picture, and any director failure falls back to exactly the old behavior."
 }
