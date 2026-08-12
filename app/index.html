@@ -2451,6 +2451,23 @@ async function rpVisionTest(out){
       return;
     }
     line("✓ Endpoint exists · " + hb.slice(0, 140));
+    /* the worker counts are the diagnosis: an endpoint that can't start a
+       GPU queues jobs forever and its gateway 500s — the field case that
+       taught us this showed 18 queued, 0 ever completed, all throttled */
+    var hj = null; try { hj = JSON.parse(hb); } catch (e3) {}
+    var w = (hj && hj.workers) || {}, jb = (hj && hj.jobs) || {};
+    var alive = (w.idle || 0) + (w.ready || 0) + (w.running || 0) + (w.initializing || 0);
+    if (hj && !alive) {
+      line("✗ No workers can start (throttled=" + (w.throttled || 0) + ", unhealthy=" +
+           (w.unhealthy || 0) + ") · queued jobs=" + (jb.inQueue || 0) +
+           " · completed ever=" + (jb.completed || 0));
+      line("RunPod cannot get a GPU for this endpoint, so every request queues and dies. " +
+           "In the RunPod console, edit this endpoint: allow more GPU types (any 24GB card " +
+           "runs Qwen2.5-VL-7B — L4, 4090, A5000, L40S, A40) and more datacenters, make sure " +
+           "Max Workers is at least 1, and check your credit balance." +
+           ((jb.inQueue || 0) ? " Then purge the " + jb.inQueue + " stuck queued requests." : ""));
+      return;
+    }
   } catch (e) {
     line("✗ Health check failed: " + String(e && e.message || e).slice(0, 120));
     return;
@@ -2471,9 +2488,9 @@ async function rpVisionTest(out){
     if (!cr.ok) {
       line("✗ Chat: HTTP " + cr.status + " — " + cb.slice(0, 160));
       if (cr.status === 500 && /internal server error/i.test(cb))
-        line("A bare gateway 500 means the worker behind this ID doesn't speak the OpenAI " +
-             "chat protocol — it isn't a vLLM deployment (or its vLLM worker image is too " +
-             "old to have the OpenAI route). Redeploy via RunPod's Serverless vLLM " +
+        line("A bare gateway 500 with live workers means the worker doesn't speak the " +
+             "OpenAI chat protocol — it isn't a vLLM deployment (or its vLLM worker image " +
+             "is too old to have the OpenAI route). Redeploy via RunPod's Serverless vLLM " +
              "quick-deploy and use that endpoint's ID.");
       return;
     }

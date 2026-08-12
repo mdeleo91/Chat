@@ -1,6 +1,6 @@
 {
-  "versionCode": 60,
-  "versionName": "0.19.11",
+  "versionCode": 61,
+  "versionName": "0.19.12",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "A Test button for the vision endpoint. The bare gateway 500 from the last log means the worker behind the vision endpoint ID doesn't speak the OpenAI chat protocol at all — the classic cause being the image endpoint's ID pasted into the vision field, or a non-vLLM deployment. Settings now has 'Test vision endpoint': one tap checks the ID and key (health), then sends a tiny chat request and prints a plain-language verdict — wrong ID or key, not-a-vLLM-endpoint, model name mismatch, or working, with the model's reply as proof. The same-ID mistake is also caught outright when sending a photo, with a message saying exactly what to fix instead of retrying a doomed request."
+  "notes": "The vision endpoint test now reads the worker counts and names the real problem. The first field run of the test revealed an endpoint with 18 requests queued, zero jobs ever completed, and every worker slot throttled — RunPod simply cannot start a GPU for it, which the previous verdict misread as a protocol problem. The test now checks worker health first: when no worker can start, it says so, with the throttled/queued/completed numbers and the exact console fixes (allow more GPU types and datacenters, Max Workers at least 1, check credits, purge the stuck queue). The not-a-vLLM verdict is reserved for endpoints whose workers are alive and still won't chat."
 }
