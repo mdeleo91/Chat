@@ -1585,12 +1585,15 @@ function messagesHaveImage(messages){
    Z.ai's normally, the user's own RunPod vision endpoint when mature mode
    is on and one is configured (Z.ai refuses explicit image input) */
 var LASTREQ = null;   // where the last completion request went, for honest failure logs
-/* a serverless vision endpoint answers in seconds when warm but holds the
-   request through minutes of cold start when scaled to zero — and holds it
-   forever when throttled. Cap the wait instead of sitting on "thinking":
-   generous first-token deadline for the GPU to wake, tighter one for Z.ai,
-   and an idle cutoff once tokens are flowing. */
-var RP_FIRST_TOKEN_MS = 180000, GLM_FIRST_TOKEN_MS = 60000, STREAM_IDLE_MS = 60000;
+/* a serverless vision endpoint answers in seconds when warm, but a cold
+   start is a different animal: RunPod's gateway accepts the streaming
+   request, holds it while the worker boots, then DROPS the connection
+   after ~a minute ("network error") with the worker still loading. The
+   first request is what wakes the GPU, so the drop is not a dead end —
+   retry the request within an overall budget and a later attempt lands
+   on the warm worker. Z.ai gets one attempt with a tight deadline. */
+var RP_TOTAL_MS = 180000, GLM_FIRST_TOKEN_MS = 60000, STREAM_IDLE_MS = 60000,
+    RP_RETRY_PAUSE_MS = 4000;
 async function remoteGenerate(messages, onDelta, cid){
   var hasImg = messagesHaveImage(messages);
   var viaRp = hasImg && matureActive() && rpVisionReady();
@@ -1610,67 +1613,109 @@ async function remoteGenerate(messages, onDelta, cid){
   });
   LASTREQ = {via: viaRp ? "vision endpoint" : "Z.ai", model: model,
              kb: Math.round(body.length / 1024)};
-  var deadline = viaRp ? RP_FIRST_TOKEN_MS : GLM_FIRST_TOKEN_MS;
-  var ctrl = new AbortController(), timedOut = false, gotBytes = false,
-      timer = null, coldTimer = null;
-  function arm(ms){
-    clearTimeout(timer);
-    timer = setTimeout(function(){ timedOut = true; ctrl.abort(); }, ms);
-  }
-  arm(deadline);
-  if (hasImg && cid) {
-    setStage(cid, "reading your photo");
+  var who = viaRp ? "your vision endpoint" : "Z.ai";
+  var started = Date.now(), attempt = 0, emitted = false;
+  function msLeft(){ return RP_TOTAL_MS - (Date.now() - started); }
+  if (hasImg && cid) setStage(cid, "reading your photo");
+  /* ---- one streaming attempt; throws with .isTimeout on its deadline ---- */
+  async function streamOnce(){
+    var ctrl = new AbortController(), timedOut = false, gotBytes = false,
+        timer = null, coldTimer = null;
+    function arm(ms){
+      clearTimeout(timer);
+      timer = setTimeout(function(){ timedOut = true; ctrl.abort(); }, ms);
+    }
+    /* the vision attempt may use everything left in the budget — cold
+       starts are legitimate; Z.ai should simply answer */
+    arm(viaRp ? Math.max(msLeft(), 1) : GLM_FIRST_TOKEN_MS);
     /* silence past the warm-response window means the worker is booting —
        say so, like the photo-generation path does */
-    if (viaRp) coldTimer = setTimeout(function(){
-      setStage(cid, "waking your GPU — cold start");
-    }, 15000);
+    if (viaRp && cid && attempt === 1)
+      coldTimer = setTimeout(function(){
+        setStage(cid, "waking your GPU — cold start");
+      }, 15000);
+    try {
+      var r = await fetch(url, {
+        method: "POST",
+        headers: headers,
+        body: body,
+        signal: ctrl.signal
+      });
+      if (!r.ok) {
+        var he = new Error(who + " returned HTTP " + r.status);
+        /* gateway hiccups while the worker boots are worth retrying;
+           4xx means the request itself is wrong — don't repeat it */
+        he.transient = r.status >= 500 || r.status === 408 || r.status === 429;
+        throw he;
+      }
+      var reader = r.body.getReader(), dec = new TextDecoder(), buf = "";
+      for (;;) {
+        var chunk = await reader.read();
+        if (chunk.done) return;
+        /* bytes on the wire = the server is alive — switch to the idle cutoff */
+        gotBytes = true;
+        arm(STREAM_IDLE_MS);
+        if (coldTimer) { clearTimeout(coldTimer); coldTimer = null; }
+        buf += dec.decode(chunk.value, {stream:true});
+        var lines = buf.split("\n");
+        buf = lines.pop();
+        for (var i = 0; i < lines.length; i++) {
+          var ln = lines[i].trim();
+          if (ln.indexOf("data:") !== 0) continue;
+          var payload = ln.slice(5).trim();
+          if (payload === "[DONE]") return;
+          var j;
+          try { j = JSON.parse(payload); } catch (e) { continue; }
+          var d = j.choices && j.choices[0] && j.choices[0].delta &&
+                  j.choices[0].delta.content;
+          if (d) { emitted = true; onDelta(d); }
+        }
+      }
+    } catch (e) {
+      if (!timedOut) throw e;
+      var te = new Error(gotBytes
+        ? who + " went quiet mid-reply (no data for " + Math.round(STREAM_IDLE_MS / 1000) + "s)"
+        : (viaRp
+          ? who + " didn't answer within " + Math.round(RP_TOTAL_MS / 60000) +
+            " minutes — cold start too slow, or the endpoint has no workers available"
+          : who + " didn't answer within " + Math.round(GLM_FIRST_TOKEN_MS / 1000) + "s"));
+      te.isTimeout = true; te.viaRp = viaRp;
+      throw te;
+    } finally {
+      clearTimeout(timer);
+      if (coldTimer) clearTimeout(coldTimer);
+    }
   }
   try {
-    var r = await fetch(url, {
-      method: "POST",
-      headers: headers,
-      body: body,
-      signal: ctrl.signal
-    });
-    if (!r.ok) throw new Error((viaRp ? "your vision endpoint" : "Z.ai") + " returned HTTP " + r.status);
-    var reader = r.body.getReader(), dec = new TextDecoder(), buf = "";
     for (;;) {
-      var chunk = await reader.read();
-      if (chunk.done) break;
-      /* bytes on the wire = the server is alive — switch to the idle cutoff */
-      gotBytes = true;
-      arm(STREAM_IDLE_MS);
-      if (coldTimer) { clearTimeout(coldTimer); coldTimer = null; }
-      buf += dec.decode(chunk.value, {stream:true});
-      var lines = buf.split("\n");
-      buf = lines.pop();
-      for (var i = 0; i < lines.length; i++) {
-        var ln = lines[i].trim();
-        if (ln.indexOf("data:") !== 0) continue;
-        var payload = ln.slice(5).trim();
-        if (payload === "[DONE]") return;
-        var j;
-        try { j = JSON.parse(payload); } catch (e) { continue; }
-        var d = j.choices && j.choices[0] && j.choices[0].delta &&
-                j.choices[0].delta.content;
-        if (d) onDelta(d);
+      attempt++;
+      try {
+        await streamOnce();
+        return;
+      } catch (e) {
+        var msg = String(e && e.message || e);
+        /* retry only when it's safe (nothing shown yet) and plausibly a
+           cold-start drop: a severed connection or a transient gateway
+           status. A partial reply, a 4xx, or our own deadline is final. */
+        var droppable = /network|fetch|load failed|connection/i.test(msg) || e.transient;
+        if (!viaRp || emitted || e.isTimeout || !droppable ||
+            msLeft() < RP_RETRY_PAUSE_MS + 5000) {
+          if (viaRp && !emitted && droppable && !e.isTimeout) {
+            /* budget spent on drops — report the wait, not the last blip */
+            var be = new Error(who + " kept dropping the connection while the GPU was waking (" +
+              attempt + " attempts over " + Math.round((Date.now() - started) / 1000) + "s)");
+            be.isTimeout = true; be.viaRp = true;
+            throw be;
+          }
+          throw e;
+        }
+        L("gen", "vision endpoint dropped mid-wait (attempt " + attempt + "): " +
+          msg.slice(0, 120) + " — retrying, " + Math.round(msLeft() / 1000) + "s left", true);
+        if (cid) setStage(cid, "waking your GPU — cold start · attempt " + (attempt + 1));
+        await new Promise(function(res){ setTimeout(res, RP_RETRY_PAUSE_MS); });
       }
     }
-  } catch (e) {
-    if (!timedOut) throw e;
-    var who = viaRp ? "your vision endpoint" : "Z.ai";
-    var te = new Error(gotBytes
-      ? who + " went quiet mid-reply (no data for " + Math.round(STREAM_IDLE_MS / 1000) + "s)"
-      : (viaRp
-        ? who + " didn't answer within " + Math.round(deadline / 60000) +
-          " minutes — cold start too slow, or the endpoint has no workers available"
-        : who + " didn't answer within " + Math.round(deadline / 1000) + "s"));
-    te.isTimeout = true; te.viaRp = viaRp;
-    throw te;
   } finally {
-    clearTimeout(timer);
-    if (coldTimer) clearTimeout(coldTimer);
     if (cid) setStage(cid, "");
   }
 }

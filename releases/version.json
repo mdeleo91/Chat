@@ -1,6 +1,6 @@
 {
-  "versionCode": 53,
-  "versionName": "0.19.4",
+  "versionCode": 54,
+  "versionName": "0.19.5",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "No more endless 'thinking' after you send a mature photo. Reading your photo goes through your RunPod vision endpoint, and a GPU that has scaled to zero holds the request while it boots — the app used to wait on that forever with only a generic caption. The typing bubble now says what's happening ('reading your photo', then 'waking your GPU — cold start'), the wait is capped at 3 minutes for a cold start (60s for Z.ai, 60s of mid-reply silence), and a timeout tells you plainly to give the GPU a minute and resend instead of hanging the conversation."
+  "notes": "Photo-reading now rides out cold starts instead of failing on them. Build 53 revealed the real shape of the problem: RunPod's gateway drops the held connection with a 'network error' after about a minute of cold start — before your GPU finishes waking. Since that first request is exactly what wakes the GPU, the app now retries the dropped connection automatically inside the 3-minute window ('waking your GPU — cold start · attempt 2'), and a later attempt lands on the warm worker. You send the photo once; the app does the resending."
 }
