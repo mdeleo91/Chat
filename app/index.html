@@ -1228,9 +1228,21 @@ function checkFaceTraining(ch, cb){
       return fetch(tr.response_url, {headers: {"Authorization": "Key " + fal().key.trim()}})
         .then(function(r){ return r.json(); })
         .then(function(res){
-          var url = (res.diffusers_lora_file && res.diffusers_lora_file.url) ||
-                    (res.lora_file && res.lora_file.url);
-          if (!url) throw new Error("training finished but the result has no LoRA file");
+          /* field names vary across trainer versions — find any .safetensors
+             URL anywhere in the result rather than guessing keys */
+          var url = (function find(o){
+            if (typeof o === "string") {
+              var m = o.match(/https?:\/\/\S+\.safetensors/);
+              return m ? m[0] : null;
+            }
+            if (!o || typeof o !== "object") return null;
+            for (var k in o) { var r2 = find(o[k]); if (r2) return r2; }
+            return null;
+          })(res);
+          if (!url) {
+            L("train", "result had no LoRA url — raw: " + JSON.stringify(res).slice(0, 500), true);
+            throw new Error("training finished but the result has no LoRA file");
+          }
           ch.loraList = (ch.loraList || []).filter(function(l){ return !l.face; });
           ch.loraList.push({name: ch.name + " face (trained)", path: url, scale: 1,
             when: "", add: faceTrigger(ch), face: true});

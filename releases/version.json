@@ -1,6 +1,6 @@
 {
-  "versionCode": 44,
-  "versionName": "0.17.1",
+  "versionCode": 45,
+  "versionName": "0.17.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Name your LoRAs. Each LoRA card now has a name field at the top — for your own bookkeeping, and the photo route log uses it too, so lines read 'Amateur style@0.8' instead of a bare file id. Trained face LoRAs name themselves after the character."
+  "notes": "Face training result recovery. The trainer finished but the app looked for the LoRA file under the wrong field names — the result reader now finds the .safetensors URL anywhere in the response, and your completed training is still fetchable: update, open the character, tap Check training again. If it somehow still can't find it, the raw response lands in the troubleshooting log."
 }
