@@ -1,6 +1,6 @@
 {
-  "versionCode": 45,
-  "versionName": "0.17.2",
+  "versionCode": 46,
+  "versionName": "0.17.3",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Face training result recovery. The trainer finished but the app looked for the LoRA file under the wrong field names — the result reader now finds the .safetensors URL anywhere in the response, and your completed training is still fetchable: update, open the character, tap Check training again. If it somehow still can't find it, the raw response lands in the troubleshooting log."
+  "notes": "Face training actually trains, and cold starts wait their turn. The trainer refused the reference zip inline (URL too long) so training never really started — references now upload to fal's storage first and the trainer gets a proper link. And when the RunPod worker is cold, the app now polls the job for up to five minutes instead of giving up and falling back to a censored engine. A failed training attempt also resets the button so you can retry cleanly."
 }

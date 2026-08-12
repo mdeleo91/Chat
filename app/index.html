@@ -1182,6 +1182,28 @@ function zipStore(files){
 function faceTrigger(ch){
   return ((ch.name || "person").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12) || "person") + "face";
 }
+/* the trainer refuses multi-MB data URIs ("URL too long") — the zip has to
+   live at a real URL, so it goes through fal's storage first */
+function falUpload(bytes, name, type, cb){
+  fetch("https://rest.fal.ai/storage/upload/initiate", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Key " + fal().key.trim()},
+    body: JSON.stringify({file_name: name, content_type: type})
+  }).then(function(r){
+    if (!r.ok) return r.text().then(function(t){
+      throw new Error("storage initiate HTTP " + r.status + (t ? " — " + t.slice(0, 200) : ""));
+    });
+    return r.json();
+  }).then(function(j){
+    if (!j.upload_url || !j.file_url) throw new Error("unexpected storage response: " +
+      JSON.stringify(j).slice(0, 200));
+    return fetch(j.upload_url, {method: "PUT", headers: {"Content-Type": type}, body: bytes})
+      .then(function(r2){
+        if (!r2.ok) throw new Error("storage PUT HTTP " + r2.status);
+        cb(null, j.file_url);
+      });
+  }).catch(function(e){ cb(String(e && e.message || e)); });
+}
 function startFaceTraining(ch, refs, cb){
   var files = refs.map(function(u, i){
     var m = u.match(/^data:([^;]+);base64,(.*)$/);
@@ -1191,15 +1213,21 @@ function startFaceTraining(ch, refs, cb){
     return {name: "ref" + i + ".jpg", data: arr};
   }).filter(Boolean);
   if (files.length < 3) { cb("Add at least 3 reference photos first"); return; }
-  var zip = zipStore(files), b64 = "", CH = 0x8000;
-  for (var i = 0; i < zip.length; i += CH)
-    b64 += String.fromCharCode.apply(null, zip.subarray(i, i + CH));
-  b64 = btoa(b64);
+  var zip = zipStore(files);
+  falUpload(zip, "refs.zip", "application/zip", function(upErr, fileUrl){
+    if (upErr) {
+      L("train", "reference upload failed: " + upErr, true);
+      cb(upErr); return;
+    }
+    submitTraining(ch, fileUrl, files.length, cb);
+  });
+}
+function submitTraining(ch, zipUrl, nRefs, cb){
   fetch(FAL_TRAIN_URL, {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Key " + fal().key.trim()},
     body: JSON.stringify({
-      images_data_url: "data:application/zip;base64," + b64,
+      images_data_url: zipUrl,
       trigger_phrase: faceTrigger(ch)
     })
   }).then(function(r){
@@ -1211,7 +1239,7 @@ function startFaceTraining(ch, refs, cb){
     if (!j.request_id) throw new Error("no request id in the response");
     ch.trainReq = {id: j.request_id, status_url: j.status_url, response_url: j.response_url, t: Date.now()};
     save();
-    L("train", "face LoRA training started for " + ch.name + " (" + files.length + " refs)", true);
+    L("train", "face LoRA training started for " + ch.name + " (" + nRefs + " refs)", true);
     cb(null);
   }).catch(function(e){
     L("train", "training submit failed: " + String(e && e.message || e).slice(0, 300), true);
@@ -1228,6 +1256,13 @@ function checkFaceTraining(ch, cb){
       return fetch(tr.response_url, {headers: {"Authorization": "Key " + fal().key.trim()}})
         .then(function(r){ return r.json(); })
         .then(function(res){
+          /* a validation error as the "result" means training never ran —
+             clear the request so the button offers a fresh Train */
+          if (res && res.detail) {
+            L("train", "training never ran — " + JSON.stringify(res.detail).slice(0, 300), true);
+            delete ch.trainReq; save();
+            throw new Error("that training run failed to start — tap Train face LoRA to retry");
+          }
           /* field names vary across trainer versions — find any .safetensors
              URL anywhere in the result rather than guessing keys */
           var url = (function find(o){
@@ -1315,18 +1350,46 @@ function runpodImage(desc, ch, isSelfie, cb, onFail){
     });
     return r.json();
   }).then(function(j){
-    var out = j.output || {};
-    var img = (out.images && out.images[0]) || {};
-    var b64 = img.data || img.image || out.message;   // worker version variants
-    if (!b64) throw new Error("status " + (j.status || "?") +
-      (j.error ? " — " + String(j.error).slice(0, 240) : " — no image in the response"));
-    L("img", (isSelfie ? "selfie" : "photo") + " (runpod, " + lf.loras.length + " lora" +
-      (lf.loras.length === 1 ? "" : "s") + ") ok", true);
-    shrinkImage("data:image/png;base64," + String(b64).replace(/^data:image\/\w+;base64,/, ""), cb);
+    rpFinish(j, isSelfie, lf.loras.length, cb, onFail);
   }).catch(function(e){
     L("img", "runpod failed: " + String(e && e.message || e).slice(0, 360), true);
     if (onFail) onFail(); else cb(null);
   });
+}
+/* runsync gives up waiting during cold starts and answers IN_QUEUE with a job
+   id — keep polling the job for up to ~5 minutes instead of failing over */
+function rpFinish(j, isSelfie, nLoras, cb, onFail){
+  var out = j.output || {};
+  var img = (out.images && out.images[0]) || {};
+  var b64 = img.data || img.image || out.message;   // worker version variants
+  if (b64) {
+    L("img", (isSelfie ? "selfie" : "photo") + " (runpod, " + nLoras + " lora" +
+      (nLoras === 1 ? "" : "s") + ") ok", true);
+    shrinkImage("data:image/png;base64," + String(b64).replace(/^data:image\/\w+;base64,/, ""), cb);
+    return;
+  }
+  if ((j.status === "IN_QUEUE" || j.status === "IN_PROGRESS") && j.id) {
+    rpPoll(j.id, 60, isSelfie, nLoras, cb, onFail);
+    return;
+  }
+  L("img", "runpod failed: status " + (j.status || "?") +
+    (j.error ? " — " + String(j.error).slice(0, 240) : " — no image in the response"), true);
+  if (onFail) onFail(); else cb(null);
+}
+function rpPoll(id, tries, isSelfie, nLoras, cb, onFail){
+  fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/status/" + id, {
+    headers: {"Authorization": "Bearer " + rp().key.trim()}
+  }).then(function(r){ return r.json(); })
+    .then(function(j){
+      if (j.status === "COMPLETED" || j.output) { rpFinish(j, isSelfie, nLoras, cb, onFail); return; }
+      if (j.status === "FAILED" || j.status === "CANCELLED" || j.status === "TIMED_OUT")
+        throw new Error("worker " + j.status + (j.error ? " — " + String(j.error).slice(0, 240) : ""));
+      if (tries <= 0) throw new Error("timed out waiting for the worker (cold start too slow)");
+      setTimeout(function(){ rpPoll(id, tries - 1, isSelfie, nLoras, cb, onFail); }, 5000);
+    }).catch(function(e){
+      L("img", "runpod failed: " + String(e && e.message || e).slice(0, 300), true);
+      if (onFail) onFail(); else cb(null);
+    });
 }
 
 function falImage(desc, ch, isSelfie, isMature, cb, onFail){
