@@ -1,6 +1,6 @@
 {
-  "versionCode": 58,
-  "versionName": "0.19.9",
+  "versionCode": 59,
+  "versionName": "0.19.10",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Photo replies from the vision endpoint finally arrive. The raw-body logging added in 0.19.8 caught the culprit red-handed: the endpoint answers streamed requests with 'Error initializing the stream: HTTP 409' — the worker, as deployed, cannot stream at all, so every streamed photo-read was doomed regardless of GPU health. The app now detects that reply, immediately re-sends the same request as a single whole-JSON completion (which the worker handles fine), and remembers the endpoint as non-streaming so future photo-reads skip the doomed attempt entirely. Changing the vision endpoint ID in Settings forgets the learned quirk, in case a future deployment does stream."
+  "notes": "Names the vision endpoint's real error instead of retrying it for 3 minutes. The last log showed the endpoint answering HTTP 500 instantly, 42 times — a deterministic failure, not a cold start, and the app was discarding the response body that says why. Error responses are now read and logged in full ('HTTP 500 body: …'), the same status arriving three times in a row stops the retry loop immediately with a plain-language verdict pointing at the RunPod console, and the failure toast shows the endpoint's actual error instead of a generic message. Next failed photo-read, the troubleshooting log will contain the endpoint's own words for what's wrong."
 }

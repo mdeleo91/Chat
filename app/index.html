@@ -1608,6 +1608,7 @@ async function remoteGenerate(messages, onDelta, cid){
     : apiHeaders();
   var who = viaRp ? "your vision endpoint" : "Z.ai";
   var started = Date.now(), attempt = 0, emitted = false;
+  var lastStatus = 0, sameStatus = 0;
   function msLeft(){ return RP_TOTAL_MS - (Date.now() - started); }
   if (hasImg && cid) setStage(cid, "reading your photo");
   /* ---- one streaming attempt; throws with .isTimeout on its deadline ---- */
@@ -1647,10 +1648,17 @@ async function remoteGenerate(messages, onDelta, cid){
         signal: ctrl.signal
       });
       if (!r.ok) {
-        var he = new Error(who + " returned HTTP " + r.status);
+        /* the status alone diagnoses nothing — the body names the actual
+           failure (model mismatch, handler crash, wrong endpoint type) */
+        var bt = "";
+        try { bt = (await r.text() || "").trim(); } catch (e2) {}
+        if (bt) L("gen", "HTTP " + r.status + " body: “" + bt.slice(0, 220) + "”", true);
+        var he = new Error(who + " returned HTTP " + r.status +
+          (bt ? " — " + bt.slice(0, 160) : ""));
         /* gateway hiccups while the worker boots are worth retrying;
            4xx means the request itself is wrong — don't repeat it */
         he.transient = r.status >= 500 || r.status === 408 || r.status === 429;
+        he.status = r.status; he.viaRp = viaRp;
         throw he;
       }
       var reader = r.body.getReader(), dec = new TextDecoder(), buf = "", raw = "";
@@ -1735,6 +1743,21 @@ async function remoteGenerate(messages, onDelta, cid){
           rp().nostream = true; save();
           L("gen", "vision endpoint can't stream — switching it to whole-JSON replies", true);
           continue;
+        }
+        /* the same status arriving instantly again and again is the
+           endpoint failing deterministically, not a cold start — three
+           strikes and it's reported as what it is instead of eating the
+           whole budget (the 42-identical-500s log taught us this) */
+        if (e.status && viaRp && !emitted) {
+          sameStatus = e.status === lastStatus ? sameStatus + 1 : 1;
+          lastStatus = e.status;
+          if (sameStatus >= 3) {
+            var ce = new Error(who + " answered HTTP " + e.status + " " + sameStatus +
+              " times in a row — the endpoint is failing, not waking. Check its worker " +
+              "logs in the RunPod console. Last answer: " + msg.slice(0, 160));
+            ce.viaRp = true;
+            throw ce;
+          }
         }
         /* retry only when it's safe (nothing shown yet) and plausibly a
            cold-start drop: a severed connection or a transient gateway
@@ -2208,6 +2231,8 @@ async function runGeneration(convo, ch, nudge, done){
       toast(e.viaRp
         ? "Your vision endpoint took too long — the GPU is likely still waking up. Wait a minute and resend the photo."
         : "The reply timed out — send again.");
+    else if (e && e.viaRp)
+      toast("Vision endpoint problem: " + emsg.slice(0, 160));
     else if (/network|fetch/i.test(emsg))
       toast("Network hiccup — that reply didn't make it. Send again.");
     else
