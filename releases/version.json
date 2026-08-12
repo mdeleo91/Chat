@@ -1,6 +1,6 @@
 {
-  "versionCode": 42,
-  "versionName": "0.16.2",
+  "versionCode": 43,
+  "versionName": "0.17.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Second safety knob. The provider's nsfw flag came back true on a marked photo even with the checker flag disabled, so 18+ requests now also send fal's safety_tolerance at its most permissive API level, and every success line states which checker state the request carried. If images still come back black after this, the block is at the fal account level rather than in the request."
+  "notes": "Your own GPU for 18+ photos. fal moderates mature outputs server-side no matter what the request says, so Settings gains a RunPod section: point it at a serverless ComfyUI endpoint (worker-comfyui flux1-dev-fp8, LoRA files on its volume named by Civitai id) and photos the character marks 18+ generate on your own hardware, with your LoRAs at full strength and no moderation layer. Everything else — SFW photos, reference selfies, fallbacks — stays exactly as it is."
 }

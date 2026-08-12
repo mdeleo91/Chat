@@ -1239,6 +1239,78 @@ function checkFaceTraining(ch, cb){
     });
 }
 
+/* ================= self-hosted 18+ engine (RunPod + ComfyUI) =================
+   fal moderates outputs server-side regardless of request flags, so marked
+   photos can route to the user's own RunPod serverless ComfyUI endpoint
+   (worker-comfyui, flux1-dev-fp8 image) — their GPU, their LoRA files,
+   their content policy. LoRA files live on the endpoint's network volume,
+   named by their Civitai model-version id (1821702.safetensors). */
+function rp(){
+  if (!S.rp) S.rp = {key:"", ep:""};
+  return S.rp;
+}
+function rpReady(){ return !!((rp().key || "").trim() && (rp().ep || "").trim()); }
+function rpLoraName(path){
+  var m = path.match(/civitai\.(?:com|red)\/api\/download\/models\/(\d+)/i);
+  if (m) return m[1] + ".safetensors";
+  var seg = path.split("/").pop().split("?")[0];
+  return /\.safetensors$/i.test(seg) ? seg : seg + ".safetensors";
+}
+/* ComfyUI graph (API format): flux1-dev-fp8 checkpoint, LoRA chain, portrait */
+function buildFluxWorkflow(prompt, loras){
+  var wf = {
+    "1": {class_type: "CheckpointLoaderSimple", inputs: {ckpt_name: "flux1-dev-fp8.safetensors"}}
+  };
+  var modelRef = ["1", 0], clipRef = ["1", 1], id = 10;
+  loras.forEach(function(l){
+    wf[String(id)] = {class_type: "LoraLoader", inputs: {
+      model: modelRef, clip: clipRef, lora_name: rpLoraName(l.path),
+      strength_model: l.scale || 1, strength_clip: l.scale || 1
+    }};
+    modelRef = [String(id), 0]; clipRef = [String(id), 1];
+    id++;
+  });
+  wf["3"] = {class_type: "CLIPTextEncode", inputs: {text: prompt, clip: clipRef}};
+  wf["4"] = {class_type: "CLIPTextEncode", inputs: {text: "", clip: clipRef}};
+  wf["5"] = {class_type: "EmptySD3LatentImage", inputs: {width: 832, height: 1216, batch_size: 1}};
+  wf["6"] = {class_type: "KSampler", inputs: {
+    model: modelRef, positive: ["3", 0], negative: ["4", 0], latent_image: ["5", 0],
+    seed: Math.floor(Math.random() * 1e9), steps: 24, cfg: 1,
+    sampler_name: "euler", scheduler: "simple", denoise: 1
+  }};
+  wf["7"] = {class_type: "VAEDecode", inputs: {samples: ["6", 0], vae: ["1", 2]}};
+  wf["8"] = {class_type: "SaveImage", inputs: {images: ["7", 0], filename_prefix: "out"}};
+  return wf;
+}
+function runpodImage(desc, ch, isSelfie, cb, onFail){
+  var lf = lorasFor(ch, desc, true);
+  var trig = [(fal().trigger || "").trim()].concat(lf.adds)
+    .concat([(fal().mat || "").trim()]).filter(Boolean).join("\n");
+  var prompt = imgPrompt(ch, desc, isSelfie) + (trig ? "\n" + trig : "");
+  fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
+    body: JSON.stringify({input: {workflow: buildFluxWorkflow(prompt, lf.loras)}})
+  }).then(function(r){
+    if (!r.ok) return r.text().then(function(t){
+      throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 300) : ""));
+    });
+    return r.json();
+  }).then(function(j){
+    var out = j.output || {};
+    var img = (out.images && out.images[0]) || {};
+    var b64 = img.data || img.image || out.message;   // worker version variants
+    if (!b64) throw new Error("status " + (j.status || "?") +
+      (j.error ? " — " + String(j.error).slice(0, 240) : " — no image in the response"));
+    L("img", (isSelfie ? "selfie" : "photo") + " (runpod, " + lf.loras.length + " lora" +
+      (lf.loras.length === 1 ? "" : "s") + ") ok", true);
+    shrinkImage("data:image/png;base64," + String(b64).replace(/^data:image\/\w+;base64,/, ""), cb);
+  }).catch(function(e){
+    L("img", "runpod failed: " + String(e && e.message || e).slice(0, 360), true);
+    if (onFail) onFail(); else cb(null);
+  });
+}
+
 function falImage(desc, ch, isSelfie, isMature, cb, onFail){
   /* Kontext is an edit model that preserves its input photo — including its
      clothing; it was trained to resist undressing people. 18+ selfies
@@ -1757,7 +1829,7 @@ function deliverPhoto(convo, ch, desc, isSelfie, isMature){
            Math.round(((l.scale || 1) * damp) * 100) / 100;
   }).join(",") : "";
   L("img", "route: " + (isSelfie ? "selfie" : "photo") + (isMature ? " 18+" : "") +
-    " · engine=" + (falReady() ? "flux" : "glm") + " · refs=" + refs +
+    " · engine=" + (isMature && rpReady() ? "runpod" : (falReady() ? "flux" : "glm")) + " · refs=" + refs +
     (isSelfie ? (isMature && falReady() ? " (18+ selfies go t2i — Kontext won't undress; use a likeness LoRA for the face)" : "")
               : " (plain photos never use refs)") +
     " · loras=" + (llist || "none") +
@@ -1767,7 +1839,11 @@ function deliverPhoto(convo, ch, desc, isSelfie, isMature){
     if (isSelfie) glmSelfie(desc, ch, onDone);
     else glmImage(desc, ch, false, onDone);
   };
-  if (falReady()) falImage(desc, ch, isSelfie, isMature, onDone, glmReady() ? viaGlm : null);
+  var viaFal = falReady()
+    ? function(){ falImage(desc, ch, isSelfie, isMature, onDone, glmReady() ? viaGlm : null); }
+    : null;
+  if (isMature && rpReady()) runpodImage(desc, ch, isSelfie, onDone, viaFal || (glmReady() ? viaGlm : null));
+  else if (viaFal) viaFal();
   else viaGlm();
 }
 /* memory extraction (regex; the model itself sees the profile + memories) */
@@ -1829,6 +1905,16 @@ function falSectionHTML(){
        'prompt (for the always-on style LoRAs).</div>';
   h += '<input id="fal-trigger" class="srvinput" placeholder="e.g. amateur photo" ' +
        'value="' + esc(f.trigger || "") + '">';
+  h += '<div class="ds" style="padding:14px 0 6px;font-weight:800;letter-spacing:.5px">SELF-HOSTED 18+ (RUNPOD) · OPTIONAL</div>';
+  h += '<div class="ds" style="padding-bottom:8px">fal moderates mature outputs no matter what the ' +
+       'request says. With a RunPod serverless ComfyUI endpoint here (worker-comfyui, flux1-dev-fp8 ' +
+       'image, your LoRA files on its volume named by Civitai id, e.g. 1821702.safetensors), photos ' +
+       'the character marks 18+ run on your own GPU instead. Everything else stays on fal.</div>';
+  var r = rp();
+  h += '<input id="rp-ep" class="srvinput" autocomplete="off" ' +
+       'placeholder="RunPod endpoint ID" value="' + esc(r.ep || "") + '">';
+  h += '<input id="rp-key" class="srvinput" type="password" autocomplete="off" style="margin-top:8px" ' +
+       'placeholder="RunPod API key" value="' + esc(r.key || "") + '">';
   h += '<div class="ds" style="padding:10px 0 4px">18+ add-on (optional) — extra wording appended ' +
        'only to photos the character marks 18+. The character already writes what each mature photo ' +
        'shows from the conversation itself; use this only for constants you want on every one ' +
@@ -1851,6 +1937,10 @@ function wireFalUI(card){
   if (tg) tg.onchange = function(){ fal().trigger = tg.value; save(); };
   var mt = card.querySelector("#fal-mat");
   if (mt) mt.onchange = function(){ fal().mat = mt.value; save(); };
+  var rpe = card.querySelector("#rp-ep");
+  if (rpe) rpe.oninput = function(){ rp().ep = rpe.value; save(); };
+  var rpk = card.querySelector("#rp-key");
+  if (rpk) rpk.oninput = function(){ rp().key = rpk.value; save(); };
 }
 function wireGlmUI(card){
   var key = card.querySelector("#glm-key");
