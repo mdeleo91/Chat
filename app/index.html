@@ -1412,6 +1412,9 @@ function rpPoll(id, tries, isSelfie, cid, nLoras, cb, onFail, netMisses){
     L("img", "runpod failed: " + msg.slice(0, 300), true);
     if (onFail) onFail(); else cb(null);
   };
+  /* the typing-bubble stop also kills a photo mid-poll — the job keeps
+     running server-side, but nobody is waiting for it anymore */
+  if (CANCELREQ[cid]) { L("img", "photo poll stopped by the user", true); cb(null); return; }
   fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/status/" + id, {
     headers: {"Authorization": "Bearer " + rp().key.trim()}
   }).then(function(r){ return r.json(); })
@@ -1686,6 +1689,7 @@ async function remoteGenerate(messages, onDelta, cid){
                kb: Math.round(body.length / 1024)};
     var ctrl = new AbortController(), timedOut = false, gotBytes = false,
         timer = null;
+    if (cid) GENCTRL[cid] = ctrl;   // so a tap on the bubble can abort mid-flight
     function arm(ms){
       clearTimeout(timer);
       timer = setTimeout(function(){ timedOut = true; ctrl.abort(); }, ms);
@@ -1768,6 +1772,11 @@ async function remoteGenerate(messages, onDelta, cid){
         }
       }
     } catch (e) {
+      if (cid && CANCELREQ[cid]) {
+        var cae = new Error("stopped by the user");
+        cae.canceled = true;
+        throw cae;
+      }
       if (!timedOut) throw e;
       var te = new Error(gotBytes
         ? who + " went quiet mid-reply (no data for " + Math.round(STREAM_IDLE_MS / 1000) + "s)"
@@ -1779,15 +1788,22 @@ async function remoteGenerate(messages, onDelta, cid){
       throw te;
     } finally {
       clearTimeout(timer);
+      if (cid && GENCTRL[cid] === ctrl) delete GENCTRL[cid];
     }
   }
   try {
     for (;;) {
       attempt++;
+      if (cid && CANCELREQ[cid]) {
+        var cxe = new Error("stopped by the user");
+        cxe.canceled = true;
+        throw cxe;
+      }
       try {
         await streamOnce();
         return;
       } catch (e) {
+        if (e && e.canceled) throw e;
         var msg = String(e && e.message || e);
         /* an endpoint that can't stream isn't failing — remember that and
            re-send the same request as plain JSON, right away */
@@ -2178,6 +2194,21 @@ function pendLabel(p){
   if (p.eta) out += " / " + fmtMS(Math.round(p.eta.ms / 1000));
   return out;
 }
+/* user-requested cancellation: tapping the typing bubble sets the flag and
+   aborts whatever request is on the wire. The generation paths check the
+   flag before every retry/poll, so one tap kills the whole chase — and
+   endGen clears the inflight record, so a canceled reply never
+   auto-resumes on the next boot. */
+var CANCELREQ = {}, GENCTRL = {};
+function cancelGen(cid){
+  CANCELREQ[cid] = true;
+  var c = GENCTRL[cid];
+  if (c) { try { c.abort(); } catch(e){} }
+}
+function tyLabel(p){
+  var l = pendLabel(p);
+  return l ? l + " · tap to stop" : l;
+}
 /* the bounded wait behind the typing bubble's progress bar: t0/ms set by
    the photo-read while it hunts a GPU (the budget grows when a boot is
    confirmed in progress, and the bar re-scales with it) */
@@ -2203,7 +2234,7 @@ function refreshPendingUI(cid){
     if (ty) {
       ty.classList.toggle("on", !!p);
       var lab = $("ty-lab");
-      if (lab) lab.textContent = p ? pendLabel(p) : "";
+      if (lab) lab.textContent = p ? tyLabel(p) : "";
       renderTyBar(p);
       if (p) $("stream").scrollTop = 1e9;
     }
@@ -2219,7 +2250,7 @@ setInterval(function(){
     var el = document.querySelector('.pendprev[data-cid="' + cid + '"]');
     if (el) el.textContent = label || "typing…";
     if (cur === cid) {
-      var lab = $("ty-lab"); if (lab) lab.textContent = label;
+      var lab = $("ty-lab"); if (lab) lab.textContent = tyLabel(p);
       renderTyBar(p);
     }
   });
@@ -2235,6 +2266,7 @@ function pump(){
   job(function(){ GEN.busy = false; setTimeout(pump, 300); });
 }
 function aiDeliver(convo, ch, userText, nudge){
+  delete CANCELREQ[convo.id];   // a fresh send supersedes an earlier stop
   beginGen(convo.id);
   inflightMark(convo.id, ch.id);
   enqueue(function(done){
@@ -2334,6 +2366,11 @@ async function runGeneration(convo, ch, nudge, done){
     endGen(convo.id);
     if (liveEl) liveEl.remove();
     var ty3 = $("ty"); if (ty3) ty3.classList.remove("on");
+    if (e && e.canceled) {
+      L("gen", ch.name + "'s reply stopped by the user");
+      toast("Stopped.");
+      done(); return;
+    }
     var emsg = String(e && e.message || e);
     glm().err = emsg; save();
     var route = LASTREQ
@@ -2986,10 +3023,14 @@ function renderStream(){
   var ty = document.createElement("div"); ty.className="typing"; ty.id="ty";
   ty.innerHTML="<i></i><i></i><i></i><span class='tylab' id='ty-lab'></span>" +
     "<div class='tybar' id='ty-bar'><div id='ty-fill'></div></div>";
+  ty.onclick = function(){
+    if (!PENDING[cur]) return;
+    if (confirm("Stop generating this reply?")) cancelGen(cur);
+  };
   st.appendChild(ty);
   /* a generation may still be running for this conversation — re-light */
   var p = PENDING[cur];
-  if (p) { ty.classList.add("on"); $("ty-lab").textContent = pendLabel(p); renderTyBar(p); }
+  if (p) { ty.classList.add("on"); $("ty-lab").textContent = tyLabel(p); renderTyBar(p); }
   st.scrollTop = st.scrollHeight;
 }
 function pushMsg(id, who, text, by, img){

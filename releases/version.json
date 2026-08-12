@@ -1,6 +1,6 @@
 {
-  "versionCode": 63,
-  "versionName": "0.19.14",
+  "versionCode": 64,
+  "versionName": "0.19.15",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "A progress bar for the GPU wait. Waiting minutes on a cold start with nothing but a spinner was the last indignity — the typing bubble now grows a progress bar during photo-reads that fills against the wait budget, the caption shows elapsed against total ('2:14 / 10:00'), and every few seconds the app asks the endpoint what is actually happening and says it in plain words: 'waiting for a GPU', 'GPU booting — loading the model', 'GPU busy — 2 jobs ahead of yours', 'GPU is reading your photo'. When a confirmed boot earns a bigger budget, the bar re-scales instead of lying. You always know which phase the wait is in and how much runway remains."
+  "notes": "Tap the typing bubble to stop a reply. The caption now ends with 'tap to stop' — one tap (and a confirm) aborts the request on the wire, halts the cold-start retries and budget extensions, stops a photo mid-poll, releases the generation queue, and clears the record so the stopped reply doesn't auto-resume on the next launch. Sending a new message after a stop works immediately. No more being held hostage by a wait you've already given up on."
 }
