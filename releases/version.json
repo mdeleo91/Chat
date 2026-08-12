@@ -1,6 +1,6 @@
 {
-  "versionCode": 56,
-  "versionName": "0.19.7",
+  "versionCode": 57,
+  "versionName": "0.19.8",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Replies now finish in the background — no babysitting the app. While anything is generating, the app runs a proper Android foreground service (you'll see a quiet 'Waiting on a reply — safe to switch away' notification), which stops Android from freezing the app when you lock the screen or switch away. The slow cold-start photo-read, the automatic retries, the streaming reply, the photo generation — all of it keeps running unattended, and the notification disappears the moment the reply lands. The screen also no longer needs to stay on: lock it, check your messages, come back to the finished reply. Auto-resume from 0.19.6 stays as the safety net if Android kills the app anyway."
+  "notes": "Fixes 'the model returned an empty reply' from the vision endpoint. The request was actually succeeding — but some RunPod vLLM configurations answer a streaming request with one plain JSON completion instead of a token stream, and the reply parser only understood streamed deltas, so a perfectly good answer parsed to nothing. The parser now accepts every shape a reply arrives in (streamed deltas, a whole message, completions-style text, or a single JSON body), surfaces server-side errors by name, and when a reply genuinely carries no tokens, records the start of the raw response in the troubleshooting log so the cause is visible instead of guessed."
 }

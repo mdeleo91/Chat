@@ -1648,26 +1648,49 @@ async function remoteGenerate(messages, onDelta, cid){
         he.transient = r.status >= 500 || r.status === 408 || r.status === 429;
         throw he;
       }
-      var reader = r.body.getReader(), dec = new TextDecoder(), buf = "";
+      var reader = r.body.getReader(), dec = new TextDecoder(), buf = "", raw = "";
+      /* servers disagree on where the words live: streamed deltas, a full
+         message, or completions-style text — accept whichever is present */
+      function fromChoice(j){
+        var c = j && j.choices && j.choices[0];
+        if (!c) return null;
+        return (c.delta && c.delta.content) ||
+               (c.message && c.message.content) || c.text || null;
+      }
+      function finish(){
+        if (emitted) return;
+        /* a "stream" that yielded no tokens is usually not SSE at all —
+           some endpoints answer stream:true with one plain JSON completion.
+           Read that before declaring the reply empty, and if it really is
+           empty, log what actually came back instead of guessing. */
+        var whole = null;
+        try { whole = JSON.parse(raw.trim()); } catch (e) {}
+        var d = fromChoice(whole);
+        if (d) { emitted = true; onDelta(d); return; }
+        if (whole && whole.error)
+          throw new Error(who + " answered with an error: " +
+            String((whole.error && whole.error.message) || whole.error).slice(0, 200));
+        L("gen", "reply carried no tokens — body starts: “" + raw.slice(0, 180) + "”", true);
+      }
       for (;;) {
         var chunk = await reader.read();
-        if (chunk.done) return;
+        if (chunk.done) { finish(); return; }
         /* bytes on the wire = the server is alive — switch to the idle cutoff */
         gotBytes = true;
         arm(STREAM_IDLE_MS);
         if (coldTimer) { clearTimeout(coldTimer); coldTimer = null; }
-        buf += dec.decode(chunk.value, {stream:true});
+        var piece = dec.decode(chunk.value, {stream:true});
+        raw += piece; buf += piece;
         var lines = buf.split("\n");
         buf = lines.pop();
         for (var i = 0; i < lines.length; i++) {
           var ln = lines[i].trim();
           if (ln.indexOf("data:") !== 0) continue;
           var payload = ln.slice(5).trim();
-          if (payload === "[DONE]") return;
+          if (payload === "[DONE]") { finish(); return; }
           var j;
           try { j = JSON.parse(payload); } catch (e) { continue; }
-          var d = j.choices && j.choices[0] && j.choices[0].delta &&
-                  j.choices[0].delta.content;
+          var d = fromChoice(j);
           if (d) { emitted = true; onDelta(d); }
         }
       }
