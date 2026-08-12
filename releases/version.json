@@ -1,6 +1,6 @@
 {
-  "versionCode": 69,
-  "versionName": "0.20.4",
+  "versionCode": 70,
+  "versionName": "0.20.5",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "The photo director finds its voice. 'director skipped — empty reply' was glm-5.2's hybrid reasoning eating the entire token budget before emitting a single visible character — the model thought hard about the shot and said nothing. Utility calls (the director, conversation summaries) now request thinking disabled and strip any inline reasoning, so the director's scene rewrite and LoRA picks actually arrive. Summaries quietly benefit from the same fix."
+  "notes": "Directed self-shots stop collapsing into regular selfies. Every selfie prompt carried a hard-coded 'front-camera selfie held at arm's length, face a little too close' style block — correct for ordinary selfies, and exactly the instruction that overrode POV, mirror, and from-above compositions back into a standard face selfie no matter what the director wrote. The arm's-length frame now applies only when the description doesn't specify its own camera; a description that stakes out a mirror, POV, or looking-down angle keeps it."
 }

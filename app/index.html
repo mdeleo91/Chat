@@ -992,6 +992,15 @@ var IMG_SELFIE_FRAME =
   "Front-camera phone selfie held at arm's length: slight wide-angle lens " +
   "distortion, face a little too close, imperfect unflattering angle, ambient " +
   "light on the face.";
+/* the arm's-length selfie frame is right for an ordinary selfie and
+   actively wrong for self-shots whose camera the description already
+   stakes out — POV down her own body, mirror shots, from-above angles.
+   Imposing it there turns every directed composition back into a regular
+   face selfie (FLUX obeys the familiar instruction over the novel one). */
+function selfieFraming(desc){
+  return /\b(mirror|pov|point of view|looking down|from above|from below|under (?:the )?desk|overhead|top[- ]?down|first[- ]?person|down (?:at|her|his|their)|behind)\b/i
+    .test(desc) ? "" : IMG_SELFIE_FRAME + " ";
+}
 function imgPrompt(ch, desc, isSelfie){
   var style = ch && ch.imgstyle ? fill(ch.imgstyle, ch) : IMG_STYLE_DEFAULT;
   /* the appearance anchor: image models hold onto text far better than
@@ -999,7 +1008,7 @@ function imgPrompt(ch, desc, isSelfie){
      on every engine (see ensureLook) */
   var subj = isSelfie && ch && (ch.look || "").trim()
     ? "Subject (the same person in every photo): " + ch.look.trim() + "\n\n" : "";
-  return subj + desc + "\n\nStyle: " + (isSelfie ? IMG_SELFIE_FRAME + " " : "") + style;
+  return subj + desc + "\n\nStyle: " + (isSelfie ? selfieFraming(desc) : "") + style;
 }
 /* one-time, cached per character: a vision model reads the first reference
    photo into concrete physical traits. glm-image mostly ignores reference
