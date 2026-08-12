@@ -1680,6 +1680,9 @@ function sysPrompt(ch, convo){
           "than a generic scene. State your adult age outright in the description (e.g. 'a " +
           "26-year-old woman') and describe yourself as the adult you are — 'woman', never " +
           "age-ambiguous words like 'girl'; the image generator takes every word literally. " +
+          "The app refuses any 18+ description containing 'girl', 'teen' or a stated age under " +
+          "20 — the picture simply won't be generated, so describe yourself as in your twenties " +
+          "or older. " +
           "Ordinary pictures during flirty conversation stay untagged — " +
           "reserve 18+ for pictures that are themselves mature.\n"
         : "");
@@ -2021,9 +2024,31 @@ async function runGeneration(convo, ch, nudge, done){
   }
   done();
 }
+/* Hard line, not a style preference: a mature image whose description reads
+   under-age is refused outright — no rephrasing, no fallback engine. Mature
+   mode exists for unambiguously adult characters ("a woman in her twenties"),
+   and wording like "teen"/"girl"/a stated age under 20 is on the wrong side
+   of that line even for fiction. This gate sits on the single dispatch point
+   every image engine goes through, so it cannot be routed around. */
+var UNDERAGE_RE = new RegExp("\\b(" +
+  "teen(?:age[rd]?|agers?|s)?|school\\s*-?\\s*girls?|high\\s*-?\\s*school\\w*|" +
+  "underage|under-age|minors?|child|children|kids?|girls?|boys?|" +
+  "loli\\w*|shota\\w*|jail\\s*-?\\s*bait|barely\\s+legal|just\\s+turned\\s+18|" +
+  "1[0-9]\\s*[\\s-]*(?:years?|yrs?)[\\s-]*(?:old)?" +
+  ")\\b", "i");
 /* the picture a character chose to send, generated then delivered as its own
    message — typing dots show while CogView paints */
 function deliverPhoto(convo, ch, desc, isSelfie, isMature){
+  if (isMature && UNDERAGE_RE.test(desc)) {
+    var term = (desc.match(UNDERAGE_RE) || [""])[0];
+    L("img", "REFUSED 18+ photo — “" + term + "” reads under-age. Mature images are only " +
+      "generated for clearly adult subjects: “a woman in her twenties”, never “girl”/“teen” " +
+      "or an age under 20.", true);
+    toast("Photo refused — the description read under-age. Characters must be clearly adult.");
+    endGen(convo.id);
+    var ty0 = $("ty"); if (ty0) ty0.classList.remove("on");
+    return;
+  }
   var ty = $("ty");
   if (cur === convo.id && ty){ ty.classList.add("on"); $("stream").scrollTop = 1e9; }
   setStage(convo.id, "painting the photo");

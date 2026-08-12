@@ -1,6 +1,6 @@
 {
-  "versionCode": 52,
-  "versionName": "0.19.3",
+  "versionCode": 53,
+  "versionName": "0.20.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Mature photos come out the way the moment reads. When a description was vague about who was in it, FLUX played it safe and painted a tame shot — mature prompts now anchor the subject as an explicitly adult woman (characters state their adult age in their own descriptions too), which is both the guardrail and the fix: NSFW LoRAs are trained on adult-stated captions and barely engage without one. The troubleshooting log also now records the exact prompt text and trigger words sent to your GPU, so a tame result can be traced instead of guessed at."
+  "notes": "A firm line on mature images. An 18+ picture whose description reads under-age — 'teen', 'girl', a stated age below 20, and similar — is now refused outright at the single point every image engine passes through: no generation, no fallback, a clear toast and log line naming the word that tripped it. Characters also now describe themselves with an explicit adult age in their twenties or older. Mature mode is for unambiguously adult characters; that has always been the premise, and the app now enforces it."
 }
