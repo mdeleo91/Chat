@@ -1,6 +1,6 @@
 {
-  "versionCode": 46,
-  "versionName": "0.17.3",
+  "versionCode": 47,
+  "versionName": "0.18.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Face training actually trains, and cold starts wait their turn. The trainer refused the reference zip inline (URL too long) so training never really started — references now upload to fal's storage first and the trainer gets a proper link. And when the RunPod worker is cold, the app now polls the job for up to five minutes instead of giving up and falling back to a censored engine. A failed training attempt also resets the button so you can retry cleanly."
+  "notes": "Never wonder if a photo stalled. The typing bubble now carries a live stage — sending to your GPU, waiting for a GPU (cold start), painting the photo — with a ticking elapsed clock, and the conversations list shows the same on the character's row while you're elsewhere in the app. Re-entering a chat mid-generation lights it all back up. If the clock is counting, it's working."
 }

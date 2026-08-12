@@ -199,6 +199,7 @@
   .typing i{width:7px;height:7px;border-radius:50%;background:var(--acc);opacity:.4;
     animation:breathe 1.2s infinite}
   .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+  .typing .tylab{font-size:11px;color:var(--mist);align-self:center;margin-left:6px;white-space:nowrap}
   @keyframes breathe{0%,100%{opacity:.35;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
   .composer{display:flex;gap:8px;align-items:flex-end;padding:8px 10px calc(10px + env(safe-area-inset-bottom));
     background:var(--surface);border-top:1px solid var(--line)}
@@ -1335,11 +1336,12 @@ function buildFluxWorkflow(prompt, loras){
   wf["8"] = {class_type: "SaveImage", inputs: {images: ["7", 0], filename_prefix: "out"}};
   return wf;
 }
-function runpodImage(desc, ch, isSelfie, cb, onFail){
+function runpodImage(desc, ch, isSelfie, cid, cb, onFail){
   var lf = lorasFor(ch, desc, true);
   var trig = [(fal().trigger || "").trim()].concat(lf.adds)
     .concat([(fal().mat || "").trim()]).filter(Boolean).join("\n");
   var prompt = imgPrompt(ch, desc, isSelfie) + (trig ? "\n" + trig : "");
+  setStage(cid, "sending to your GPU");
   fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
@@ -1350,7 +1352,7 @@ function runpodImage(desc, ch, isSelfie, cb, onFail){
     });
     return r.json();
   }).then(function(j){
-    rpFinish(j, isSelfie, lf.loras.length, cb, onFail);
+    rpFinish(j, isSelfie, cid, lf.loras.length, cb, onFail);
   }).catch(function(e){
     L("img", "runpod failed: " + String(e && e.message || e).slice(0, 360), true);
     if (onFail) onFail(); else cb(null);
@@ -1358,7 +1360,7 @@ function runpodImage(desc, ch, isSelfie, cb, onFail){
 }
 /* runsync gives up waiting during cold starts and answers IN_QUEUE with a job
    id — keep polling the job for up to ~5 minutes instead of failing over */
-function rpFinish(j, isSelfie, nLoras, cb, onFail){
+function rpFinish(j, isSelfie, cid, nLoras, cb, onFail){
   var out = j.output || {};
   var img = (out.images && out.images[0]) || {};
   var b64 = img.data || img.image || out.message;   // worker version variants
@@ -1369,23 +1371,25 @@ function rpFinish(j, isSelfie, nLoras, cb, onFail){
     return;
   }
   if ((j.status === "IN_QUEUE" || j.status === "IN_PROGRESS") && j.id) {
-    rpPoll(j.id, 60, isSelfie, nLoras, cb, onFail);
+    setStage(cid, j.status === "IN_QUEUE" ? "waiting for a GPU — cold start" : "painting the photo");
+    rpPoll(j.id, 60, isSelfie, cid, nLoras, cb, onFail);
     return;
   }
   L("img", "runpod failed: status " + (j.status || "?") +
     (j.error ? " — " + String(j.error).slice(0, 240) : " — no image in the response"), true);
   if (onFail) onFail(); else cb(null);
 }
-function rpPoll(id, tries, isSelfie, nLoras, cb, onFail){
+function rpPoll(id, tries, isSelfie, cid, nLoras, cb, onFail){
   fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/status/" + id, {
     headers: {"Authorization": "Bearer " + rp().key.trim()}
   }).then(function(r){ return r.json(); })
     .then(function(j){
-      if (j.status === "COMPLETED" || j.output) { rpFinish(j, isSelfie, nLoras, cb, onFail); return; }
+      if (j.status === "COMPLETED" || j.output) { rpFinish(j, isSelfie, cid, nLoras, cb, onFail); return; }
       if (j.status === "FAILED" || j.status === "CANCELLED" || j.status === "TIMED_OUT")
         throw new Error("worker " + j.status + (j.error ? " — " + String(j.error).slice(0, 240) : ""));
       if (tries <= 0) throw new Error("timed out waiting for the worker (cold start too slow)");
-      setTimeout(function(){ rpPoll(id, tries - 1, isSelfie, nLoras, cb, onFail); }, 5000);
+      if (j.status === "IN_PROGRESS") setStage(cid, "painting the photo");
+      setTimeout(function(){ rpPoll(id, tries - 1, isSelfie, cid, nLoras, cb, onFail); }, 5000);
     }).catch(function(e){
       L("img", "runpod failed: " + String(e && e.message || e).slice(0, 300), true);
       if (onFail) onFail(); else cb(null);
@@ -1768,6 +1772,59 @@ function trimSummary(id){
   var arr = S.msgs[id] || [];
   if (!arr.length || arr[arr.length - 1].ts <= sm.ts) delete S.sums[id];
 }
+/* ---- per-conversation generation status ----
+   Keyed by conversation id so the UI can answer "stalled or working?"
+   anywhere: the typing bubble carries a stage caption with a live elapsed
+   timer, the conversations list shows the same on the character's row, and
+   re-entering a chat mid-generation re-lights everything. n counts
+   overlapping jobs (group chats). */
+var PENDING = {};
+function beginGen(cid){
+  var p = PENDING[cid];
+  if (!p) p = PENDING[cid] = {t: Date.now(), n: 0, stage: ""};
+  p.n++;
+  refreshPendingUI(cid);
+}
+function endGen(cid){
+  var p = PENDING[cid]; if (!p) return;
+  if (--p.n <= 0) delete PENDING[cid];
+  refreshPendingUI(cid);
+}
+function setStage(cid, stage){
+  var p = PENDING[cid]; if (!p) return;
+  p.stage = stage;
+  refreshPendingUI(cid);
+}
+function pendLabel(p){
+  if (!p.stage) return "";
+  var s = Math.floor((Date.now() - p.t) / 1000);
+  return p.stage + " · " + Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2);
+}
+function refreshPendingUI(cid){
+  if (cur === cid) {
+    var ty = $("ty"), p = PENDING[cid];
+    if (ty) {
+      ty.classList.toggle("on", !!p);
+      var lab = $("ty-lab");
+      if (lab) lab.textContent = p ? pendLabel(p) : "";
+      if (p) $("stream").scrollTop = 1e9;
+    }
+  }
+  renderHome();
+}
+/* the ticking clock is the stall detector — as long as it counts, the app
+   is alive and waiting on the engine */
+setInterval(function(){
+  var ids = Object.keys(PENDING); if (!ids.length) return;
+  ids.forEach(function(cid){
+    var p = PENDING[cid];
+    if (!p.stage) return;
+    var el = document.querySelector('.pendprev[data-cid="' + cid + '"]');
+    if (el) el.textContent = pendLabel(p);
+    if (cur === cid) { var lab = $("ty-lab"); if (lab) lab.textContent = pendLabel(p); }
+  });
+}, 1000);
+
 /* one generation at a time — it's a single GPU */
 var GEN = {q:[], busy:false};
 function enqueue(job){ GEN.q.push(job); pump(); }
@@ -1778,11 +1835,13 @@ function pump(){
   job(function(){ GEN.busy = false; setTimeout(pump, 300); });
 }
 function aiDeliver(convo, ch, userText, nudge){
+  beginGen(convo.id);
   enqueue(function(done){
     var ty = $("ty");
     if (cur === convo.id && ty){ ty.classList.add("on"); $("stream").scrollTop = 1e9; }
     ensureEngine(function(err){
       if (err) {
+        endGen(convo.id);
         if (ty) ty.classList.remove("on");
         toast("No API key — add your Z.ai key in Settings");
         done(); return;
@@ -1869,7 +1928,9 @@ async function runGeneration(convo, ch, nudge, done){
     } else if (liveEl) liveEl.remove();
     scheduleSummarize(convo);
     if (photoDesc) deliverPhoto(convo, ch, photoDesc, isSelfie, isMature);
+    else endGen(convo.id);
   } catch(e) {
+    endGen(convo.id);
     if (liveEl) liveEl.remove();
     var ty3 = $("ty"); if (ty3) ty3.classList.remove("on");
     var emsg = String(e && e.message || e);
@@ -1885,7 +1946,9 @@ async function runGeneration(convo, ch, nudge, done){
 function deliverPhoto(convo, ch, desc, isSelfie, isMature){
   var ty = $("ty");
   if (cur === convo.id && ty){ ty.classList.add("on"); $("stream").scrollTop = 1e9; }
+  setStage(convo.id, "painting the photo");
   var onDone = function(url){
+    endGen(convo.id);
     var ty2 = $("ty"); if (ty2) ty2.classList.remove("on");
     if (!url) {
       L("img", ch.name + "'s photo failed to generate");
@@ -1923,7 +1986,7 @@ function deliverPhoto(convo, ch, desc, isSelfie, isMature){
   var viaFal = falReady()
     ? function(){ falImage(desc, ch, isSelfie, isMature, onDone, glmReady() ? viaGlm : null); }
     : null;
-  if (isMature && rpReady()) runpodImage(desc, ch, isSelfie, onDone, viaFal || (glmReady() ? viaGlm : null));
+  if (isMature && rpReady()) runpodImage(desc, ch, isSelfie, convo.id, onDone, viaFal || (glmReady() ? viaGlm : null));
   else if (viaFal) viaFal();
   else viaGlm();
 }
@@ -2284,7 +2347,13 @@ function renderHome(){
     shown++;
     var lm = lastMsg(c.id);
     var prev;
-    if (lm) {
+    var pend = PENDING[c.id];
+    if (pend) {
+      prev = '<span class="msr" style="font-size:12px;color:var(--acc-deep)">' +
+        (pend.stage ? 'image' : 'chat_bubble') + '</span> ' +
+        '<i class="pendprev" data-cid="' + c.id + '" style="color:var(--acc-deep)">' +
+        esc(pend.stage ? pendLabel(pend) : "typing…") + '</i>';
+    } else if (lm) {
       var body = lm.img
         ? '<span class="msr" style="font-size:12px">image</span> ' + esc(lm.text || "Photo")
         : esc(lm.text);
@@ -2390,7 +2459,11 @@ function renderStream(){
     attachPress(rw, idx);
   });
   var ty = document.createElement("div"); ty.className="typing"; ty.id="ty";
-  ty.innerHTML="<i></i><i></i><i></i>"; st.appendChild(ty);
+  ty.innerHTML="<i></i><i></i><i></i><span class='tylab' id='ty-lab'></span>";
+  st.appendChild(ty);
+  /* a generation may still be running for this conversation — re-light */
+  var p = PENDING[cur];
+  if (p) { ty.classList.add("on"); $("ty-lab").textContent = pendLabel(p); }
   st.scrollTop = st.scrollHeight;
 }
 function pushMsg(id, who, text, by, img){
