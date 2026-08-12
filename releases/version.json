@@ -1,6 +1,6 @@
 {
-  "versionCode": 49,
-  "versionName": "0.19.0",
+  "versionCode": 50,
+  "versionName": "0.19.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Your own eyes for mature photos. Z.ai's vision API refuses explicit image input, which jammed conversations after sending one. Settings now takes a second RunPod endpoint (vLLM quick-deploy with a vision model): while Mature roleplay is on, photos you send are read on your own GPU; SFW conversations keep using Z.ai's vision unchanged. The chat header shows which is looking."
+  "notes": "Slow replies show themselves too. The stage caption used to appear only for photos — a slow or stuck text reply was just silent dots. After five seconds the bubble now reads 'thinking' with the same ticking clock, in the chat and on the conversations list."
 }

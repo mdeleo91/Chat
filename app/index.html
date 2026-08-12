@@ -1829,9 +1829,12 @@ function setStage(cid, stage){
   refreshPendingUI(cid);
 }
 function pendLabel(p){
-  if (!p.stage) return "";
   var s = Math.floor((Date.now() - p.t) / 1000);
-  return p.stage + " · " + Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2);
+  /* text replies get a caption too once they stop being instant, so a
+     stalled reply is as visible as a stalled photo */
+  var stage = p.stage || (s >= 5 ? "thinking" : "");
+  if (!stage) return "";
+  return stage + " · " + Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2);
 }
 function refreshPendingUI(cid){
   if (cur === cid) {
@@ -1850,11 +1853,10 @@ function refreshPendingUI(cid){
 setInterval(function(){
   var ids = Object.keys(PENDING); if (!ids.length) return;
   ids.forEach(function(cid){
-    var p = PENDING[cid];
-    if (!p.stage) return;
+    var p = PENDING[cid], label = pendLabel(p);
     var el = document.querySelector('.pendprev[data-cid="' + cid + '"]');
-    if (el) el.textContent = pendLabel(p);
-    if (cur === cid) { var lab = $("ty-lab"); if (lab) lab.textContent = pendLabel(p); }
+    if (el) el.textContent = label || "typing…";
+    if (cur === cid) { var lab = $("ty-lab"); if (lab) lab.textContent = label; }
   });
 }, 1000);
 
@@ -2402,7 +2404,7 @@ function renderHome(){
       prev = '<span class="msr" style="font-size:12px;color:var(--acc-deep)">' +
         (pend.stage ? 'image' : 'chat_bubble') + '</span> ' +
         '<i class="pendprev" data-cid="' + c.id + '" style="color:var(--acc-deep)">' +
-        esc(pend.stage ? pendLabel(pend) : "typing…") + '</i>';
+        esc(pendLabel(pend) || "typing…") + '</i>';
     } else if (lm) {
       var body = lm.img
         ? '<span class="msr" style="font-size:12px">image</span> ' + esc(lm.text || "Photo")
