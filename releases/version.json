@@ -1,6 +1,6 @@
 {
-  "versionCode": 57,
-  "versionName": "0.19.8",
+  "versionCode": 58,
+  "versionName": "0.19.9",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Fixes 'the model returned an empty reply' from the vision endpoint. The request was actually succeeding — but some RunPod vLLM configurations answer a streaming request with one plain JSON completion instead of a token stream, and the reply parser only understood streamed deltas, so a perfectly good answer parsed to nothing. The parser now accepts every shape a reply arrives in (streamed deltas, a whole message, completions-style text, or a single JSON body), surfaces server-side errors by name, and when a reply genuinely carries no tokens, records the start of the raw response in the troubleshooting log so the cause is visible instead of guessed."
+  "notes": "Photo replies from the vision endpoint finally arrive. The raw-body logging added in 0.19.8 caught the culprit red-handed: the endpoint answers streamed requests with 'Error initializing the stream: HTTP 409' — the worker, as deployed, cannot stream at all, so every streamed photo-read was doomed regardless of GPU health. The app now detects that reply, immediately re-sends the same request as a single whole-JSON completion (which the worker handles fine), and remembers the endpoint as non-streaming so future photo-reads skip the doomed attempt entirely. Changing the vision endpoint ID in Settings forgets the learned quirk, in case a future deployment does stream."
 }

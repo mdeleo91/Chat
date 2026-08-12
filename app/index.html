@@ -1606,19 +1606,24 @@ async function remoteGenerate(messages, onDelta, cid){
   var headers = viaRp
     ? {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()}
     : apiHeaders();
-  var body = JSON.stringify({
-    model: model, messages: messages, stream: true,
-    temperature: 0.85, top_p: 0.95, max_tokens: 512,
-    presence_penalty: 0.3, frequency_penalty: 0.3
-  });
-  LASTREQ = {via: viaRp ? "vision endpoint" : "Z.ai", model: model,
-             kb: Math.round(body.length / 1024)};
   var who = viaRp ? "your vision endpoint" : "Z.ai";
   var started = Date.now(), attempt = 0, emitted = false;
   function msLeft(){ return RP_TOTAL_MS - (Date.now() - started); }
   if (hasImg && cid) setStage(cid, "reading your photo");
   /* ---- one streaming attempt; throws with .isTimeout on its deadline ---- */
   async function streamOnce(){
+    /* streaming is preferred, but a RunPod worker deployed without stream
+       support answers 200 + "Error initializing the stream: HTTP 409" —
+       once detected (below), the endpoint is remembered as non-streaming
+       and gets whole-JSON replies instead */
+    var wantStream = !(viaRp && rp().nostream);
+    var body = JSON.stringify({
+      model: model, messages: messages, stream: wantStream,
+      temperature: 0.85, top_p: 0.95, max_tokens: 512,
+      presence_penalty: 0.3, frequency_penalty: 0.3
+    });
+    LASTREQ = {via: viaRp ? "vision endpoint" : "Z.ai", model: model,
+               kb: Math.round(body.length / 1024)};
     var ctrl = new AbortController(), timedOut = false, gotBytes = false,
         timer = null, coldTimer = null;
     function arm(ms){
@@ -1671,6 +1676,13 @@ async function remoteGenerate(messages, onDelta, cid){
           throw new Error(who + " answered with an error: " +
             String((whole.error && whole.error.message) || whole.error).slice(0, 200));
         L("gen", "reply carried no tokens — body starts: “" + raw.slice(0, 180) + "”", true);
+        if (viaRp && wantStream) {
+          /* whatever came back, it wasn't a token stream — retry the same
+             request as plain JSON before giving up on the reply */
+          var se = new Error(who + " couldn't stream the reply (" + raw.slice(0, 80) + ")");
+          se.streamBroken = true;
+          throw se;
+        }
       }
       for (;;) {
         var chunk = await reader.read();
@@ -1717,6 +1729,13 @@ async function remoteGenerate(messages, onDelta, cid){
         return;
       } catch (e) {
         var msg = String(e && e.message || e);
+        /* an endpoint that can't stream isn't failing — remember that and
+           re-send the same request as plain JSON, right away */
+        if (e.streamBroken && !emitted && msLeft() > 5000) {
+          rp().nostream = true; save();
+          L("gen", "vision endpoint can't stream — switching it to whole-JSON replies", true);
+          continue;
+        }
         /* retry only when it's safe (nothing shown yet) and plausibly a
            cold-start drop: a severed connection or a transient gateway
            status. A partial reply, a 4xx, or our own deadline is final. */
@@ -2349,7 +2368,10 @@ function wireFalUI(card){
   var rpk = card.querySelector("#rp-key");
   if (rpk) rpk.oninput = function(){ rp().key = rpk.value; save(); };
   var rpv = card.querySelector("#rp-vep");
-  if (rpv) rpv.oninput = function(){ rp().vep = rpv.value; save(); };
+  if (rpv) rpv.oninput = function(){
+    /* a different endpoint may well stream — relearn its quirks */
+    rp().vep = rpv.value; delete rp().nostream; save();
+  };
   var rpvm = card.querySelector("#rp-vmodel");
   if (rpvm) rpvm.onchange = function(){
     rp().vmodel = rpvm.value.trim() || "Qwen/Qwen2.5-VL-7B-Instruct";
