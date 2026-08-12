@@ -1,6 +1,6 @@
 {
-  "versionCode": 68,
-  "versionName": "0.20.3",
+  "versionCode": 69,
+  "versionName": "0.20.4",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "The photo director explains itself when it sits out. The first capped LoRA run showed the director failing silently — no 'director:' line, no reason — leaving photos to plain keyword matching, which loaded a nude LoRA and a feet LoRA onto a clothed desk scene and skipped the one the moment needed. Director failures now log their cause ('director skipped — …') including the API's actual error body, so the next miss is diagnosable at a glance."
+  "notes": "The photo director finds its voice. 'director skipped — empty reply' was glm-5.2's hybrid reasoning eating the entire token budget before emitting a single visible character — the model thought hard about the shot and said nothing. Utility calls (the director, conversation summaries) now request thinking disabled and strip any inline reasoning, so the director's scene rewrite and LoRA picks actually arrive. Summaries quietly benefit from the same fix."
 }

@@ -2109,16 +2109,24 @@ function completeOnce(engine, messages, maxTok, cb){
   if (engine === REMOTE) {
     fetch(GLM_URL, {
       method:"POST", headers:apiHeaders(),
+      /* glm-5.x is a hybrid-reasoning model: left to think, it can spend
+         the entire token budget reasoning and return empty content — which
+         is exactly how the photo director died ("empty reply"). Utility
+         calls want answers, not deliberation. */
       body: JSON.stringify({model:glm().model, messages:messages, stream:false,
-        temperature:0.3, max_tokens:maxTok})
+        temperature:0.3, max_tokens:maxTok, thinking:{type:"disabled"}})
     }).then(function(r){
       if (!r.ok) return r.text().then(function(t){
         throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 200) : ""));
       });
       return r.json();
     })
-      .then(function(j){ cb(null, j.choices && j.choices[0] && j.choices[0].message &&
-                             j.choices[0].message.content || ""); })
+      .then(function(j){
+        var t = j.choices && j.choices[0] && j.choices[0].message &&
+                j.choices[0].message.content || "";
+        /* belt-and-braces for models that inline their reasoning anyway */
+        cb(null, String(t).replace(/<think>[\s\S]*?<\/think>/g, "").trim());
+      })
       .catch(cb);
   } else cb(new Error("no engine"));
 }
