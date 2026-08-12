@@ -1,6 +1,6 @@
 {
-  "versionCode": 70,
-  "versionName": "0.20.5",
+  "versionCode": 71,
+  "versionName": "0.20.6",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Directed self-shots stop collapsing into regular selfies. Every selfie prompt carried a hard-coded 'front-camera selfie held at arm's length, face a little too close' style block — correct for ordinary selfies, and exactly the instruction that overrode POV, mirror, and from-above compositions back into a standard face selfie no matter what the director wrote. The arm's-length frame now applies only when the description doesn't specify its own camera; a description that stakes out a mirror, POV, or looking-down angle keeps it."
+  "notes": "Unusual camera angles finally survive to the image. Three things were quietly voting for a face selfie even after the director planned a POV shot: the camera sat buried mid-sentence where image models barely weight it, every selfie prompt opened with a written description of the character's face (asking for a face is a good way to get one), and the likeness LoRA — trained on face-forward portraits — carried that composition at full strength. Now the director leads the prompt with the shot type and camera in its own clause, the face anchor stands down when the face isn't in frame, and likeness LoRAs are damped to 60% on first-person shots so the camera wins. Ordinary selfies are unchanged."
 }

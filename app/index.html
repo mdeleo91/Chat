@@ -1001,12 +1001,21 @@ function selfieFraming(desc){
   return /\b(mirror|pov|point of view|looking down|from above|from below|under (?:the )?desk|overhead|top[- ]?down|first[- ]?person|down (?:at|her|his|their)|behind)\b/i
     .test(desc) ? "" : IMG_SELFIE_FRAME + " ";
 }
+/* shots where the face is not the subject — first-person views down her own
+   body, mirror shots with the phone over the face. Two things must stand
+   down for these or the picture reverts to a portrait: the written face
+   anchor (leading a prompt with a face description is asking for a face)
+   and the likeness LoRA's grip on composition (see lorasFor). */
+function faceOutOfFrame(desc){
+  return /\b(pov|point of view|first[- ]?person|face hidden|face out of frame|headless|cropped at the (?:neck|chin)|looking down at (?:her|his|their)(?: own)? (?:lap|body|chest|breasts|thighs|stomach|legs))\b/i
+    .test(desc || "");
+}
 function imgPrompt(ch, desc, isSelfie){
   var style = ch && ch.imgstyle ? fill(ch.imgstyle, ch) : IMG_STYLE_DEFAULT;
   /* the appearance anchor: image models hold onto text far better than
      reference conditioning, so the same written face rides every selfie
-     on every engine (see ensureLook) */
-  var subj = isSelfie && ch && (ch.look || "").trim()
+     on every engine (see ensureLook) — except where no face is in shot */
+  var subj = isSelfie && !faceOutOfFrame(desc) && ch && (ch.look || "").trim()
     ? "Subject (the same person in every photo): " + ch.look.trim() + "\n\n" : "";
   return subj + desc + "\n\nStyle: " + (isSelfie ? selfieFraming(desc) : "") + style;
 }
@@ -1162,6 +1171,21 @@ function lorasFor(ch, desc, isMature, picked, maxN){
     });
   });
   items.sort(function(a, b){ return a.rank - b.rank; });
+  /* a likeness LoRA carries its training data's composition too — mostly
+     face-forward portraits — so at full strength it quietly out-votes an
+     unusual camera. Where the face isn't in shot anyway, damp it and let
+     the composition win. */
+  if (faceOutOfFrame(t)) {
+    var damped = [];
+    items.forEach(function(i){
+      if (i.rank !== 0) return;
+      var s = Math.round(((i.lora.scale || 1) * 0.6) * 100) / 100;
+      i.lora = {path: i.lora.path, scale: s};
+      damped.push(i.name + "→" + s);
+    });
+    if (damped.length)
+      L("img", "face out of frame — damping likeness: " + damped.join(", "), true);
+  }
   /* engines have hard LoRA limits (fal 422s above 3) and quality sags when
      too many stack — trim from the back of the priority order, and say so */
   if (maxN && items.length > maxN) {
@@ -2502,11 +2526,16 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
         catalog.map(function(c){ return "- " + c.name + " (meant for: " + c.when + ")"; }).join("\n") + "\n\n"
       : "") +
     "Reply with ONLY a JSON object, no other text: {\"scene\": string, \"loras\": [names]}.\n" +
-    "scene: rewrite the draft as one vivid image prompt. Keep every subject and action detail " +
-    "from the draft, then make the pose and camera concrete and natural to this exact moment: " +
-    "camera angle and distance, what the body and hands are doing, where the eyes look, lighting " +
-    "and setting details drawn from the conversation. Avoid a centered, straight-on, standing " +
-    "pose unless the moment truly calls for it. Under 90 words.";
+    "scene: rewrite the draft as one vivid image prompt. START with the shot type and camera " +
+    "in its own short clause — the image model weights the opening words most, and a camera " +
+    "buried mid-sentence gets ignored (e.g. \"First-person POV, phone held low looking down " +
+    "her own body:\" or \"Mirror selfie shot into a bathroom mirror, full body:\" or " +
+    "\"Close overhead shot looking straight down:\"). Then keep every subject and action " +
+    "detail from the draft and make the pose concrete and natural to this exact moment: what " +
+    "the body and hands are doing, where the eyes look, lighting and setting drawn from the " +
+    "conversation. When the camera is a first-person view, say plainly that her head and face " +
+    "are out of frame. Avoid a centered, straight-on, face-filling selfie unless the moment " +
+    "truly calls for it. Under 90 words.";
   completeOnce(REMOTE, [{role: "user", content: ask}], 400, function(err, text){
     if (err || !text) {
       /* a silent director is undiagnosable — say why it sat out */
