@@ -1126,15 +1126,18 @@ function lorasFor(ch, desc, isMature, picked){
     var nm = ((l.name || "").trim() || path.split("/").pop().split("?")[0]).toLowerCase();
     var kws = (l.when || "").split(",")
       .map(function(k){ return k.trim().toLowerCase(); }).filter(Boolean);
-    /* "18+" is a special keyword: matches when the character marked this
-       photo mature (only possible while mature mode is on) — far more
-       reliable than word-matching descriptions the text model writes tamely */
-    var kwOk = !kws.length || kws.some(function(k){
-      return k === "18+" ? !!isMature : t.indexOf(k) >= 0;
-    });
+    /* "18+" is a special keyword. Alone it means "every photo the character
+       marks mature". Combined with other keywords it GATES instead of ORs:
+       the photo must be marked mature AND match one of the other keywords —
+       so "18+, feet" is a mature feet shot, not every mature shot. */
+    var matureGate = kws.indexOf("18+") >= 0;
+    var rest = kws.filter(function(k){ return k !== "18+"; });
+    var restHit = rest.some(function(k){ return t.indexOf(k) >= 0; });
+    var kwOk = !kws.length ||
+      (matureGate ? (!!isMature && (!rest.length || restHit)) : restHit);
     /* the photo director may add a LoRA by name — union with the keyword
-       baseline, except an 18+-only LoRA can never ride a SFW picture */
-    var pickOk = pick.indexOf(nm) >= 0 && (isMature || kws.indexOf("18+") < 0);
+       baseline, except an 18+-gated LoRA can never ride a SFW picture */
+    var pickOk = pick.indexOf(nm) >= 0 && (isMature || !matureGate);
     if (!kwOk && !pickOk) return;
     if ((l.add || "").trim()) adds.push(l.add.trim());
     /* fal rejects scale > 4 outright (422, photo lost to the fallback) —
@@ -1159,7 +1162,7 @@ function loraRowsHTML(list){
       '<input class="srvinput lr-path" placeholder=".safetensors URL" value="' + esc(l.path || "") + '">' +
       '<div class="lr2"><div style="width:88px"><span class="lbl">STRENGTH 0–2</span>' +
       '<input class="srvinput lr-scale" inputmode="decimal" placeholder="1.0" value="' + (l.scale || "") + '"></div>' +
-      '<div style="flex:1"><span class="lbl">WHEN — keywords, comma separated; empty = every photo; 18+ = only photos the character marks mature</span>' +
+      '<div style="flex:1"><span class="lbl">WHEN — keywords, comma separated; empty = every photo; 18+ alone = every mature photo; 18+ with keywords = mature photos matching a keyword</span>' +
       '<input class="srvinput lr-when" placeholder="always" value="' + esc(l.when || "") + '"></div></div>' +
       '<span class="lbl">TRIGGER WORDS — sent along when this LoRA loads</span>' +
       '<input class="srvinput lr-add" placeholder="none" value="' + esc(l.add || "") + '">' +
