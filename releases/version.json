@@ -1,6 +1,6 @@
 {
-  "versionCode": 62,
-  "versionName": "0.19.13",
+  "versionCode": 63,
+  "versionName": "0.19.14",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "The photo-read deadline is now evidence-based. A first-ever vLLM boot downloads the whole model (~16GB for Qwen2.5-VL-7B) and legitimately takes longer than the 3-minute budget — the previous build gave up mid-download. Now, when the deadline hits, the app asks the endpoint's health API what's actually happening: a worker initializing or grinding through a queue backlog earns more time (in 2-minute extensions, up to a 10-minute hard cap, with the caption 'your GPU is still booting — hanging on'), while an endpoint with no workers at all fails immediately with the real numbers and the fix. Combined with the background service, a first boot can now complete unattended."
+  "notes": "A progress bar for the GPU wait. Waiting minutes on a cold start with nothing but a spinner was the last indignity — the typing bubble now grows a progress bar during photo-reads that fills against the wait budget, the caption shows elapsed against total ('2:14 / 10:00'), and every few seconds the app asks the endpoint what is actually happening and says it in plain words: 'waiting for a GPU', 'GPU booting — loading the model', 'GPU busy — 2 jobs ahead of yours', 'GPU is reading your photo'. When a confirmed boot earns a bigger budget, the bar re-scales instead of lying. You always know which phase the wait is in and how much runway remains."
 }

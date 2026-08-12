@@ -194,8 +194,14 @@
     box-shadow:var(--shadow);border-radius:999px;font-size:13px;padding:3px 7px;color:var(--acc-deep)}
   .mrow.reacted{margin-bottom:12px}
   .typing{align-self:flex-start;background:var(--surface);box-shadow:var(--shadow);
-    border-radius:16px;border-bottom-left-radius:5px;padding:12px 16px;display:none;gap:5px;margin-top:6px}
+    border-radius:16px;border-bottom-left-radius:5px;padding:12px 16px;display:none;gap:5px;margin-top:6px;
+    flex-wrap:wrap;max-width:78%}
   .typing.on{display:flex}
+  .typing .tybar{display:none;width:100%;height:4px;border-radius:999px;background:var(--line);
+    margin-top:9px;overflow:hidden}
+  .typing .tybar.on{display:block}
+  .typing .tybar div{height:100%;width:0%;border-radius:999px;background:var(--acc);
+    transition:width 1s linear}
   .typing i{width:7px;height:7px;border-radius:50%;background:var(--acc);opacity:.4;
     animation:breathe 1.2s infinite}
   .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
@@ -1637,6 +1643,33 @@ async function remoteGenerate(messages, onDelta, cid){
   var lastStatus = 0, sameStatus = 0, budget = RP_TOTAL_MS;
   function msLeft(){ return budget - (Date.now() - started); }
   if (hasImg && cid) setStage(cid, "reading your photo");
+  /* live phase reporting for the GPU hunt: the health API knows whether
+     the job is queued, the worker is booting, or inference is running —
+     poll it and put the truth in the caption, with the progress bar
+     filling against the current budget */
+  var poll = null, polling = false;
+  if (viaRp && cid) {
+    setEta(cid, started, budget);
+    poll = setInterval(async function(){
+      if (polling || emitted) return;
+      polling = true;
+      var h = await rpHealthBrief();
+      polling = false;
+      if (!h || emitted) return;
+      var w = h.workers || {}, q = (h.jobs && h.jobs.inQueue) || 0;
+      if ((w.running || 0) > 0)
+        setStage(cid, q > 1 ? "GPU busy — " + (q - 1) + " job" + (q === 2 ? "" : "s") +
+          " ahead of yours" : "GPU is reading your photo");
+      else if ((w.initializing || 0) > 0)
+        setStage(cid, "GPU booting — loading the model");
+      else if ((w.idle || 0) + (w.ready || 0) > 0)
+        setStage(cid, "GPU ready — starting the job");
+      else
+        setStage(cid, (w.throttled || 0) > 0
+          ? "waiting for RunPod to free a GPU (throttled)"
+          : "waiting for a GPU");
+    }, 8000);
+  }
   /* ---- one streaming attempt; throws with .isTimeout on its deadline ---- */
   async function streamOnce(){
     /* streaming is preferred, but a RunPod worker deployed without stream
@@ -1652,20 +1685,15 @@ async function remoteGenerate(messages, onDelta, cid){
     LASTREQ = {via: viaRp ? "vision endpoint" : "Z.ai", model: model,
                kb: Math.round(body.length / 1024)};
     var ctrl = new AbortController(), timedOut = false, gotBytes = false,
-        timer = null, coldTimer = null;
+        timer = null;
     function arm(ms){
       clearTimeout(timer);
       timer = setTimeout(function(){ timedOut = true; ctrl.abort(); }, ms);
     }
     /* the vision attempt may use everything left in the budget — cold
-       starts are legitimate; Z.ai should simply answer */
+       starts are legitimate; Z.ai should simply answer. The health poller
+       above narrates what the silence means. */
     arm(viaRp ? Math.max(msLeft(), 1) : GLM_FIRST_TOKEN_MS);
-    /* silence past the warm-response window means the worker is booting —
-       say so, like the photo-generation path does */
-    if (viaRp && cid && attempt === 1)
-      coldTimer = setTimeout(function(){
-        setStage(cid, "waking your GPU — cold start");
-      }, 15000);
     try {
       var r = await fetch(url, {
         method: "POST",
@@ -1724,7 +1752,6 @@ async function remoteGenerate(messages, onDelta, cid){
         /* bytes on the wire = the server is alive — switch to the idle cutoff */
         gotBytes = true;
         arm(STREAM_IDLE_MS);
-        if (coldTimer) { clearTimeout(coldTimer); coldTimer = null; }
         var piece = dec.decode(chunk.value, {stream:true});
         raw += piece; buf += piece;
         var lines = buf.split("\n");
@@ -1752,7 +1779,6 @@ async function remoteGenerate(messages, onDelta, cid){
       throw te;
     } finally {
       clearTimeout(timer);
-      if (coldTimer) clearTimeout(coldTimer);
     }
   }
   try {
@@ -1786,7 +1812,10 @@ async function remoteGenerate(messages, onDelta, cid){
               ", running=" + (hw.running || 0) + ", queued=" + ((h.jobs && h.jobs.inQueue) || 0) +
               ") — extending the wait to " + Math.round(budget / 60000) +
               " min; a first boot downloads the model", true);
-            if (cid) setStage(cid, "your GPU is still booting — hanging on");
+            if (cid) {
+              setStage(cid, "your GPU is still booting — hanging on");
+              setEta(cid, started, budget);   // the bar re-scales to the grown budget
+            }
             continue;
           }
           if (h) {
@@ -1836,7 +1865,8 @@ async function remoteGenerate(messages, onDelta, cid){
       }
     }
   } finally {
-    if (cid) setStage(cid, "");
+    if (poll) clearInterval(poll);
+    if (cid) { setStage(cid, ""); setEta(cid, null, 0); }
   }
 }
 
@@ -2135,13 +2165,37 @@ function setStage(cid, stage){
   p.stage = stage;
   refreshPendingUI(cid);
 }
+function fmtMS(s){ return Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2); }
 function pendLabel(p){
   var s = Math.floor((Date.now() - p.t) / 1000);
   /* text replies get a caption too once they stop being instant, so a
      stalled reply is as visible as a stalled photo */
   var stage = p.stage || (s >= 5 ? "thinking" : "");
   if (!stage) return "";
-  return stage + " · " + Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2);
+  var out = stage + " · " + fmtMS(s);
+  /* a bounded wait shows its budget — "2:14 / 10:00" reads as progress
+     where bare elapsed minutes read as a hang */
+  if (p.eta) out += " / " + fmtMS(Math.round(p.eta.ms / 1000));
+  return out;
+}
+/* the bounded wait behind the typing bubble's progress bar: t0/ms set by
+   the photo-read while it hunts a GPU (the budget grows when a boot is
+   confirmed in progress, and the bar re-scales with it) */
+function setEta(cid, t0, ms){
+  var p = PENDING[cid]; if (!p) return;
+  p.eta = t0 ? {t0: t0, ms: ms} : null;
+  refreshPendingUI(cid);
+}
+function renderTyBar(p){
+  var bar = $("ty-bar");
+  if (!bar) return;
+  var on = !!(p && p.eta);
+  bar.classList.toggle("on", on);
+  if (on) {
+    var f = Math.min(0.98, (Date.now() - p.eta.t0) / p.eta.ms);
+    var fill = $("ty-fill");
+    if (fill) fill.style.width = Math.round(f * 100) + "%";
+  }
 }
 function refreshPendingUI(cid){
   if (cur === cid) {
@@ -2150,6 +2204,7 @@ function refreshPendingUI(cid){
       ty.classList.toggle("on", !!p);
       var lab = $("ty-lab");
       if (lab) lab.textContent = p ? pendLabel(p) : "";
+      renderTyBar(p);
       if (p) $("stream").scrollTop = 1e9;
     }
   }
@@ -2163,7 +2218,10 @@ setInterval(function(){
     var p = PENDING[cid], label = pendLabel(p);
     var el = document.querySelector('.pendprev[data-cid="' + cid + '"]');
     if (el) el.textContent = label || "typing…";
-    if (cur === cid) { var lab = $("ty-lab"); if (lab) lab.textContent = label; }
+    if (cur === cid) {
+      var lab = $("ty-lab"); if (lab) lab.textContent = label;
+      renderTyBar(p);
+    }
   });
 }, 1000);
 
@@ -2926,11 +2984,12 @@ function renderStream(){
     attachPress(rw, idx);
   });
   var ty = document.createElement("div"); ty.className="typing"; ty.id="ty";
-  ty.innerHTML="<i></i><i></i><i></i><span class='tylab' id='ty-lab'></span>";
+  ty.innerHTML="<i></i><i></i><i></i><span class='tylab' id='ty-lab'></span>" +
+    "<div class='tybar' id='ty-bar'><div id='ty-fill'></div></div>";
   st.appendChild(ty);
   /* a generation may still be running for this conversation — re-light */
   var p = PENDING[cur];
-  if (p) { ty.classList.add("on"); $("ty-lab").textContent = pendLabel(p); }
+  if (p) { ty.classList.add("on"); $("ty-lab").textContent = pendLabel(p); renderTyBar(p); }
   st.scrollTop = st.scrollHeight;
 }
 function pushMsg(id, who, text, by, img){
