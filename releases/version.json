@@ -1,6 +1,6 @@
 {
-  "versionCode": 47,
-  "versionName": "0.18.0",
+  "versionCode": 48,
+  "versionName": "0.18.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Never wonder if a photo stalled. The typing bubble now carries a live stage — sending to your GPU, waiting for a GPU (cold start), painting the photo — with a ticking elapsed clock, and the conversations list shows the same on the character's row while you're elsewhere in the app. Re-entering a chat mid-generation lights it all back up. If the clock is counting, it's working."
+  "notes": "Network blips don't kill photos anymore. A dropped connection during a long GPU wait used to abort the whole job — even though it was still running server-side — and cascade into doomed fallbacks. Polling now rides out up to a minute of outage (the bubble shows 'connection hiccup — retrying') and resumes the same job when the connection returns."
 }

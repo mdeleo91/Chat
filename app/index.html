@@ -1379,20 +1379,35 @@ function rpFinish(j, isSelfie, cid, nLoras, cb, onFail){
     (j.error ? " — " + String(j.error).slice(0, 240) : " — no image in the response"), true);
   if (onFail) onFail(); else cb(null);
 }
-function rpPoll(id, tries, isSelfie, cid, nLoras, cb, onFail){
+function rpPoll(id, tries, isSelfie, cid, nLoras, cb, onFail, netMisses){
+  netMisses = netMisses || 0;
+  var fail = function(msg){
+    L("img", "runpod failed: " + msg.slice(0, 300), true);
+    if (onFail) onFail(); else cb(null);
+  };
   fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/status/" + id, {
     headers: {"Authorization": "Bearer " + rp().key.trim()}
   }).then(function(r){ return r.json(); })
     .then(function(j){
       if (j.status === "COMPLETED" || j.output) { rpFinish(j, isSelfie, cid, nLoras, cb, onFail); return; }
-      if (j.status === "FAILED" || j.status === "CANCELLED" || j.status === "TIMED_OUT")
-        throw new Error("worker " + j.status + (j.error ? " — " + String(j.error).slice(0, 240) : ""));
-      if (tries <= 0) throw new Error("timed out waiting for the worker (cold start too slow)");
+      if (j.status === "FAILED" || j.status === "CANCELLED" || j.status === "TIMED_OUT") {
+        fail("worker " + j.status + (j.error ? " — " + String(j.error).slice(0, 240) : "")); return;
+      }
+      if (tries <= 0) { fail("timed out waiting for the worker (cold start too slow)"); return; }
       if (j.status === "IN_PROGRESS") setStage(cid, "painting the photo");
-      setTimeout(function(){ rpPoll(id, tries - 1, isSelfie, cid, nLoras, cb, onFail); }, 5000);
+      setTimeout(function(){ rpPoll(id, tries - 1, isSelfie, cid, nLoras, cb, onFail, 0); }, 5000);
     }).catch(function(e){
-      L("img", "runpod failed: " + String(e && e.message || e).slice(0, 300), true);
-      if (onFail) onFail(); else cb(null);
+      /* a dropped poll is usually the phone's network blinking, not the job
+         dying — the job keeps running server-side, so ride out up to a
+         minute of outage before giving up on it */
+      if (netMisses < 12) {
+        setStage(cid, "connection hiccup — retrying");
+        L("img", "runpod poll blip (" + (netMisses + 1) + "/12): " +
+          String(e && e.message || e).slice(0, 120), true);
+        setTimeout(function(){ rpPoll(id, tries, isSelfie, cid, nLoras, cb, onFail, netMisses + 1); }, 5000);
+        return;
+      }
+      fail(String(e && e.message || e));
     });
 }
 
