@@ -1065,7 +1065,7 @@ function chLoraList(ch){
    description mentions one, so subject LoRAs can't bleed into other shots. */
 function lorasFor(ch, desc, isMature){
   var t = (desc || "").toLowerCase();
-  var loras = [], adds = [];
+  var loras = [], adds = [], names = [];
   fal().loras.concat(chLoraList(ch)).forEach(function(l){
     var path = (l.path || "").trim();
     if (!path) return;
@@ -1081,10 +1081,11 @@ function lorasFor(ch, desc, isMature){
     /* fal rejects scale > 4 outright (422, photo lost to the fallback) —
        clamp here so a "8" typo for "0.8" degrades instead of failing */
     var sc = l.scale ? Math.min(4, Math.max(0, l.scale)) : null;
+    names.push((l.name || "").trim() || l.path.split("/").pop().split("?")[0]);
     path = withCivitaiToken(path);
     loras.push(sc ? {path: path, scale: sc} : {path: path});
   });
-  return {loras: loras, adds: adds};
+  return {loras: loras, adds: adds, names: names};
 }
 /* structured editor rows for a LoRA list — used by Settings and the
    character form; wireLoraList attaches delegated handlers to a container */
@@ -1092,8 +1093,11 @@ function loraRowsHTML(list){
   var h = "";
   list.forEach(function(l, i){
     h += '<div class="lorarow" data-i="' + i + '">' +
-      '<div class="lr1"><input class="srvinput lr-path" placeholder=".safetensors URL" value="' + esc(l.path || "") + '">' +
+      '<div class="lr1"><input class="srvinput lr-name" placeholder="Name (for you — e.g. Amateur style)" ' +
+      'value="' + esc(l.name || "") + '">' +
       '<button class="icb lr-x" title="Remove LoRA"><span class="msr" style="font-size:16px">close</span></button></div>' +
+      '<span class="lbl">URL</span>' +
+      '<input class="srvinput lr-path" placeholder=".safetensors URL" value="' + esc(l.path || "") + '">' +
       '<div class="lr2"><div style="width:88px"><span class="lbl">STRENGTH 0–2</span>' +
       '<input class="srvinput lr-scale" inputmode="decimal" placeholder="1.0" value="' + (l.scale || "") + '"></div>' +
       '<div style="flex:1"><span class="lbl">WHEN — keywords, comma separated; empty = every photo; 18+ = only photos the character marks mature</span>' +
@@ -1111,6 +1115,7 @@ function wireLoraList(root, list, onChange){
     if (!row) return;
     var l = list[+row.dataset.i]; if (!l) return;
     if (e.target.classList.contains("lr-path")) l.path = e.target.value.trim();
+    else if (e.target.classList.contains("lr-name")) l.name = e.target.value.trim();
     else if (e.target.classList.contains("lr-scale")) l.scale = parseFloat(e.target.value) || null;
     else if (e.target.classList.contains("lr-when")) l.when = e.target.value;
     else if (e.target.classList.contains("lr-add")) l.add = e.target.value;
@@ -1121,7 +1126,7 @@ function wireLoraList(root, list, onChange){
     var x = e.target.closest ? e.target.closest(".lr-x") : null;
     if (x) { list.splice(+x.closest(".lorarow").dataset.i, 1); onChange(true); return; }
     if (e.target.closest && e.target.closest(".lora-add")) {
-      list.push({path:"", scale:null, when:"", add:""});
+      list.push({name:"", path:"", scale:null, when:"", add:""});
       onChange(true);
     }
   });
@@ -1227,7 +1232,8 @@ function checkFaceTraining(ch, cb){
                     (res.lora_file && res.lora_file.url);
           if (!url) throw new Error("training finished but the result has no LoRA file");
           ch.loraList = (ch.loraList || []).filter(function(l){ return !l.face; });
-          ch.loraList.push({path: url, scale: 1, when: "", add: faceTrigger(ch), face: true});
+          ch.loraList.push({name: ch.name + " face (trained)", path: url, scale: 1,
+            when: "", add: faceTrigger(ch), face: true});
           delete ch.trainReq;
           save();
           L("train", "face LoRA ready for " + ch.name + " — added to their LoRA cards", true);
@@ -1824,10 +1830,10 @@ function deliverPhoto(convo, ch, desc, isSelfie, isMature){
   var refs = (ch && ch.refimgs || []).length;
   if (isMature && isSelfie && refs && falReady()) refs = 0;   // 18+ selfies skip Kontext
   var damp = isSelfie && refs && falReady() ? 0.7 : 1;
-  var llist = falReady() ? lorasFor(ch, desc, isMature).loras.map(function(l){
-    return l.path.split("/").pop().split("?")[0] + "@" +
-           Math.round(((l.scale || 1) * damp) * 100) / 100;
-  }).join(",") : "";
+  var lfLog = falReady() || rpReady() ? lorasFor(ch, desc, isMature) : {loras: [], names: []};
+  var llist = lfLog.loras.map(function(l, i){
+    return lfLog.names[i] + "@" + Math.round(((l.scale || 1) * damp) * 100) / 100;
+  }).join(",");
   L("img", "route: " + (isSelfie ? "selfie" : "photo") + (isMature ? " 18+" : "") +
     " · engine=" + (isMature && rpReady() ? "runpod" : (falReady() ? "flux" : "glm")) + " · refs=" + refs +
     (isSelfie ? (isMature && falReady() ? " (18+ selfies go t2i — Kontext won't undress; use a likeness LoRA for the face)" : "")
@@ -2757,7 +2763,7 @@ function openCharForm(id){
   /* mutate in place — the row wiring holds a reference to this array */
   editLoras.length = 0;
   chLoraList(ch).forEach(function(l){
-    editLoras.push({path:l.path, scale:l.scale, when:l.when, add:l.add, face:l.face});
+    editLoras.push({name:l.name, path:l.path, scale:l.scale, when:l.when, add:l.add, face:l.face});
   });
   renderCharLoras();
   updateTrainUI(ch);
@@ -2779,7 +2785,7 @@ function saveChar(){
   var scene = $("nc-scene").value.trim();
   var imgstyle = $("nc-imgstyle").value.trim();
   var loras = editLoras.filter(function(l){ return (l.path||"").trim(); })
-    .map(function(l){ return {path:l.path.trim(), scale:l.scale||null, when:l.when||"", add:l.add||"", face:l.face}; });
+    .map(function(l){ return {name:l.name||"", path:l.path.trim(), scale:l.scale||null, when:l.when||"", add:l.add||"", face:l.face}; });
   var greet = $("nc-greet").value.trim();
   var example = $("nc-ex").value.trim();
   if (editId) {
