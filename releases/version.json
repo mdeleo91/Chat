@@ -1,6 +1,6 @@
 {
-  "versionCode": 66,
-  "versionName": "0.20.1",
+  "versionCode": 67,
+  "versionName": "0.20.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "WHEN keywords learned AND. '18+' combined with other keywords now gates instead of ORs: '18+, feet' means a mature photo that is also about feet — previously it loaded on every mature photo, which made content-specific LoRA collections (poses, positions, situations) impossible to keep apart. '18+' alone still means every mature photo, plain keywords still OR, and the photo director still can't pick an 18+-gated LoRA into a SFW picture."
+  "notes": "LoRA stacks are now capped by priority instead of failing. fal rejects any request with more than 3 LoRAs outright (the whole photo bounced to fallback), and FLUX output goes mushy past ~4 anyway. When more LoRAs match a photo than the engine allows, the app now keeps the most important ones — the character's own likeness LoRAs first, then the director's contextual picks, then keyword matches, then always-on styles — and logs exactly which were dropped ('lora cap 3 — dropped: …'). Trigger words of dropped LoRAs no longer ride the prompt either."
 }

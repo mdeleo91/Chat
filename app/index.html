@@ -1115,12 +1115,12 @@ function chLoraList(ch){
 /* which LoRAs actually apply to this photo, plus their trigger add-ons.
    Empty "when" = every photo (style LoRAs); keywords = only when the photo's
    description mentions one, so subject LoRAs can't bleed into other shots. */
-function lorasFor(ch, desc, isMature, picked){
+function lorasFor(ch, desc, isMature, picked, maxN){
   var t = (desc || "").toLowerCase();
   var pick = (picked || []).map(function(n){ return String(n).trim().toLowerCase(); })
     .filter(Boolean);
-  var loras = [], adds = [], names = [];
-  fal().loras.concat(chLoraList(ch)).forEach(function(l){
+  var globals = fal().loras, items = [];
+  globals.concat(chLoraList(ch)).forEach(function(l, idx){
     var path = (l.path || "").trim();
     if (!path) return;
     var nm = ((l.name || "").trim() || path.split("/").pop().split("?")[0]).toLowerCase();
@@ -1139,15 +1139,32 @@ function lorasFor(ch, desc, isMature, picked){
        baseline, except an 18+-gated LoRA can never ride a SFW picture */
     var pickOk = pick.indexOf(nm) >= 0 && (isMature || !matureGate);
     if (!kwOk && !pickOk) return;
-    if ((l.add || "").trim()) adds.push(l.add.trim());
     /* fal rejects scale > 4 outright (422, photo lost to the fallback) —
        clamp here so a "8" typo for "0.8" degrades instead of failing */
     var sc = l.scale ? Math.min(4, Math.max(0, l.scale)) : null;
-    names.push((l.name || "").trim() || l.path.split("/").pop().split("?")[0]);
-    path = withCivitaiToken(path);
-    loras.push(sc ? {path: path, scale: sc} : {path: path});
+    items.push({
+      /* priority under an engine cap: the character's own LoRAs (identity)
+         survive first, then the director's contextual picks, then keyword
+         hits, then always-on styles */
+      rank: idx >= globals.length ? 0 : (pickOk && pick.length ? 1 : (kws.length ? 2 : 3)),
+      lora: sc ? {path: withCivitaiToken(path), scale: sc} : {path: withCivitaiToken(path)},
+      add: (l.add || "").trim(),
+      name: (l.name || "").trim() || path.split("/").pop().split("?")[0]
+    });
   });
-  return {loras: loras, adds: adds, names: names};
+  items.sort(function(a, b){ return a.rank - b.rank; });
+  /* engines have hard LoRA limits (fal 422s above 3) and quality sags when
+     too many stack — trim from the back of the priority order, and say so */
+  if (maxN && items.length > maxN) {
+    L("img", "lora cap " + maxN + " — dropped: " +
+      items.slice(maxN).map(function(i){ return i.name; }).join(", "), true);
+    items = items.slice(0, maxN);
+  }
+  return {
+    loras: items.map(function(i){ return i.lora; }),
+    adds:  items.map(function(i){ return i.add; }).filter(Boolean),
+    names: items.map(function(i){ return i.name; })
+  };
 }
 /* structured editor rows for a LoRA list — used by Settings and the
    character form; wireLoraList attaches delegated handlers to a container */
@@ -1405,7 +1422,9 @@ function buildFluxWorkflow(prompt, loras){
 }
 function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked){
   desc = adultDesc(desc);
-  var lf = lorasFor(ch, desc, true, picked);
+  /* no hard API limit here, but past ~4 stacked LoRAs FLUX output turns
+     mushy — same priority trim as fal, one slot looser */
+  var lf = lorasFor(ch, desc, true, picked, 4);
   var trig = [(fal().trigger || "").trim()].concat(lf.adds)
     .concat([(fal().mat || "").trim()]).filter(Boolean).join("\n");
   var prompt = imgPrompt(ch, desc, isSelfie) + (trig ? "\n" + trig : "");
@@ -1492,7 +1511,7 @@ function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked){
      identity there comes from a likeness LoRA in the character's cards. */
   var refs = isSelfie && !isMature ? (ch && ch.refimgs || []) : [];
   if (isMature) desc = adultDesc(desc);
-  var lf = lorasFor(ch, desc, isMature, picked), loras = lf.loras;
+  var lf = lorasFor(ch, desc, isMature, picked, 3), loras = lf.loras;   // fal 422s above 3
   /* Kontext keeps a face best when addressed as an edit of "this person",
      and when style LoRAs are damped so they can't out-vote the identity */
   if (refs.length)
@@ -2523,7 +2542,9 @@ function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature){
   var refs = (ch && ch.refimgs || []).length;
   if (isMature && isSelfie && refs && falReady()) refs = 0;   // 18+ selfies skip Kontext
   var damp = isSelfie && refs && falReady() ? 0.7 : 1;
-  var lfLog = falReady() || rpReady() ? lorasFor(ch, desc, isMature, picked) : {loras: [], names: []};
+  var lfLog = falReady() || rpReady()
+    ? lorasFor(ch, desc, isMature, picked, isMature && rpReady() ? 4 : 3)
+    : {loras: [], names: []};
   var llist = lfLog.loras.map(function(l, i){
     return lfLog.names[i] + "@" + Math.round(((l.scale || 1) * damp) * 100) / 100;
   }).join(",");
