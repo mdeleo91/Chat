@@ -154,6 +154,10 @@ def build_manifest(package, version_code, version_name):
         [
           Elem("uses-sdk", [A("minSdkVersion", 24), A("targetSdkVersion", 28)]),
           Elem("uses-permission", [A("name", "android.permission.INTERNET")]),
+          # GenService: generations keep running while backgrounded/locked
+          Elem("uses-permission", [A("name", "android.permission.FOREGROUND_SERVICE")]),
+          Elem("uses-permission", [A("name", "android.permission.WAKE_LOCK")]),
+          Elem("uses-permission", [A("name", "android.permission.POST_NOTIFICATIONS")]),
           Elem("application",
             # cleartext: reach a LAN model server at http://192.168.x.x — targetSdk 28
             # blocks plain HTTP otherwise
@@ -175,7 +179,12 @@ def build_manifest(package, version_code, version_name):
                 [A("name", package + ".PhotoProvider"),
                  A("exported", False),
                  A("authorities", package + ".photos"),
-                 A("grantUriPermissions", True)])
+                 A("grantUriPermissions", True)]),
+              # foreground "still working" service, held only while the page
+              # has a reply or photo generating (PocketShell.working)
+              Elem("service",
+                [A("name", package + ".GenService"),
+                 A("exported", False)])
             ])
         ])
     return Writer(root).build()

@@ -1,6 +1,6 @@
 {
-  "versionCode": 55,
-  "versionName": "0.19.6",
+  "versionCode": 56,
+  "versionName": "0.19.7",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Leaving the app no longer kills the reply. Android freezes a backgrounded app and severs any in-flight connection — exactly what a slow photo-read invites you to do. Two fixes: the screen now stays awake while a reply or photo is generating, so setting the phone down doesn't lock, freeze, and kill it; and if the app does die mid-reply (switched away, process reclaimed), the next launch notices the reply never landed and automatically re-sends it — history and photo are all stored locally, so nothing is lost. Combined with 0.19.5's cold-start retries: send the photo, and the app keeps chasing the reply until it lands."
+  "notes": "Replies now finish in the background — no babysitting the app. While anything is generating, the app runs a proper Android foreground service (you'll see a quiet 'Waiting on a reply — safe to switch away' notification), which stops Android from freezing the app when you lock the screen or switch away. The slow cold-start photo-read, the automatic retries, the streaming reply, the photo generation — all of it keeps running unattended, and the notification disappears the moment the reply lands. The screen also no longer needs to stay on: lock it, check your messages, come back to the finished reply. Auto-resume from 0.19.6 stays as the safety net if Android kills the app anyway."
 }

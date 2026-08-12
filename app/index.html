@@ -1976,14 +1976,26 @@ function resumeInterrupted(){
     aiDeliver(convo, ch, null);
   });
 }
-/* the page asks the shell to hold the screen awake while anything is
-   generating — an idle screen locking is the most common way the process
-   gets frozen mid-reply. No-op on the web. */
-function updateAwake(){
+/* while anything is generating the page asks the shell for cover — the
+   screen held awake (waiting in the app doesn't dim into a lock) and a
+   foreground service (the generation keeps running when the screen locks
+   or the user switches apps; without it Android freezes the process and
+   severs the connection). The service lingers 3s past the last pending
+   job so chained generations don't flicker the notification. No-op on
+   the web. */
+var AWAKE_T = null;
+function shellCover(on){
   try {
-    if (window.PocketShell && PocketShell.keepAwake)
-      PocketShell.keepAwake(Object.keys(PENDING).length > 0);
+    if (!window.PocketShell) return;
+    if (PocketShell.keepAwake) PocketShell.keepAwake(on);
+    if (PocketShell.working) PocketShell.working(on);
   } catch(e){}
+}
+function updateAwake(){
+  var on = Object.keys(PENDING).length > 0;
+  clearTimeout(AWAKE_T);
+  if (on) shellCover(true);
+  else AWAKE_T = setTimeout(function(){ shellCover(false); }, 3000);
 }
 function beginGen(cid){
   var p = PENDING[cid];

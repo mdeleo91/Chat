@@ -39,11 +39,13 @@ public class MainActivity extends Activity {
             Uri.parse("content://" + PhotoProvider.AUTHORITY + "/shot.jpg");
 
     /**
-     * JS bridge (window.PocketShell). The page holds the screen awake while
-     * a reply or photo is generating: an idle screen locking freezes the
-     * process, which severs the in-flight connection — the most common way
-     * a slow generation "mysteriously" dies. Cleared as soon as nothing is
-     * pending, so it never outlives a generation.
+     * JS bridge (window.PocketShell). While a reply or photo is generating
+     * the page asks the shell for two things, released the moment nothing is
+     * pending: keepAwake holds the screen on so waiting in the app doesn't
+     * dim into a lock, and working runs GenService as a foreground service
+     * so the generation survives the screen locking or the user switching
+     * apps — without it Android freezes the process and severs the
+     * connection mid-reply.
      */
     public class Shell {
         @JavascriptInterface
@@ -52,6 +54,21 @@ public class MainActivity extends Activity {
                 @Override public void run() {
                     if (on) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                     else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void working(final boolean on) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    Intent it = new Intent(MainActivity.this, GenService.class);
+                    // startService throws if the app is already backgrounded
+                    // (8.0+ limits) — generation always starts foreground, so
+                    // that only races a same-moment switch-away; swallow it
+                    try {
+                        if (on) startService(it); else stopService(it);
+                    } catch (Exception ignored) { }
                 }
             });
         }
