@@ -1,6 +1,6 @@
 {
-  "versionCode": 52,
-  "versionName": "0.19.3",
+  "versionCode": 53,
+  "versionName": "0.19.4",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Mature photos come out the way the moment reads. When a description was vague about who was in it, FLUX played it safe and painted a tame shot — mature prompts now anchor the subject as an explicitly adult woman (characters state their adult age in their own descriptions too), which is both the guardrail and the fix: NSFW LoRAs are trained on adult-stated captions and barely engage without one. The troubleshooting log also now records the exact prompt text and trigger words sent to your GPU, so a tame result can be traced instead of guessed at."
+  "notes": "No more endless 'thinking' after you send a mature photo. Reading your photo goes through your RunPod vision endpoint, and a GPU that has scaled to zero holds the request while it boots — the app used to wait on that forever with only a generic caption. The typing bubble now says what's happening ('reading your photo', then 'waking your GPU — cold start'), the wait is capped at 3 minutes for a cold start (60s for Z.ai, 60s of mid-reply silence), and a timeout tells you plainly to give the GPU a minute and resend instead of hanging the conversation."
 }

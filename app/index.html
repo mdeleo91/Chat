@@ -1585,7 +1585,13 @@ function messagesHaveImage(messages){
    Z.ai's normally, the user's own RunPod vision endpoint when mature mode
    is on and one is configured (Z.ai refuses explicit image input) */
 var LASTREQ = null;   // where the last completion request went, for honest failure logs
-async function remoteGenerate(messages, onDelta){
+/* a serverless vision endpoint answers in seconds when warm but holds the
+   request through minutes of cold start when scaled to zero — and holds it
+   forever when throttled. Cap the wait instead of sitting on "thinking":
+   generous first-token deadline for the GPU to wake, tighter one for Z.ai,
+   and an idle cutoff once tokens are flowing. */
+var RP_FIRST_TOKEN_MS = 180000, GLM_FIRST_TOKEN_MS = 60000, STREAM_IDLE_MS = 60000;
+async function remoteGenerate(messages, onDelta, cid){
   var hasImg = messagesHaveImage(messages);
   var viaRp = hasImg && matureActive() && rpVisionReady();
   var model = hasImg
@@ -1604,30 +1610,68 @@ async function remoteGenerate(messages, onDelta){
   });
   LASTREQ = {via: viaRp ? "vision endpoint" : "Z.ai", model: model,
              kb: Math.round(body.length / 1024)};
-  var r = await fetch(url, {
-    method: "POST",
-    headers: headers,
-    body: body
-  });
-  if (!r.ok) throw new Error((viaRp ? "your vision endpoint" : "Z.ai") + " returned HTTP " + r.status);
-  var reader = r.body.getReader(), dec = new TextDecoder(), buf = "";
-  for (;;) {
-    var chunk = await reader.read();
-    if (chunk.done) break;
-    buf += dec.decode(chunk.value, {stream:true});
-    var lines = buf.split("\n");
-    buf = lines.pop();
-    for (var i = 0; i < lines.length; i++) {
-      var ln = lines[i].trim();
-      if (ln.indexOf("data:") !== 0) continue;
-      var payload = ln.slice(5).trim();
-      if (payload === "[DONE]") return;
-      var j;
-      try { j = JSON.parse(payload); } catch (e) { continue; }
-      var d = j.choices && j.choices[0] && j.choices[0].delta &&
-              j.choices[0].delta.content;
-      if (d) onDelta(d);
+  var deadline = viaRp ? RP_FIRST_TOKEN_MS : GLM_FIRST_TOKEN_MS;
+  var ctrl = new AbortController(), timedOut = false, gotBytes = false,
+      timer = null, coldTimer = null;
+  function arm(ms){
+    clearTimeout(timer);
+    timer = setTimeout(function(){ timedOut = true; ctrl.abort(); }, ms);
+  }
+  arm(deadline);
+  if (hasImg && cid) {
+    setStage(cid, "reading your photo");
+    /* silence past the warm-response window means the worker is booting —
+       say so, like the photo-generation path does */
+    if (viaRp) coldTimer = setTimeout(function(){
+      setStage(cid, "waking your GPU — cold start");
+    }, 15000);
+  }
+  try {
+    var r = await fetch(url, {
+      method: "POST",
+      headers: headers,
+      body: body,
+      signal: ctrl.signal
+    });
+    if (!r.ok) throw new Error((viaRp ? "your vision endpoint" : "Z.ai") + " returned HTTP " + r.status);
+    var reader = r.body.getReader(), dec = new TextDecoder(), buf = "";
+    for (;;) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      /* bytes on the wire = the server is alive — switch to the idle cutoff */
+      gotBytes = true;
+      arm(STREAM_IDLE_MS);
+      if (coldTimer) { clearTimeout(coldTimer); coldTimer = null; }
+      buf += dec.decode(chunk.value, {stream:true});
+      var lines = buf.split("\n");
+      buf = lines.pop();
+      for (var i = 0; i < lines.length; i++) {
+        var ln = lines[i].trim();
+        if (ln.indexOf("data:") !== 0) continue;
+        var payload = ln.slice(5).trim();
+        if (payload === "[DONE]") return;
+        var j;
+        try { j = JSON.parse(payload); } catch (e) { continue; }
+        var d = j.choices && j.choices[0] && j.choices[0].delta &&
+                j.choices[0].delta.content;
+        if (d) onDelta(d);
+      }
     }
+  } catch (e) {
+    if (!timedOut) throw e;
+    var who = viaRp ? "your vision endpoint" : "Z.ai";
+    var te = new Error(gotBytes
+      ? who + " went quiet mid-reply (no data for " + Math.round(STREAM_IDLE_MS / 1000) + "s)"
+      : (viaRp
+        ? who + " didn't answer within " + Math.round(deadline / 60000) +
+          " minutes — cold start too slow, or the endpoint has no workers available"
+        : who + " didn't answer within " + Math.round(deadline / 1000) + "s"));
+    te.isTimeout = true; te.viaRp = viaRp;
+    throw te;
+  } finally {
+    clearTimeout(timer);
+    if (coldTimer) clearTimeout(coldTimer);
+    if (cid) setStage(cid, "");
   }
 }
 
@@ -1968,7 +2012,7 @@ async function runGeneration(convo, ch, nudge, done){
   }
   try {
     var msgs = buildMessages(ch, convo, nudge);
-    await remoteGenerate(msgs, onDelta);
+    await remoteGenerate(msgs, onDelta, convo.id);
     txt = visible(txt).trim();
     /* the character may have decided to send a picture */
     var photoDesc = null, isSelfie = false, isMature = false;
@@ -2013,7 +2057,11 @@ async function runGeneration(convo, ch, nudge, done){
       ? LASTREQ.via + " · " + LASTREQ.model + " · " + LASTREQ.kb + "KB sent"
       : "Z.ai";
     L("gen", "glm FAILED for " + ch.name + " @" + route + ": " + emsg.slice(0,200));
-    if (/network|fetch/i.test(emsg))
+    if (e && e.isTimeout)
+      toast(e.viaRp
+        ? "Your vision endpoint took too long — the GPU is likely still waking up. Wait a minute and resend the photo."
+        : "The reply timed out — send again.");
+    else if (/network|fetch/i.test(emsg))
       toast("Network hiccup — that reply didn't make it. Send again.");
     else
       toast("GLM didn't answer — check your API key and credit in Settings");
