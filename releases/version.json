@@ -1,6 +1,6 @@
 {
-  "versionCode": 61,
-  "versionName": "0.19.12",
+  "versionCode": 62,
+  "versionName": "0.19.13",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "The vision endpoint test now reads the worker counts and names the real problem. The first field run of the test revealed an endpoint with 18 requests queued, zero jobs ever completed, and every worker slot throttled — RunPod simply cannot start a GPU for it, which the previous verdict misread as a protocol problem. The test now checks worker health first: when no worker can start, it says so, with the throttled/queued/completed numbers and the exact console fixes (allow more GPU types and datacenters, Max Workers at least 1, check credits, purge the stuck queue). The not-a-vLLM verdict is reserved for endpoints whose workers are alive and still won't chat."
+  "notes": "The photo-read deadline is now evidence-based. A first-ever vLLM boot downloads the whole model (~16GB for Qwen2.5-VL-7B) and legitimately takes longer than the 3-minute budget — the previous build gave up mid-download. Now, when the deadline hits, the app asks the endpoint's health API what's actually happening: a worker initializing or grinding through a queue backlog earns more time (in 2-minute extensions, up to a 10-minute hard cap, with the caption 'your GPU is still booting — hanging on'), while an endpoint with no workers at all fails immediately with the real numbers and the fix. Combined with the background service, a first boot can now complete unattended."
 }

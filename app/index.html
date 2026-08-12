@@ -1593,7 +1593,23 @@ var LASTREQ = null;   // where the last completion request went, for honest fail
    retry the request within an overall budget and a later attempt lands
    on the warm worker. Z.ai gets one attempt with a tight deadline. */
 var RP_TOTAL_MS = 180000, GLM_FIRST_TOKEN_MS = 60000, STREAM_IDLE_MS = 60000,
-    RP_RETRY_PAUSE_MS = 4000;
+    RP_RETRY_PAUSE_MS = 4000,
+    /* a first-ever vLLM boot downloads the whole model (~16GB) and blows
+       straight through the base budget — when the deadline hits, the health
+       API says whether a worker is actually booting, and a boot in progress
+       earns extensions up to the hard cap */
+    RP_EXTEND_MS = 120000, RP_MAX_TOTAL_MS = 600000;
+async function rpHealthBrief(){
+  try {
+    var ctrl = new AbortController();
+    var tm = setTimeout(function(){ ctrl.abort(); }, 10000);
+    var r = await fetch("https://api.runpod.ai/v2/" + rp().vep.trim() + "/health",
+      {headers: {"Authorization": "Bearer " + rp().key.trim()}, signal: ctrl.signal});
+    clearTimeout(tm);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (e) { return null; }
+}
 async function remoteGenerate(messages, onDelta, cid){
   var hasImg = messagesHaveImage(messages);
   var viaRp = hasImg && matureActive() && rpVisionReady();
@@ -1618,8 +1634,8 @@ async function remoteGenerate(messages, onDelta, cid){
     throw mis;
   }
   var started = Date.now(), attempt = 0, emitted = false;
-  var lastStatus = 0, sameStatus = 0;
-  function msLeft(){ return RP_TOTAL_MS - (Date.now() - started); }
+  var lastStatus = 0, sameStatus = 0, budget = RP_TOTAL_MS;
+  function msLeft(){ return budget - (Date.now() - started); }
   if (hasImg && cid) setStage(cid, "reading your photo");
   /* ---- one streaming attempt; throws with .isTimeout on its deadline ---- */
   async function streamOnce(){
@@ -1729,7 +1745,7 @@ async function remoteGenerate(messages, onDelta, cid){
       var te = new Error(gotBytes
         ? who + " went quiet mid-reply (no data for " + Math.round(STREAM_IDLE_MS / 1000) + "s)"
         : (viaRp
-          ? who + " didn't answer within " + Math.round(RP_TOTAL_MS / 60000) +
+          ? who + " didn't answer within " + Math.round(budget / 60000) +
             " minutes — cold start too slow, or the endpoint has no workers available"
           : who + " didn't answer within " + Math.round(GLM_FIRST_TOKEN_MS / 1000) + "s"));
       te.isTimeout = true; te.viaRp = viaRp;
@@ -1753,6 +1769,35 @@ async function remoteGenerate(messages, onDelta, cid){
           rp().nostream = true; save();
           L("gen", "vision endpoint can't stream — switching it to whole-JSON replies", true);
           continue;
+        }
+        /* deadline hit with nothing shown: before giving up, ask the health
+           API whether a worker actually exists. One initializing or serving
+           a queue backlog is evidence the wait is real work — a first boot
+           downloads the whole model — so the budget grows, bounded by the
+           hard cap. No workers at all is a verdict, delivered as one. */
+        if (e.isTimeout && viaRp && !emitted && budget < RP_MAX_TOTAL_MS) {
+          var h = await rpHealthBrief();
+          var hw = (h && h.workers) || {};
+          var aliveW = (hw.initializing || 0) + (hw.running || 0) +
+                       (hw.ready || 0) + (hw.idle || 0);
+          if (aliveW > 0) {
+            budget += RP_EXTEND_MS;
+            L("gen", "deadline hit but a worker exists (initializing=" + (hw.initializing || 0) +
+              ", running=" + (hw.running || 0) + ", queued=" + ((h.jobs && h.jobs.inQueue) || 0) +
+              ") — extending the wait to " + Math.round(budget / 60000) +
+              " min; a first boot downloads the model", true);
+            if (cid) setStage(cid, "your GPU is still booting — hanging on");
+            continue;
+          }
+          if (h) {
+            var qe = new Error(who + " has no workers at all after " +
+              Math.round((Date.now() - started) / 60000) + " min (throttled=" +
+              (hw.throttled || 0) + ", queued=" + ((h.jobs && h.jobs.inQueue) || 0) +
+              ") — RunPod can't start a GPU: check Max Workers, GPU types and credits " +
+              "(Settings → Test vision endpoint)");
+            qe.viaRp = true;
+            throw qe;
+          }
         }
         /* the same status arriving instantly again and again is the
            endpoint failing deterministically, not a cold start — three
