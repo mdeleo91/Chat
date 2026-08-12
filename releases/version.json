@@ -1,6 +1,6 @@
 {
-  "versionCode": 54,
-  "versionName": "0.19.5",
+  "versionCode": 55,
+  "versionName": "0.19.6",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Photo-reading now rides out cold starts instead of failing on them. Build 53 revealed the real shape of the problem: RunPod's gateway drops the held connection with a 'network error' after about a minute of cold start — before your GPU finishes waking. Since that first request is exactly what wakes the GPU, the app now retries the dropped connection automatically inside the 3-minute window ('waking your GPU — cold start · attempt 2'), and a later attempt lands on the warm worker. You send the photo once; the app does the resending."
+  "notes": "Leaving the app no longer kills the reply. Android freezes a backgrounded app and severs any in-flight connection — exactly what a slow photo-read invites you to do. Two fixes: the screen now stays awake while a reply or photo is generating, so setting the phone down doesn't lock, freeze, and kill it; and if the app does die mid-reply (switched away, process reclaimed), the next launch notices the reply never landed and automatically re-sends it — history and photo are all stored locally, so nothing is lost. Combined with 0.19.5's cold-start retries: send the photo, and the app keeps chasing the reply until it lands."
 }

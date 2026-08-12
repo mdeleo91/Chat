@@ -9,7 +9,10 @@ import android.os.Bundle;
 import android.provider.MediaStore;
 import android.view.ViewGroup;
 
+import android.view.WindowManager;
+
 import java.util.List;
+import android.webkit.JavascriptInterface;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -35,6 +38,25 @@ public class MainActivity extends Activity {
     private static final Uri CAM_URI =
             Uri.parse("content://" + PhotoProvider.AUTHORITY + "/shot.jpg");
 
+    /**
+     * JS bridge (window.PocketShell). The page holds the screen awake while
+     * a reply or photo is generating: an idle screen locking freezes the
+     * process, which severs the in-flight connection — the most common way
+     * a slow generation "mysteriously" dies. Cleared as soon as nothing is
+     * pending, so it never outlives a generation.
+     */
+    public class Shell {
+        @JavascriptInterface
+        public void keepAwake(final boolean on) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    if (on) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                }
+            });
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -59,6 +81,7 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(true);
         // Allow the file:// page to fetch the update manifest from raw.githubusercontent.com
         s.setAllowUniversalAccessFromFileURLs(true);
+        web.addJavascriptInterface(new Shell(), "PocketShell");
 
         // Without a WebChromeClient, WebView suppresses JS dialogs entirely —
         // confirm() returns false, breaking the 18+ gate and delete/wipe flows.

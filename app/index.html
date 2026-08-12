@@ -1940,15 +1940,62 @@ function trimSummary(id){
    re-entering a chat mid-generation re-lights everything. n counts
    overlapping jobs (group chats). */
 var PENDING = {};
+/* Android freezes a backgrounded app and kills its held connections — a
+   reply in flight when the user switches away (or the screen locks) dies
+   with the process. The generation is stateless, rebuilt entirely from
+   stored history (photo included), so record what's in flight in
+   localStorage and re-fire whatever never landed on the next boot. */
+var INFLIGHT_KEY = "chat.inflight.v1";
+function inflightRead(){
+  try { return JSON.parse(localStorage.getItem(INFLIGHT_KEY)) || {}; } catch(e){ return {}; }
+}
+function inflightWrite(m){
+  try { localStorage.setItem(INFLIGHT_KEY, JSON.stringify(m)); } catch(e){}
+}
+function inflightMark(cid, chId){
+  var m = inflightRead(); m[cid] = {ch: chId, ts: Date.now()}; inflightWrite(m);
+}
+function inflightClear(cid){
+  var m = inflightRead();
+  if (m[cid] !== undefined) { delete m[cid]; inflightWrite(m); }
+}
+function resumeInterrupted(){
+  var m = inflightRead();
+  if (!Object.keys(m).length) return;
+  inflightWrite({});                       // consumed; aiDeliver re-marks
+  Object.keys(m).forEach(function(cid){
+    var e = m[cid] || {};
+    var convo = getConvo(cid), ch = getChar(e.ch);
+    if (!convo || !ch || !useLLM()) return;
+    if (Date.now() - (e.ts || 0) > 15 * 60000) return;   // stale — let it lie
+    var arr = S.msgs[cid] || [];
+    var last = arr.length ? arr[arr.length - 1] : null;
+    /* only when the reply never landed — a delivered reply must not double */
+    if (!last || (last.who !== "me" && last.who !== "scene")) return;
+    L("gen", "resuming " + ch.name + "'s reply — the app was closed mid-generation", true);
+    aiDeliver(convo, ch, null);
+  });
+}
+/* the page asks the shell to hold the screen awake while anything is
+   generating — an idle screen locking is the most common way the process
+   gets frozen mid-reply. No-op on the web. */
+function updateAwake(){
+  try {
+    if (window.PocketShell && PocketShell.keepAwake)
+      PocketShell.keepAwake(Object.keys(PENDING).length > 0);
+  } catch(e){}
+}
 function beginGen(cid){
   var p = PENDING[cid];
   if (!p) p = PENDING[cid] = {t: Date.now(), n: 0, stage: ""};
   p.n++;
+  updateAwake();
   refreshPendingUI(cid);
 }
 function endGen(cid){
   var p = PENDING[cid]; if (!p) return;
-  if (--p.n <= 0) delete PENDING[cid];
+  if (--p.n <= 0) { delete PENDING[cid]; inflightClear(cid); }
+  updateAwake();
   refreshPendingUI(cid);
 }
 function setStage(cid, stage){
@@ -1999,6 +2046,7 @@ function pump(){
 }
 function aiDeliver(convo, ch, userText, nudge){
   beginGen(convo.id);
+  inflightMark(convo.id, ch.id);
   enqueue(function(done){
     var ty = $("ty");
     if (cur === convo.id && ty){ ty.classList.add("on"); $("stream").scrollTop = 1e9; }
@@ -3395,6 +3443,7 @@ L("boot", "v" + MY_VN + " " + (IS_APK ? "apk build " + MY_VC : "web") +
 if (Q.rcrash) L("crash", "recovered from a WebView renderer " +
   (Q.rcrash === "oom" ? "out-of-memory kill" : "crash"), true);
 renderHome(); initSettings(); silentUpdateCheck();
+resumeInterrupted();
 if (S.onboarded) { $("v-ob").classList.add("right"); }
 if (window.matchMedia) {
   var mq = window.matchMedia("(prefers-color-scheme: dark)");
