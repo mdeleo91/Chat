@@ -990,6 +990,17 @@ function imgPrompt(ch, desc, isSelfie){
   var style = ch && ch.imgstyle ? fill(ch.imgstyle, ch) : IMG_STYLE_DEFAULT;
   return desc + "\n\nStyle: " + (isSelfie ? IMG_SELFIE_FRAME + " " : "") + style;
 }
+/* every mature prompt states the subject's adulthood outright unless the
+   description already does. Non-negotiable guard (characters are adults,
+   full stop) that doubles as a quality fix: FLUX renders age-ambiguous
+   wording conservatively, and NSFW LoRAs are trained on adult-stated
+   captions — an unanchored prompt is both the wrong output and a tame one */
+function adultDesc(desc){
+  if (/\b(adult|\d\d[\s-]*(?:year|yr)|(?:twent|thirt|fort|fift)\w*|milf|mature woman)\b/i.test(desc))
+    return desc;
+  return desc + (/[.!?…]\s*$/.test(desc) ? " " : ". ") +
+    "Any person shown is unmistakably an adult in their mid-twenties or older.";
+}
 /* shared response handling for every image endpoint — Z.ai answers
    {data:[{url|b64_json}]}, fal answers {images:[{url}]} */
 function imgResponse(p, tag, cb, onFail){
@@ -1343,10 +1354,14 @@ function buildFluxWorkflow(prompt, loras){
   return wf;
 }
 function runpodImage(desc, ch, isSelfie, cid, cb, onFail){
+  desc = adultDesc(desc);
   var lf = lorasFor(ch, desc, true);
   var trig = [(fal().trigger || "").trim()].concat(lf.adds)
     .concat([(fal().mat || "").trim()]).filter(Boolean).join("\n");
   var prompt = imgPrompt(ch, desc, isSelfie) + (trig ? "\n" + trig : "");
+  /* tame output with a green route-log is a prompt problem — log exactly
+     what reached the GPU: the appended trigger words and the full desc */
+  L("img", "runpod adds: “" + (trig || "(none)") + "” · desc: “" + desc + "”", true);
   setStage(cid, "sending to your GPU");
   fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
     method: "POST",
@@ -1423,6 +1438,7 @@ function falImage(desc, ch, isSelfie, isMature, cb, onFail){
      therefore go text-to-image, where content LoRAs work at full strength;
      identity there comes from a likeness LoRA in the character's cards. */
   var refs = isSelfie && !isMature ? (ch && ch.refimgs || []) : [];
+  if (isMature) desc = adultDesc(desc);
   var lf = lorasFor(ch, desc, isMature), loras = lf.loras;
   /* Kontext keeps a face best when addressed as an edit of "this person",
      and when style LoRAs are damped so they can't out-vote the identity */
@@ -1661,7 +1677,10 @@ function sysPrompt(ch, convo){
           "only to the image generator — the user never reads it — so write it as a frank, specific " +
           "image prompt: state of dress or undress, pose, framing, expression and mood, in plain " +
           "visual language, matching exactly what is happening in the conversation right now rather " +
-          "than a generic scene. Ordinary pictures during flirty conversation stay untagged — " +
+          "than a generic scene. State your adult age outright in the description (e.g. 'a " +
+          "26-year-old woman') and describe yourself as the adult you are — 'woman', never " +
+          "age-ambiguous words like 'girl'; the image generator takes every word literally. " +
+          "Ordinary pictures during flirty conversation stay untagged — " +
           "reserve 18+ for pictures that are themselves mature.\n"
         : "");
   p += "Reply like a text message: short (1-3 sentences unless the user asks for more), natural, " +

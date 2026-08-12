@@ -1,6 +1,6 @@
 {
-  "versionCode": 51,
-  "versionName": "0.19.2",
+  "versionCode": 52,
+  "versionName": "0.19.3",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Photo chats stop dying on shaky connections. Photos you sent used to re-upload with every single message for as long as they stayed in history, making those chats' requests huge and fragile — that's why one conversation could fail with a network error while the others worked. Now only your most recent photos upload; older ones stay as a note in the conversation, and the chat drops back to the faster text model sooner. Failure logs also now say exactly which server the request went to and how big it was, and a network blip shows an honest 'try again' instead of blaming your API key."
+  "notes": "Mature photos come out the way the moment reads. When a description was vague about who was in it, FLUX played it safe and painted a tame shot — mature prompts now anchor the subject as an explicitly adult woman (characters state their adult age in their own descriptions too), which is both the guardrail and the fix: NSFW LoRAs are trained on adult-stated captions and barely engage without one. The troubleshooting log also now records the exact prompt text and trigger words sent to your GPU, so a tame result can be traced instead of guessed at."
 }
