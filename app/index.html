@@ -711,10 +711,27 @@ function flushLogs(){
   try { localStorage.setItem(LOGKEY, JSON.stringify(LOGS)); } catch(e){}
 }
 /* now=true writes through immediately: anything logged right before a risky
-   operation has to survive the process being killed mid-operation. */
-function L(tag, msg, now){
-  LOGS.push({t:Date.now(), g:tag, m:String(msg).slice(0,500)});
+   operation has to survive the process being killed mid-operation. keep
+   raises the per-entry cap: 500 chars is right for a status line and wrong
+   for an image prompt, which is several hundred characters of anchor and
+   style before the description even starts. */
+/* full prompts are ~2KB each, so an entry count alone stopped bounding the
+   log — and localStorage is shared with the chats and their photos, where
+   running out is silent data loss rather than a missing log line. Trim on
+   both: entries, and total characters. */
+var LOG_BUDGET = 120000;
+function trimLogs(){
   if (LOGS.length > 600) LOGS = LOGS.slice(-500);
+  var total = 0, i;
+  for (i = LOGS.length - 1; i >= 0; i--) {
+    total += LOGS[i].m.length + 40;      // + the timestamp and tag around it
+    if (total > LOG_BUDGET) break;
+  }
+  if (i >= 0) LOGS = LOGS.slice(i + 1);
+}
+function L(tag, msg, now, keep){
+  LOGS.push({t:Date.now(), g:tag, m:String(msg).slice(0, keep || 500)});
+  trimLogs();
   if (now) { flushLogs(); return; }
   clearTimeout(logFlushT);
   logFlushT = setTimeout(flushLogs, 400);
@@ -1461,9 +1478,13 @@ function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked){
   var trig = [(fal().trigger || "").trim()].concat(lf.adds)
     .concat([(fal().mat || "").trim()]).filter(Boolean).join("\n");
   var prompt = imgPrompt(ch, desc, isSelfie) + (trig ? "\n" + trig : "");
-  /* tame output with a green route-log is a prompt problem — log exactly
-     what reached the GPU: the appended trigger words and the full desc */
-  L("img", "runpod adds: “" + (trig || "(none)") + "” · desc: “" + desc + "”", true);
+  /* tame output with a green route-log is a prompt problem, so log the whole
+     string that reaches the GPU — not the description alone. The description
+     is only the middle of it: imgPrompt puts the appearance anchor in front
+     and the style block behind, and the trigger words ride last. RunPod is
+     no help here (/status echoes the output, never the input), so this log
+     is the only place the assembled prompt exists. */
+  L("img", "runpod prompt (" + prompt.length + " chars) ↓\n" + prompt, true, 6000);
   setStage(cid, "sending to your GPU");
   fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
     method: "POST",
@@ -1495,6 +1516,9 @@ function rpFinish(j, isSelfie, cid, nLoras, cb, onFail){
   }
   if ((j.status === "IN_QUEUE" || j.status === "IN_PROGRESS") && j.id) {
     setStage(cid, j.status === "IN_QUEUE" ? "waiting for a GPU — cold start" : "painting the photo");
+    /* the id is how a log line and a row in RunPod's Requests tab become the
+       same picture — worth having when the two disagree */
+    L("img", "runpod job " + j.id + " " + j.status, true);
     rpPoll(j.id, 60, isSelfie, cid, nLoras, cb, onFail);
     return;
   }
@@ -1576,6 +1600,8 @@ function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked){
   var url = refs.length ? FAL_I2I_URL : FAL_T2I_URL;
   if (refs.length) body.image_url = refs[0];
   else body.image_size = "portrait_4_3";
+  L("img", "flux prompt (" + body.prompt.length + " chars, checker " +
+    (body.enable_safety_checker ? "on" : "off") + ") ↓\n" + body.prompt, true, 6000);
   imgResponse(fetch(url, {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Key " + fal().key.trim()},
@@ -1587,10 +1613,12 @@ function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked){
 }
 /* generate the picture a character decided to send; cb(dataUrlOrNull) */
 function glmImage(desc, ch, isSelfie, cb){
+  var prompt = imgPrompt(ch, desc, isSelfie);
+  L("img", "glm prompt (" + prompt.length + " chars) ↓\n" + prompt, true, 6000);
   imgResponse(fetch(GLM_IMG_URL, {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Bearer " + glm().key.trim()},
-    body: JSON.stringify({model: glm().imodel, prompt: imgPrompt(ch, desc, isSelfie),
+    body: JSON.stringify({model: glm().imodel, prompt: prompt,
       size: imgSize(glm().imodel)})
   }), "generation (" + glm().imodel + ")", cb);
 }
@@ -1607,13 +1635,16 @@ function glmSelfie(desc, ch, cb){
     L("img", "note: Z.ai has ignored reference images in testing — add a fal.ai key " +
       "in Settings for selfies that actually match the references", true);
   if (!refs.length) { glmImage(desc, ch, true, cb); return; }
+  var prompt = "A new photo of the same person as the reference image" +
+    (refs.length > 1 ? "s" : "") + ". " + imgPrompt(ch, desc, true);
+  L("img", "glm selfie prompt (" + prompt.length + " chars, " + refs.length +
+    " ref" + (refs.length > 1 ? "s" : "") + ") ↓\n" + prompt, true, 6000);
   imgResponse(fetch(GLM_IMG_URL, {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Bearer " + glm().key.trim()},
     body: JSON.stringify({
       model: GLM_REF_MODEL,
-      prompt: "A new photo of the same person as the reference image" +
-        (refs.length > 1 ? "s" : "") + ". " + imgPrompt(ch, desc, true),
+      prompt: prompt,
       image_url: refs,
       size: imgSize(GLM_REF_MODEL)
     })
@@ -4106,7 +4137,7 @@ function renderLogCard(){
   }).join("\n");
   card.innerHTML = "<b>Recent entries</b>" +
     '<pre style="font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-word;' +
-    'color:var(--mist);max-height:180px;overflow-y:auto;margin:6px 0 10px">' + esc(tail || "(empty)") + "</pre>" +
+    'color:var(--mist);max-height:300px;overflow-y:auto;margin:6px 0 10px">' + esc(tail || "(empty)") + "</pre>" +
     '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
     (IS_APK ? "" : '<button class="btn" id="log-dl" style="padding:9px 18px;font-size:13.5px">' +
       '<span class="msr" style="font-size:16px">download</span> Download</button>') +

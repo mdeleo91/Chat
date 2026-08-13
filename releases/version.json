@@ -1,6 +1,6 @@
 {
-  "versionCode": 72,
-  "versionName": "0.20.7",
+  "versionCode": 73,
+  "versionName": "0.20.8",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Photo-reading on a self-hosted vision endpoint no longer poisons its own queue. The old path held one HTTP connection open across the cold start, so every client-side deadline abandoned a job that RunPod had already queued and would still run: one photo that waited out six attempts left ten dead reads stacked ahead of the live one, and the endpoint could never catch up. Reads now submit a single job and poll it, so a slow first boot costs nothing — the job keeps its place however long the model takes, and the wait can run to 15 minutes. A gateway that hangs up with no HTTP status now trips the same three-strikes stop as a repeated error instead of being retried until the budget dies, dropped connections get their own time allowance rather than eating the cold-start extension, and Settings has a Purge queued jobs button for backlogs left by earlier versions."
+  "notes": "The troubleshooting log now carries the whole image prompt. The description a character writes is only the middle of what the image model actually receives — the appearance anchor goes in front of it, the style block behind, and the trigger words last — and the log cut every entry at 500 characters, which landed right where the interesting part began. RunPod is no help here either: its API returns a job's output but never echoes the input it ran, so the assembled prompt existed nowhere. Every engine (RunPod, FLUX, GLM) now logs the exact string it sends, RunPod image jobs log their job id so a log line and a row in the Requests tab can be matched up, and the log is bounded by total size as well as entry count so the bigger entries can't crowd out the chats in local storage."
 }
