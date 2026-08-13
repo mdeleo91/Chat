@@ -1,6 +1,6 @@
 {
-  "versionCode": 73,
-  "versionName": "0.20.8",
+  "versionCode": 74,
+  "versionName": "0.20.9",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "The troubleshooting log now carries the whole image prompt. The description a character writes is only the middle of what the image model actually receives — the appearance anchor goes in front of it, the style block behind, and the trigger words last — and the log cut every entry at 500 characters, which landed right where the interesting part began. RunPod is no help here either: its API returns a job's output but never echoes the input it ran, so the assembled prompt existed nowhere. Every engine (RunPod, FLUX, GLM) now logs the exact string it sends, RunPod image jobs log their job id so a log line and a row in the Requests tab can be matched up, and the log is bounded by total size as well as entry count so the bigger entries can't crowd out the chats in local storage."
+  "notes": "A log entry can no longer be cut without saying so. Prompts are recorded up to 12,000 characters — several times longer than anything the app assembles — and if a line ever is trimmed it now ends by naming how many characters went missing, instead of just stopping mid-sentence the way the old 500-character cap did. The size budget added in the previous build also can no longer erase the entry it was called to record: an oversized line is kept rather than swept away with the history it overflowed."
 }

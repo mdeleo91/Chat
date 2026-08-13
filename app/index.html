@@ -727,10 +727,16 @@ function trimLogs(){
     total += LOGS[i].m.length + 40;      // + the timestamp and tag around it
     if (total > LOG_BUDGET) break;
   }
-  if (i >= 0) LOGS = LOGS.slice(i + 1);
+  /* never drop the entry just written, however big it is — a budget that can
+     erase the thing it was called to record is worse than no budget */
+  if (i >= 0) LOGS = LOGS.slice(Math.min(i + 1, LOGS.length - 1));
 }
 function L(tag, msg, now, keep){
-  LOGS.push({t:Date.now(), g:tag, m:String(msg).slice(0, keep || 500)});
+  var lim = keep || 500, s = String(msg);
+  /* silent truncation is exactly how the old log hid the interesting half of
+     a prompt — if anything is cut, the entry says so and by how much */
+  if (s.length > lim) s = s.slice(0, lim) + "… [+" + (s.length - lim) + " chars cut]";
+  LOGS.push({t:Date.now(), g:tag, m:s});
   trimLogs();
   if (now) { flushLogs(); return; }
   clearTimeout(logFlushT);
@@ -1484,7 +1490,7 @@ function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked){
      and the style block behind, and the trigger words ride last. RunPod is
      no help here (/status echoes the output, never the input), so this log
      is the only place the assembled prompt exists. */
-  L("img", "runpod prompt (" + prompt.length + " chars) ↓\n" + prompt, true, 6000);
+  L("img", "runpod prompt (" + prompt.length + " chars) ↓\n" + prompt, true, 12000);
   setStage(cid, "sending to your GPU");
   fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
     method: "POST",
@@ -1601,7 +1607,7 @@ function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked){
   if (refs.length) body.image_url = refs[0];
   else body.image_size = "portrait_4_3";
   L("img", "flux prompt (" + body.prompt.length + " chars, checker " +
-    (body.enable_safety_checker ? "on" : "off") + ") ↓\n" + body.prompt, true, 6000);
+    (body.enable_safety_checker ? "on" : "off") + ") ↓\n" + body.prompt, true, 12000);
   imgResponse(fetch(url, {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Key " + fal().key.trim()},
@@ -1614,7 +1620,7 @@ function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked){
 /* generate the picture a character decided to send; cb(dataUrlOrNull) */
 function glmImage(desc, ch, isSelfie, cb){
   var prompt = imgPrompt(ch, desc, isSelfie);
-  L("img", "glm prompt (" + prompt.length + " chars) ↓\n" + prompt, true, 6000);
+  L("img", "glm prompt (" + prompt.length + " chars) ↓\n" + prompt, true, 12000);
   imgResponse(fetch(GLM_IMG_URL, {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Bearer " + glm().key.trim()},
@@ -1638,7 +1644,7 @@ function glmSelfie(desc, ch, cb){
   var prompt = "A new photo of the same person as the reference image" +
     (refs.length > 1 ? "s" : "") + ". " + imgPrompt(ch, desc, true);
   L("img", "glm selfie prompt (" + prompt.length + " chars, " + refs.length +
-    " ref" + (refs.length > 1 ? "s" : "") + ") ↓\n" + prompt, true, 6000);
+    " ref" + (refs.length > 1 ? "s" : "") + ") ↓\n" + prompt, true, 12000);
   imgResponse(fetch(GLM_IMG_URL, {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Bearer " + glm().key.trim()},
