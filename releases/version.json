@@ -1,6 +1,6 @@
 {
-  "versionCode": 71,
-  "versionName": "0.20.6",
+  "versionCode": 72,
+  "versionName": "0.20.7",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Unusual camera angles finally survive to the image. Three things were quietly voting for a face selfie even after the director planned a POV shot: the camera sat buried mid-sentence where image models barely weight it, every selfie prompt opened with a written description of the character's face (asking for a face is a good way to get one), and the likeness LoRA — trained on face-forward portraits — carried that composition at full strength. Now the director leads the prompt with the shot type and camera in its own clause, the face anchor stands down when the face isn't in frame, and likeness LoRAs are damped to 60% on first-person shots so the camera wins. Ordinary selfies are unchanged."
+  "notes": "Photo-reading on a self-hosted vision endpoint no longer poisons its own queue. The old path held one HTTP connection open across the cold start, so every client-side deadline abandoned a job that RunPod had already queued and would still run: one photo that waited out six attempts left ten dead reads stacked ahead of the live one, and the endpoint could never catch up. Reads now submit a single job and poll it, so a slow first boot costs nothing — the job keeps its place however long the model takes, and the wait can run to 15 minutes. A gateway that hangs up with no HTTP status now trips the same three-strikes stop as a repeated error instead of being retried until the budget dies, dropped connections get their own time allowance rather than eating the cold-start extension, and Settings has a Purge queued jobs button for backlogs left by earlier versions."
 }

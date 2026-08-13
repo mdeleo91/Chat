@@ -1702,8 +1702,15 @@ var RP_TOTAL_MS = 180000, GLM_FIRST_TOKEN_MS = 60000, STREAM_IDLE_MS = 60000,
     /* a first-ever vLLM boot downloads the whole model (~16GB) and blows
        straight through the base budget — when the deadline hits, the health
        API says whether a worker is actually booting, and a boot in progress
-       earns extensions up to the hard cap */
-    RP_EXTEND_MS = 120000, RP_MAX_TOTAL_MS = 600000;
+       earns extensions up to the hard cap. The cap is generous because a
+       long wait no longer costs anything: the job path below keeps one job
+       queued however long it takes, instead of abandoning and re-submitting. */
+    RP_EXTEND_MS = 120000, RP_MAX_TOTAL_MS = 900000, RP_POLL_MS = 4000,
+    /* drop-retries get their own wall clock. The cold-start extension is
+       granted for waiting on a booting worker; a run that spends it
+       re-dialling a gateway that keeps hanging up ends with nothing to show
+       for either (the 533s run that ended with the worker still initializing). */
+    RP_DROP_ALLOWANCE_MS = 90000;
 async function rpHealthBrief(){
   try {
     var ctrl = new AbortController();
@@ -1714,6 +1721,43 @@ async function rpHealthBrief(){
     if (!r.ok) return null;
     return await r.json();
   } catch (e) { return null; }
+}
+/* ---- the vision endpoint as an async job ----
+   The sync OpenAI route holds one HTTP connection open for the whole cold
+   start, so every client-side deadline abandoned a job that RunPod had
+   already queued and would still run. Six attempts on a single photo left
+   ten dead vision jobs stacked ahead of the live one (queued=5→6→7 in the
+   log), and the endpoint could never catch up. Submitting once to /run and
+   polling /status/{id} makes a slow boot free: the job keeps its place, and
+   a later poll collects it. */
+function rpJobHeaders(){
+  return {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()};
+}
+function rpVisionUrl(path){
+  return "https://api.runpod.ai/v2/" + rp().vep.trim() + path;
+}
+/* worker-vllm answers OpenAI-shaped requests off the job API when the input
+   names the route; the output comes back as that response object, as a list
+   of them when the worker batches, or in its own native token shape */
+function rpJobText(out){
+  if (!out) return null;
+  if (typeof out === "string") return out;
+  if (Array.isArray(out)) {
+    var parts = out.map(rpJobText).filter(Boolean);
+    return parts.length ? parts.join("") : null;
+  }
+  var c = out.choices && out.choices[0];
+  if (c) return (c.message && c.message.content) || (c.delta && c.delta.content) ||
+                c.text || (c.tokens ? [].concat(c.tokens).join("") : null);
+  return out.text || null;
+}
+/* giving up on a job without cancelling it is exactly the leak this path
+   exists to fix — the worker would still boot and still run it */
+function rpCancelJob(id){
+  if (!id) return;
+  fetch(rpVisionUrl("/cancel/" + id), {method: "POST", headers: rpJobHeaders()})
+    .then(function(){ L("gen", "cancelled abandoned vision job " + id, true); })
+    .catch(function(){});
 }
 async function remoteGenerate(messages, onDelta, cid){
   var hasImg = messagesHaveImage(messages);
@@ -1739,7 +1783,7 @@ async function remoteGenerate(messages, onDelta, cid){
     throw mis;
   }
   var started = Date.now(), attempt = 0, emitted = false;
-  var lastStatus = 0, sameStatus = 0, budget = RP_TOTAL_MS;
+  var lastStatus = 0, sameStatus = 0, budget = RP_TOTAL_MS, dropSpent = 0;
   function msLeft(){ return budget - (Date.now() - started); }
   if (hasImg && cid) setStage(cid, "reading your photo");
   /* live phase reporting for the GPU hunt: the health API knows whether
@@ -1768,6 +1812,113 @@ async function remoteGenerate(messages, onDelta, cid){
           ? "waiting for RunPod to free a GPU (throttled)"
           : "waiting for a GPU");
     }, 8000);
+  }
+  /* ---- one job, submitted once and polled to the end ----
+     Nothing in here abandons the job. The deadline stops being the end of an
+     attempt and becomes a question — "is a worker actually booting?" — with
+     the same health check and the same extensions as before, except the job
+     keeps its place in the queue across every one of them. */
+  async function rpJobRun(){
+    var body = JSON.stringify({input: {
+      openai_route: "/v1/chat/completions",
+      openai_input: {model: model, messages: messages, stream: false,
+        temperature: 0.85, top_p: 0.95, max_tokens: 512,
+        presence_penalty: 0.3, frequency_penalty: 0.3}
+    }});
+    LASTREQ = {via: "vision job", model: model, kb: Math.round(body.length / 1024)};
+    var r = await fetch(rpVisionUrl("/run"), {method: "POST", headers: rpJobHeaders(), body: body});
+    if (!r.ok) {
+      var bt = ""; try { bt = (await r.text() || "").trim(); } catch (e0) {}
+      var se = new Error(who + " wouldn't accept the job: HTTP " + r.status +
+        (bt ? " — " + bt.slice(0, 160) : ""));
+      se.viaRp = true;
+      se.fallbackSync = r.status === 400 || r.status === 404;
+      throw se;
+    }
+    var sj = await r.json();
+    if (!sj.id) {
+      var ne = new Error(who + " returned no job id");
+      ne.viaRp = true; ne.fallbackSync = true; throw ne;
+    }
+    var jobId = sj.id, netMisses = 0;
+    L("gen", "vision job " + jobId + " submitted (" + LASTREQ.kb +
+      "KB) — polling; a slow boot no longer abandons it", true);
+    for (;;) {
+      if (cid && CANCELREQ[cid]) {
+        rpCancelJob(jobId);
+        var cae = new Error("stopped by the user"); cae.canceled = true; throw cae;
+      }
+      await new Promise(function(res){ setTimeout(res, RP_POLL_MS); });
+      var st = null;
+      try {
+        var pr = await fetch(rpVisionUrl("/status/" + jobId), {headers: rpJobHeaders()});
+        if (pr.ok) { st = await pr.json(); netMisses = 0; }
+        else if (pr.status < 500) {
+          var pe = new Error(who + " rejected the status check: HTTP " + pr.status);
+          pe.viaRp = true; throw pe;
+        } else netMisses++;
+      } catch (e1) {
+        if (e1 && e1.viaRp) { rpCancelJob(jobId); throw e1; }
+        /* a poll is cheap and the job is safe server-side, so a blinking
+           connection is not a reason to throw the work away */
+        netMisses++;
+      }
+      if (netMisses > 15) {
+        rpCancelJob(jobId);
+        var de = new Error(who + " couldn't be reached for a minute while the job was queued");
+        de.viaRp = true; throw de;
+      }
+      if (st && st.status === "COMPLETED") {
+        var t = rpJobText(st.output);
+        if (t) return String(t);
+        L("gen", "vision job finished with no text — output: “" +
+          JSON.stringify(st.output || null).slice(0, 200) + "”", true);
+        var ee = new Error(who + " finished the job but returned no reply");
+        ee.viaRp = true; ee.fallbackSync = true; throw ee;
+      }
+      if (st && (st.status === "FAILED" || st.status === "CANCELLED" || st.status === "TIMED_OUT")) {
+        var em = String((st.error && (st.error.message || st.error)) || st.status);
+        var fe = new Error(who + " job " + st.status + " — " + em.slice(0, 200));
+        fe.viaRp = true;
+        /* a worker image too old to know openai_route reports a missing
+           prompt rather than reading the messages — a protocol mismatch, not
+           a broken GPU, so the streaming route is worth one try. Matched
+           narrowly: this latches the endpoint onto the sync route until its
+           ID is re-entered, so an OOM or a crashed model must not qualify. */
+        fe.fallbackSync = /openai_route|openai_input|missing .{0,20}prompt|no prompt|prompt.{0,20}(?:required|missing)|unexpected keyword|unknown (?:route|field)|unsupported route/i
+          .test(em);
+        throw fe;
+      }
+      /* the stage caption is the health poller's job — it can tell a booting
+         worker from a busy one, which the job status alone cannot */
+      if (msLeft() > 0) continue;
+      if (budget >= RP_MAX_TOTAL_MS) {
+        rpCancelJob(jobId);
+        var te2 = new Error(who + " didn't finish within " + Math.round(budget / 60000) +
+          " minutes — the model is still loading. A booted worker stays warm for a few " +
+          "minutes, so sending again shortly usually lands on a ready GPU.");
+        te2.isTimeout = true; te2.viaRp = true; throw te2;
+      }
+      var h = await rpHealthBrief();
+      var hw = (h && h.workers) || {};
+      var aliveW = (hw.initializing || 0) + (hw.running || 0) + (hw.ready || 0) + (hw.idle || 0);
+      if (h && !aliveW) {
+        rpCancelJob(jobId);
+        var qe2 = new Error(who + " has no workers at all after " +
+          Math.round((Date.now() - started) / 60000) + " min (throttled=" + (hw.throttled || 0) +
+          ", queued=" + ((h.jobs && h.jobs.inQueue) || 0) + ") — RunPod can't start a GPU: " +
+          "check Max Workers, GPU types and credits (Settings → Test vision endpoint)");
+        qe2.viaRp = true; throw qe2;
+      }
+      budget += RP_EXTEND_MS;
+      L("gen", "still waiting on vision job " + jobId + " (initializing=" + (hw.initializing || 0) +
+        ", running=" + (hw.running || 0) + ", queued=" + ((h && h.jobs && h.jobs.inQueue) || 0) +
+        ") — extending to " + Math.round(budget / 60000) + " min; the job keeps its place", true);
+      if (cid) {
+        setStage(cid, "your GPU is still booting — hanging on");
+        setEta(cid, started, budget);
+      }
+    }
   }
   /* ---- one streaming attempt; throws with .isTimeout on its deadline ---- */
   async function streamOnce(){
@@ -1888,8 +2039,24 @@ async function remoteGenerate(messages, onDelta, cid){
     }
   }
   try {
+    /* the job API is the vision path now; the streaming route below stays as
+       the fallback for a worker image that doesn't understand it */
+    if (viaRp && !rp().noasync) {
+      try {
+        var jt = await rpJobRun();
+        emitted = true;
+        onDelta(jt);
+        return;
+      } catch (ej) {
+        if (!ej || !ej.fallbackSync) throw ej;
+        rp().noasync = true; save();
+        L("gen", "vision endpoint doesn't take OpenAI-shaped jobs — using the streaming " +
+          "route for it from now on: " + String(ej.message || ej).slice(0, 160), true);
+      }
+    }
     for (;;) {
       attempt++;
+      var attemptStart = Date.now();
       if (cid && CANCELREQ[cid]) {
         var cxe = new Error("stopped by the user");
         cxe.canceled = true;
@@ -1940,31 +2107,44 @@ async function remoteGenerate(messages, onDelta, cid){
             throw qe;
           }
         }
-        /* the same status arriving instantly again and again is the
-           endpoint failing deterministically, not a cold start — three
-           strikes and it's reported as what it is instead of eating the
-           whole budget (the 42-identical-500s log taught us this) */
-        if (e.status && viaRp && !emitted) {
-          sameStatus = e.status === lastStatus ? sameStatus + 1 : 1;
-          lastStatus = e.status;
-          if (sameStatus >= 3) {
-            var ce = new Error(who + " answered HTTP " + e.status + " " + sameStatus +
-              " times in a row — the endpoint is failing, not waking. Check its worker " +
-              "logs in the RunPod console. Last answer: " + msg.slice(0, 160));
-            ce.viaRp = true;
-            throw ce;
-          }
-        }
         /* retry only when it's safe (nothing shown yet) and plausibly a
            cold-start drop: a severed connection or a transient gateway
            status. A partial reply, a 4xx, or our own deadline is final. */
         var droppable = /network|fetch|load failed|connection/i.test(msg) || e.transient;
+        /* the same failure arriving again and again is the endpoint failing
+           deterministically, not a cold start — three strikes and it's
+           reported as what it is instead of eating the whole budget (the
+           42-identical-500s log taught us this). A bare "Failed to fetch"
+           carries no status, so keying the counter on the status alone let a
+           gateway that hung up the same way every time read as a cold-start
+           blip and retry until the budget died — count those too. */
+        var sig = e.status || (droppable && !e.isTimeout ? "neterr" : 0);
+        if (sig && viaRp && !emitted) {
+          sameStatus = sig === lastStatus ? sameStatus + 1 : 1;
+          lastStatus = sig;
+          if (sameStatus >= 3) {
+            var ce = new Error(who + (sig === "neterr"
+              ? " dropped the connection " + sameStatus + " times in a row with no HTTP status — " +
+                "the gateway is refusing the request rather than waking a GPU."
+              : " answered HTTP " + e.status + " " + sameStatus +
+                " times in a row — the endpoint is failing, not waking.") +
+              " Check its worker logs in the RunPod console. Last answer: " + msg.slice(0, 160));
+            ce.viaRp = true;
+            throw ce;
+          }
+        }
+        /* drops burn their own allowance, not the cold-start extension: that
+           extension is granted because a worker is booting, and spending it
+           on re-dials ends the run with the boot still unfinished */
+        if (droppable && !e.isTimeout) dropSpent += Date.now() - attemptStart;
         if (!viaRp || emitted || e.isTimeout || !droppable ||
+            dropSpent >= RP_DROP_ALLOWANCE_MS ||
             msLeft() < RP_RETRY_PAUSE_MS + 5000) {
           if (viaRp && !emitted && droppable && !e.isTimeout) {
             /* budget spent on drops — report the wait, not the last blip */
             var be = new Error(who + " kept dropping the connection while the GPU was waking (" +
-              attempt + " attempts over " + Math.round((Date.now() - started) / 1000) + "s)");
+              attempt + " attempts, " + Math.round(dropSpent / 1000) + "s lost to drops over " +
+              Math.round((Date.now() - started) / 1000) + "s)");
             be.isTimeout = true; be.viaRp = true;
             throw be;
           }
@@ -2698,8 +2878,13 @@ function falSectionHTML(){
        'placeholder="RunPod vision endpoint ID" value="' + esc(r.vep || "") + '">';
   h += '<input id="rp-vmodel" class="srvinput" autocomplete="off" style="margin-top:8px" ' +
        'placeholder="Qwen/Qwen2.5-VL-7B-Instruct" value="' + esc(r.vmodel || "") + '">';
-  h += '<button id="rp-vtest" class="btn" style="margin-top:8px">Test vision endpoint</button>' +
-       '<div id="rp-vtest-out" class="ds" style="padding-top:6px"></div>';
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
+       '<button id="rp-vtest" class="btn">Test vision endpoint</button>' +
+       '<button id="rp-vpurge" class="btn ghost">Purge queued jobs</button></div>';
+  h += '<div class="ds" style="padding-top:6px">Purge clears photo-reads still waiting for a GPU. ' +
+       'Worth doing once if reads have been timing out — abandoned jobs used to pile up and run ' +
+       'ahead of the live one.</div>';
+  h += '<div id="rp-vtest-out" class="ds" style="padding-top:6px"></div>';
   h += '<div class="ds" style="padding:10px 0 4px">18+ add-on (optional) — extra wording appended ' +
        'only to photos the character marks 18+. The character already writes what each mature photo ' +
        'shows from the conversation itself; use this only for constants you want on every one ' +
@@ -2728,8 +2913,8 @@ function wireFalUI(card){
   if (rpk) rpk.oninput = function(){ rp().key = rpk.value; save(); };
   var rpv = card.querySelector("#rp-vep");
   if (rpv) rpv.oninput = function(){
-    /* a different endpoint may well stream — relearn its quirks */
-    rp().vep = rpv.value; delete rp().nostream; save();
+    /* a different endpoint may well stream, or take jobs — relearn its quirks */
+    rp().vep = rpv.value; delete rp().nostream; delete rp().noasync; save();
   };
   var rpvm = card.querySelector("#rp-vmodel");
   if (rpvm) rpvm.onchange = function(){
@@ -2742,6 +2927,13 @@ function wireFalUI(card){
     rpVisionTest(card.querySelector("#rp-vtest-out"))
       .then(function(){ vt.disabled = false; },
             function(){ vt.disabled = false; });
+  };
+  var vp = card.querySelector("#rp-vpurge");
+  if (vp) vp.onclick = function(){
+    vp.disabled = true;
+    rpPurgeVisionQueue(card.querySelector("#rp-vtest-out"))
+      .then(function(){ vp.disabled = false; },
+            function(){ vp.disabled = false; });
   };
 }
 /* one-tap diagnosis of the vision endpoint, without burning a chat message:
@@ -2794,37 +2986,84 @@ async function rpVisionTest(out){
     line("✗ Health check failed: " + String(e && e.message || e).slice(0, 120));
     return;
   }
-  line("Sending a tiny chat request (may cold-start a worker — up to 90s)…");
+  /* the app reads photos through the job API, so the test has to exercise
+     that same route — a sync request that works proves nothing about it */
+  line("Submitting a tiny job (may cold-start a worker)…");
   try {
-    var ctrl = new AbortController();
-    var tm = setTimeout(function(){ ctrl.abort(); }, 90000);
-    var cr = await fetch("https://api.runpod.ai/v2/" + vep + "/openai/v1/chat/completions", {
+    var sr = await fetch("https://api.runpod.ai/v2/" + vep + "/run", {
       method: "POST",
       headers: {"Content-Type": "application/json", "Authorization": "Bearer " + key},
-      body: JSON.stringify({model: rp().vmodel, stream: false, max_tokens: 16,
-        messages: [{role: "user", content: "Reply with the single word OK."}]}),
-      signal: ctrl.signal
+      body: JSON.stringify({input: {
+        openai_route: "/v1/chat/completions",
+        openai_input: {model: rp().vmodel, stream: false, max_tokens: 16,
+          messages: [{role: "user", content: "Reply with the single word OK."}]}
+      }})
     });
-    clearTimeout(tm);
-    var cb = (await cr.text() || "").trim();
-    if (!cr.ok) {
-      line("✗ Chat: HTTP " + cr.status + " — " + cb.slice(0, 160));
-      if (cr.status === 500 && /internal server error/i.test(cb))
-        line("A bare gateway 500 with live workers means the worker doesn't speak the " +
-             "OpenAI chat protocol — it isn't a vLLM deployment (or its vLLM worker image " +
-             "is too old to have the OpenAI route). Redeploy via RunPod's Serverless vLLM " +
-             "quick-deploy and use that endpoint's ID.");
-      return;
+    var sb = (await sr.text() || "").trim();
+    if (!sr.ok) { line("✗ Job submit: HTTP " + sr.status + " — " + sb.slice(0, 160)); return; }
+    var sj = null; try { sj = JSON.parse(sb); } catch (e2) {}
+    if (!sj || !sj.id) { line("✗ Job submit returned no id — " + sb.slice(0, 160)); return; }
+    line("✓ Job " + sj.id + " queued — watching it for 90s…");
+    var deadline = Date.now() + 90000, last = "";
+    for (;;) {
+      await new Promise(function(res){ setTimeout(res, 4000); });
+      var st = null;
+      try {
+        var pr = await fetch("https://api.runpod.ai/v2/" + vep + "/status/" + sj.id,
+          {headers: {"Authorization": "Bearer " + key}});
+        st = await pr.json();
+      } catch (e3) {}
+      if (st && st.status && st.status !== last) { last = st.status; line("… " + last); }
+      if (st && st.status === "COMPLETED") {
+        var tt = rpJobText(st.output);
+        if (tt) line("✓ Photo-reading works — the model replied “" +
+                     String(tt).trim().slice(0, 60) + "”.");
+        else line("? The job finished but carried no text — output: " +
+                  JSON.stringify(st.output || null).slice(0, 160));
+        return;
+      }
+      if (st && (st.status === "FAILED" || st.status === "CANCELLED" || st.status === "TIMED_OUT")) {
+        line("✗ Job " + st.status + " — " +
+             String((st.error && (st.error.message || st.error)) || "").slice(0, 180));
+        line("If that names a missing prompt or an unknown route, the worker image predates the " +
+             "OpenAI job route — redeploy via RunPod's Serverless vLLM quick-deploy. The app " +
+             "falls back to the streaming route on its own when it sees this.");
+        return;
+      }
+      if (Date.now() > deadline) {
+        fetch("https://api.runpod.ai/v2/" + vep + "/cancel/" + sj.id,
+          {method: "POST", headers: {"Authorization": "Bearer " + key}}).catch(function(){});
+        line("… still " + (last || "queued") + " after 90s. That is a normal first boot — the " +
+             "model downloads once. The test job was cancelled so it can't pile up; the app " +
+             "itself waits up to 15 minutes.");
+        return;
+      }
     }
-    var j = null; try { j = JSON.parse(cb); } catch (e2) {}
-    var c = j && j.choices && j.choices[0];
-    var txt = (c && ((c.message && c.message.content) || c.text)) || "";
-    if (txt) line("✓ Chat works — the model replied “" + txt.trim().slice(0, 60) +
-                  "”. Photo-reading should work now.");
-    else line("? The endpoint answered but the reply carried no text — body: " + cb.slice(0, 160));
   } catch (e) {
-    line("✗ Chat request failed: " + String(e && e.message || e).slice(0, 120) +
-         " — a cold start can exceed this test's 90s; try once more.");
+    line("✗ Job test failed: " + String(e && e.message || e).slice(0, 120));
+  }
+}
+/* every abandoned job still runs when the GPU finally boots — one photo that
+   timed out six times left ten of them queued ahead of the live request, and
+   the endpoint could never catch up. This empties that backlog. */
+async function rpPurgeVisionQueue(out){
+  function line(t){
+    if (out) out.innerHTML += esc(t) + "<br>";
+    L("gen", "purge: " + t, true);
+  }
+  var vep = (rp().vep || "").trim(), key = (rp().key || "").trim();
+  if (out) out.innerHTML = "";
+  if (!vep || !key) { line("Enter the RunPod API key and vision endpoint ID first."); return; }
+  try {
+    var r = await fetch("https://api.runpod.ai/v2/" + vep + "/purge-queue",
+      {method: "POST", headers: {"Authorization": "Bearer " + key}});
+    var b = (await r.text() || "").trim();
+    if (!r.ok) { line("✗ Purge: HTTP " + r.status + " — " + b.slice(0, 160)); return; }
+    var j = null; try { j = JSON.parse(b); } catch (e) {}
+    line("✓ Queue purged" + (j && j.removed !== undefined ? " — " + j.removed + " job(s) removed" : "") +
+         ". Jobs already running finish; only the waiting ones are dropped.");
+  } catch (e) {
+    line("✗ Purge failed: " + String(e && e.message || e).slice(0, 140));
   }
 }
 function wireGlmUI(card){

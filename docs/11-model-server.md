@@ -85,3 +85,38 @@ for selfies with references (the first reference rides as `image_url`) — with
 Images are billed per generation on the fal account; text replies stay on the
 Z.ai key. If a FLUX call fails, the photo falls back to GLM (when a Z.ai key
 is present) and the error lands in the troubleshooting log.
+
+## Self-hosted vision (RunPod, optional)
+
+Z.ai's vision API refuses explicit image input, so a second RunPod endpoint —
+a vLLM quick-deploy — can read the photos **you** send during mature
+conversations. SFW conversations keep using Z.ai's vision model. Configure it
+under Settings → Vision endpoint, and prove it with **Test vision endpoint**,
+which exercises the same route the app uses.
+
+Reads go through RunPod's **job API**: one `POST /run`, then `/status/{id}`
+polled until it completes. That matters because the model is large — a first
+boot downloads roughly 16GB — and the older path held a single HTTP connection
+open for the whole cold start. Each client-side deadline abandoned a job that
+RunPod had already queued and would still run, so a photo that waited out six
+attempts left ten dead reads stacked ahead of the live one and the endpoint
+never caught up. Polling a job id makes the wait free: the job holds its place
+however long the boot takes, up to a 15-minute ceiling, and is cancelled
+outright if the wait is abandoned or you tap the typing bubble to stop.
+
+- The wait starts at 3 minutes and extends by 2 whenever the health API shows
+  a worker initializing, running or ready. No workers at all is reported as
+  what it is — RunPod can't get a GPU — rather than waited out.
+- A gateway that hangs up without an HTTP status (a bare `Failed to fetch`)
+  trips the same three-strikes stop as a repeated error code, instead of
+  reading as a cold-start blip and being retried until the budget is gone.
+  Dropped connections have their own 90-second allowance so they can't spend
+  the extension granted for a booting worker.
+- **Purge queued jobs** in Settings empties a backlog. Worth one tap if reads
+  were timing out on a build before 0.20.7, which left abandoned jobs behind.
+- A worker image too old to understand the OpenAI job route is detected from
+  its error, remembered, and served by the streaming route instead.
+
+Keeping the model on a network volume (or min-workers ≥ 1) is what turns a
+15-minute first boot into a few seconds; without one, every cold start
+re-downloads the weights.
