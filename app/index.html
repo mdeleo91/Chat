@@ -200,8 +200,13 @@
   .typing .tybar{display:none;width:100%;height:4px;border-radius:999px;background:var(--line);
     margin-top:9px;overflow:hidden}
   .typing .tybar.on{display:block}
-  .typing .tybar div{height:100%;width:0%;border-radius:999px;background:var(--acc);
-    transition:width 1s linear}
+  /* indeterminate on purpose: nothing in the pipeline reports a completion
+     fraction, so the bar says "still working" and the caption above it
+     carries the real state. A width tied to elapsed time was a countdown
+     wearing a progress bar's clothes. */
+  .typing .tybar div{height:100%;width:38%;border-radius:999px;background:var(--acc);
+    animation:tyslide 1.6s ease-in-out infinite}
+  @keyframes tyslide{0%{transform:translateX(-100%)}100%{transform:translateX(263%)}}
   .typing i{width:7px;height:7px;border-radius:50%;background:var(--acc);opacity:.4;
     animation:breathe 1.2s infinite}
   .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
@@ -1492,6 +1497,10 @@ function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked){
      is the only place the assembled prompt exists. */
   L("img", "runpod prompt (" + prompt.length + " chars) ↓\n" + prompt, true, 12000);
   setStage(cid, "sending to your GPU");
+  /* the same live health narration the photo-read has had — generation is
+     the longer wait of the two and had nothing but "painting the photo" */
+  setBusy(cid, true);
+  rpWatchStart(rp().ep.trim(), cid, "GPU is painting the photo");
   fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
@@ -1504,6 +1513,7 @@ function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked){
   }).then(function(j){
     rpFinish(j, isSelfie, cid, lf.loras.length, cb, onFail);
   }).catch(function(e){
+    rpWatchStop(cid);
     L("img", "runpod failed: " + String(e && e.message || e).slice(0, 360), true);
     if (onFail) onFail(); else cb(null);
   });
@@ -1515,19 +1525,22 @@ function rpFinish(j, isSelfie, cid, nLoras, cb, onFail){
   var img = (out.images && out.images[0]) || {};
   var b64 = img.data || img.image || out.message;   // worker version variants
   if (b64) {
+    rpWatchStop(cid);
+    rpTimingLog(j, "runpod photo");
     L("img", (isSelfie ? "selfie" : "photo") + " (runpod, " + nLoras + " lora" +
       (nLoras === 1 ? "" : "s") + ") ok", true);
     shrinkImage("data:image/png;base64," + String(b64).replace(/^data:image\/\w+;base64,/, ""), cb);
     return;
   }
   if ((j.status === "IN_QUEUE" || j.status === "IN_PROGRESS") && j.id) {
-    setStage(cid, j.status === "IN_QUEUE" ? "waiting for a GPU — cold start" : "painting the photo");
+    setStage(cid, j.status === "IN_QUEUE" ? "queued for a GPU" : "GPU is painting the photo");
     /* the id is how a log line and a row in RunPod's Requests tab become the
        same picture — worth having when the two disagree */
     L("img", "runpod job " + j.id + " " + j.status, true);
     rpPoll(j.id, 60, isSelfie, cid, nLoras, cb, onFail);
     return;
   }
+  rpWatchStop(cid);
   L("img", "runpod failed: status " + (j.status || "?") +
     (j.error ? " — " + String(j.error).slice(0, 240) : " — no image in the response"), true);
   if (onFail) onFail(); else cb(null);
@@ -1535,12 +1548,16 @@ function rpFinish(j, isSelfie, cid, nLoras, cb, onFail){
 function rpPoll(id, tries, isSelfie, cid, nLoras, cb, onFail, netMisses){
   netMisses = netMisses || 0;
   var fail = function(msg){
+    rpWatchStop(cid);
     L("img", "runpod failed: " + msg.slice(0, 300), true);
     if (onFail) onFail(); else cb(null);
   };
   /* the typing-bubble stop also kills a photo mid-poll — the job keeps
      running server-side, but nobody is waiting for it anymore */
-  if (CANCELREQ[cid]) { L("img", "photo poll stopped by the user", true); cb(null); return; }
+  if (CANCELREQ[cid]) {
+    rpWatchStop(cid);
+    L("img", "photo poll stopped by the user", true); cb(null); return;
+  }
   fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/status/" + id, {
     headers: {"Authorization": "Bearer " + rp().key.trim()}
   }).then(function(r){ return r.json(); })
@@ -1550,7 +1567,6 @@ function rpPoll(id, tries, isSelfie, cid, nLoras, cb, onFail, netMisses){
         fail("worker " + j.status + (j.error ? " — " + String(j.error).slice(0, 240) : "")); return;
       }
       if (tries <= 0) { fail("timed out waiting for the worker (cold start too slow)"); return; }
-      if (j.status === "IN_PROGRESS") setStage(cid, "painting the photo");
       setTimeout(function(){ rpPoll(id, tries - 1, isSelfie, cid, nLoras, cb, onFail, 0); }, 5000);
     }).catch(function(e){
       /* a dropped poll is usually the phone's network blinking, not the job
@@ -1748,16 +1764,57 @@ var RP_TOTAL_MS = 180000, GLM_FIRST_TOKEN_MS = 60000, STREAM_IDLE_MS = 60000,
        re-dialling a gateway that keeps hanging up ends with nothing to show
        for either (the 533s run that ended with the worker still initializing). */
     RP_DROP_ALLOWANCE_MS = 90000;
-async function rpHealthBrief(){
+async function rpHealthOf(ep){
   try {
     var ctrl = new AbortController();
     var tm = setTimeout(function(){ ctrl.abort(); }, 10000);
-    var r = await fetch("https://api.runpod.ai/v2/" + rp().vep.trim() + "/health",
+    var r = await fetch("https://api.runpod.ai/v2/" + ep + "/health",
       {headers: {"Authorization": "Bearer " + rp().key.trim()}, signal: ctrl.signal});
     clearTimeout(tm);
     if (!r.ok) return null;
     return await r.json();
   } catch (e) { return null; }
+}
+function rpHealthBrief(){ return rpHealthOf(rp().vep.trim()); }
+/* the caption, built only from states the API actually reported — a booting
+   worker, a throttled account and a queue backlog are three different waits
+   and used to look identical from the chat */
+function rpPhase(h, working){
+  var w = h.workers || {}, q = (h.jobs && h.jobs.inQueue) || 0;
+  if ((w.running || 0) > 0)
+    return q > 1 ? "GPU busy — " + (q - 1) + " job" + (q === 2 ? "" : "s") + " ahead of yours"
+                 : working;
+  if ((w.initializing || 0) > 0) return "GPU booting — loading the model";
+  if ((w.idle || 0) + (w.ready || 0) > 0) return "GPU ready — starting the job";
+  if ((w.throttled || 0) > 0) return "waiting for RunPod to free a GPU (throttled)";
+  return q > 1 ? "queued — " + (q - 1) + " job" + (q === 2 ? "" : "s") + " ahead of yours"
+               : "waiting for a GPU";
+}
+/* poll an endpoint's health for as long as a request is in flight against it,
+   and put the answer in the typing bubble. Returns its own stopper. */
+var RPWATCH = {};
+function rpWatchStart(ep, cid, working){
+  if (!cid || !ep) return;
+  rpWatchStop(cid);
+  var busy = false;
+  RPWATCH[cid] = setInterval(function(){
+    if (busy) return;
+    busy = true;
+    rpHealthOf(ep).then(function(h){
+      busy = false;
+      if (h && RPWATCH[cid]) setStage(cid, rpPhase(h, working));
+    });
+  }, 8000);
+}
+function rpWatchStop(cid){
+  if (RPWATCH[cid]) { clearInterval(RPWATCH[cid]); delete RPWATCH[cid]; }
+}
+/* RunPod reports the two numbers that actually explain a slow photo: how long
+   it sat in the queue, and how long the GPU worked. Neither was ever shown. */
+function rpTimingLog(j, what){
+  if (j.delayTime === undefined && j.executionTime === undefined) return;
+  L("img", what + " — queued " + Math.round((j.delayTime || 0) / 1000) + "s, ran " +
+    Math.round((j.executionTime || 0) / 1000) + "s", true);
 }
 /* ---- the vision endpoint as an async job ----
    The sync OpenAI route holds one HTTP connection open for the whole cold
@@ -1827,28 +1884,9 @@ async function remoteGenerate(messages, onDelta, cid){
      the job is queued, the worker is booting, or inference is running —
      poll it and put the truth in the caption, with the progress bar
      filling against the current budget */
-  var poll = null, polling = false;
   if (viaRp && cid) {
-    setEta(cid, started, budget);
-    poll = setInterval(async function(){
-      if (polling || emitted) return;
-      polling = true;
-      var h = await rpHealthBrief();
-      polling = false;
-      if (!h || emitted) return;
-      var w = h.workers || {}, q = (h.jobs && h.jobs.inQueue) || 0;
-      if ((w.running || 0) > 0)
-        setStage(cid, q > 1 ? "GPU busy — " + (q - 1) + " job" + (q === 2 ? "" : "s") +
-          " ahead of yours" : "GPU is reading your photo");
-      else if ((w.initializing || 0) > 0)
-        setStage(cid, "GPU booting — loading the model");
-      else if ((w.idle || 0) + (w.ready || 0) > 0)
-        setStage(cid, "GPU ready — starting the job");
-      else
-        setStage(cid, (w.throttled || 0) > 0
-          ? "waiting for RunPod to free a GPU (throttled)"
-          : "waiting for a GPU");
-    }, 8000);
+    setBusy(cid, true);
+    rpWatchStart(rp().vep.trim(), cid, "GPU is reading your photo");
   }
   /* ---- one job, submitted once and polled to the end ----
      Nothing in here abandons the job. The deadline stops being the end of an
@@ -1907,6 +1945,7 @@ async function remoteGenerate(messages, onDelta, cid){
       }
       if (st && st.status === "COMPLETED") {
         var t = rpJobText(st.output);
+        rpTimingLog(st, "vision job " + jobId);
         if (t) return String(t);
         L("gen", "vision job finished with no text — output: “" +
           JSON.stringify(st.output || null).slice(0, 200) + "”", true);
@@ -1951,10 +1990,6 @@ async function remoteGenerate(messages, onDelta, cid){
       L("gen", "still waiting on vision job " + jobId + " (initializing=" + (hw.initializing || 0) +
         ", running=" + (hw.running || 0) + ", queued=" + ((h && h.jobs && h.jobs.inQueue) || 0) +
         ") — extending to " + Math.round(budget / 60000) + " min; the job keeps its place", true);
-      if (cid) {
-        setStage(cid, "your GPU is still booting — hanging on");
-        setEta(cid, started, budget);
-      }
     }
   }
   /* ---- one streaming attempt; throws with .isTimeout on its deadline ---- */
@@ -2128,10 +2163,6 @@ async function remoteGenerate(messages, onDelta, cid){
               ", running=" + (hw.running || 0) + ", queued=" + ((h.jobs && h.jobs.inQueue) || 0) +
               ") — extending the wait to " + Math.round(budget / 60000) +
               " min; a first boot downloads the model", true);
-            if (cid) {
-              setStage(cid, "your GPU is still booting — hanging on");
-              setEta(cid, started, budget);   // the bar re-scales to the grown budget
-            }
             continue;
           }
           if (h) {
@@ -2194,8 +2225,7 @@ async function remoteGenerate(messages, onDelta, cid){
       }
     }
   } finally {
-    if (poll) clearInterval(poll);
-    if (cid) { setStage(cid, ""); setEta(cid, null, 0); }
+    if (cid) { rpWatchStop(cid); setStage(cid, ""); setBusy(cid, false); }
   }
 }
 
@@ -2498,7 +2528,7 @@ function beginGen(cid){
 }
 function endGen(cid){
   var p = PENDING[cid]; if (!p) return;
-  if (--p.n <= 0) { delete PENDING[cid]; inflightClear(cid); }
+  if (--p.n <= 0) { delete PENDING[cid]; inflightClear(cid); rpWatchStop(cid); }
   updateAwake();
   refreshPendingUI(cid);
 }
@@ -2514,11 +2544,10 @@ function pendLabel(p){
      stalled reply is as visible as a stalled photo */
   var stage = p.stage || (s >= 5 ? "thinking" : "");
   if (!stage) return "";
-  var out = stage + " · " + fmtMS(s);
-  /* a bounded wait shows its budget — "2:14 / 10:00" reads as progress
-     where bare elapsed minutes read as a hang */
-  if (p.eta) out += " / " + fmtMS(Math.round(p.eta.ms / 1000));
-  return out;
+  /* elapsed only. The old "2:14 / 10:00" put the give-up deadline where an
+     ETA belongs, so a wait that was going fine read as one that was nearly
+     out of time — and the deadline moves whenever a boot earns an extension. */
+  return stage + " · " + fmtMS(s);
 }
 /* user-requested cancellation: tapping the typing bubble sets the flag and
    aborts whatever request is on the wire. The generation paths check the
@@ -2535,24 +2564,17 @@ function tyLabel(p){
   var l = pendLabel(p);
   return l ? l + " · tap to stop" : l;
 }
-/* the bounded wait behind the typing bubble's progress bar: t0/ms set by
-   the photo-read while it hunts a GPU (the budget grows when a boot is
-   confirmed in progress, and the bar re-scales with it) */
-function setEta(cid, t0, ms){
+/* the bar is shown for the long waits — a GPU hunt on either RunPod path —
+   and means only "this is still running". There is no completion fraction to
+   report: RunPod tells us the job's state, not how far through it is. */
+function setBusy(cid, on){
   var p = PENDING[cid]; if (!p) return;
-  p.eta = t0 ? {t0: t0, ms: ms} : null;
+  p.bar = !!on;
   refreshPendingUI(cid);
 }
 function renderTyBar(p){
   var bar = $("ty-bar");
-  if (!bar) return;
-  var on = !!(p && p.eta);
-  bar.classList.toggle("on", on);
-  if (on) {
-    var f = Math.min(0.98, (Date.now() - p.eta.t0) / p.eta.ms);
-    var fill = $("ty-fill");
-    if (fill) fill.style.width = Math.round(f * 100) + "%";
-  }
+  if (bar) bar.classList.toggle("on", !!(p && p.bar));
 }
 function refreshPendingUI(cid){
   if (cur === cid) {

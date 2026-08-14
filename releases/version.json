@@ -1,6 +1,6 @@
 {
-  "versionCode": 74,
-  "versionName": "0.20.9",
+  "versionCode": 75,
+  "versionName": "0.21.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "A log entry can no longer be cut without saying so. Prompts are recorded up to 12,000 characters — several times longer than anything the app assembles — and if a line ever is trimmed it now ends by naming how many characters went missing, instead of just stopping mid-sentence the way the old 500-character cap did. The size budget added in the previous build also can no longer erase the entry it was called to record: an oversized line is kept rather than swept away with the history it overflowed."
+  "notes": "The progress bar told you nothing, so it stopped pretending. It was filling against the give-up deadline rather than the work — and because a confirmed cold start earns more time, it slid backwards whenever the wait was going well. Nothing in the pipeline reports how far through a picture is, so the bar is now simply a moving marker meaning 'still running', and the caption above it carries the real state, read live from RunPod: booting and loading the model, ready and starting, queued with the number of jobs ahead of yours, throttled and waiting on a GPU, or actually painting. Photo generation gets that narration for the first time — it was the longer wait of the two and had only the words 'painting the photo' for it. When a job finishes, the log records how long it sat in the queue and how long the GPU actually worked, which is the number that explains a slow photo."
 }

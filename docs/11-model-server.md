@@ -114,6 +114,15 @@ outright if the wait is abandoned or you tap the typing bubble to stop.
   the extension granted for a booting worker.
 - **Purge queued jobs** in Settings empties a backlog. Worth one tap if reads
   were timing out on a build before 0.20.7, which left abandoned jobs behind.
+- **What the typing bubble reports** is read live from the health API every 8
+  seconds, on both the read and the generation path: booting and loading the
+  model, ready and starting, queued with the number of jobs ahead of yours,
+  throttled, or working. The bar beside it is deliberately indeterminate —
+  neither RunPod nor fal reports a completion fraction, and the bar it
+  replaced was filling against the give-up deadline, which meant it slid
+  backwards whenever a confirmed cold start earned more time. Completed jobs
+  log their queue time and execution time separately, which is what
+  distinguishes a slow GPU from a long queue.
 - A worker image too old to understand the OpenAI job route is detected from
   its error, remembered, and served by the streaming route instead.
 
