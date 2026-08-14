@@ -1905,6 +1905,24 @@ function rpJobText(out){
                 c.text || (c.tokens ? [].concat(c.tokens).join("") : null);
   return out.text || null;
 }
+/* vLLM rejects a model name it did not register, and the name it registers
+   depends on how the endpoint was created — paste a HuggingFace URL into
+   RunPod's Model box and the served name can be that URL rather than the repo
+   id. Rather than make the user guess, ask the endpoint. */
+async function rpServedModels(ep){
+  try {
+    var r = await fetch("https://api.runpod.ai/v2/" + ep + "/runsync", {
+      method: "POST", headers: rpJobHeaders(),
+      body: JSON.stringify({input: {openai_route: "/v1/models", openai_input: {}}})
+    });
+    if (!r.ok) return null;
+    var out = (await r.json()).output;
+    if (Array.isArray(out)) out = out[0];
+    var d = out && out.data;
+    if (!Array.isArray(d)) return null;
+    return d.map(function(x){ return x && (x.id || x.model); }).filter(Boolean);
+  } catch (e) { return null; }
+}
 /* giving up on a job without cancelling it is exactly the leak this path
    exists to fix — the worker would still boot and still run it */
 function rpCancelJob(id){
@@ -1936,7 +1954,7 @@ async function remoteGenerate(messages, onDelta, cid){
     mis.viaRp = true;
     throw mis;
   }
-  var started = Date.now(), attempt = 0, emitted = false;
+  var started = Date.now(), attempt = 0, emitted = false, modelFixTried = false;
   var lastStatus = 0, sameStatus = 0, budget = RP_TOTAL_MS, dropSpent = 0;
   function msLeft(){ return budget - (Date.now() - started); }
   if (hasImg && cid) setStage(cid, "reading your photo");
@@ -2015,6 +2033,22 @@ async function remoteGenerate(messages, onDelta, cid){
       }
       if (st && (st.status === "FAILED" || st.status === "CANCELLED" || st.status === "TIMED_OUT")) {
         var em = String((st.error && (st.error.message || st.error)) || st.status);
+        /* "the model X does not exist" is a name mismatch, not a broken GPU:
+           the endpoint is up and answering. Ask it what it serves and use
+           that, once, rather than making the user find the string by hand. */
+        if (!modelFixTried && /model/i.test(em) && /does not exist|not ?found/i.test(em)) {
+          modelFixTried = true;
+          var served = await rpServedModels(rp().vep.trim());
+          if (served && served.length) {
+            L("gen", "vision endpoint serves: " + served.join(", ") +
+              " — switching the Vision model field from “" + model + "” to “" +
+              served[0] + "” and retrying", true);
+            rp().vmodel = served[0]; save();
+            model = served[0];
+            return await rpJobRun();
+          }
+          L("gen", "vision endpoint rejected the model name and wouldn't list what it serves", true);
+        }
         var fe = new Error(who + " job " + st.status + " — " + em.slice(0, 200));
         fe.viaRp = true;
         /* a worker image too old to know openai_route reports a missing
@@ -3167,6 +3201,17 @@ async function rpVisionTest(out){
   } catch (e) {
     line("✗ Health check failed: " + String(e && e.message || e).slice(0, 120));
     return;
+  }
+  /* the name vLLM serves under is set at endpoint-creation time and is not
+     always the repo id — check it before spending a job on the wrong one */
+  var served = await rpServedModels(vep);
+  if (served && served.length) {
+    line("✓ Serving: " + served.join(", "));
+    if (served.indexOf((rp().vmodel || "").trim()) < 0) {
+      line("✗ Your Vision model field says “" + (rp().vmodel || "") + "”, which this endpoint " +
+           "does not serve — every request would come back 404. Setting it to “" + served[0] + "”.");
+      rp().vmodel = served[0]; save();
+    }
   }
   /* the app reads photos through the job API, so the test has to exercise
      that same route — a sync request that works proves nothing about it */

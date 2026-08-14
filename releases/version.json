@@ -1,6 +1,6 @@
 {
-  "versionCode": 81,
-  "versionName": "0.22.2",
+  "versionCode": 82,
+  "versionName": "0.22.3",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "A refused photo no longer kills the turn. When the vision model's filter blocks a reply the character now answers without the picture instead of saying nothing at all — the text model moderates far looser than the vision model, so the same conversation that was refused with a photo attached goes through without one. The character is told the photo did not come through and to ask about it rather than invent what it saw, and the photo itself is not sent anywhere new. This already worked when a self-hosted vision endpoint was down; it now covers a provider refusal too, which was the more common way a photo ended up sitting in the thread with no reply."
+  "notes": "The app now asks the vision endpoint what model it serves instead of assuming. vLLM rejects any name it did not register, and the registered name depends on how the endpoint was created — paste a Hugging Face URL into RunPod's model box and the served name can be that URL rather than the repository id, which returns a 404 on every request while the GPU sits there perfectly healthy. On that error the endpoint's model list is fetched, the Vision model field is corrected to what it actually serves, and the request is retried once. Test vision endpoint checks the same thing up front and fixes the field before spending a job on the wrong name."
 }
