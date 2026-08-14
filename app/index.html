@@ -4007,7 +4007,7 @@ function renderHome(){
         : esc(lm.text);
       if (lm.who === "scene") prev = '<span class="msr" style="font-size:12px">theaters</span> ' + esc(lm.text);
       else if (lm.who === "me") prev = '<span class="tick msr">done_all</span> ' + body;
-      else if (c.grp) { var by = getChar(lm.by); prev = esc((by?by.name:"?") + ": ") + body; }
+      else if (c.grp) { var by = getChar(lm.by); prev = esc((by ? by.name : "Someone") + ": ") + body; }
       else prev = body;
     } else prev = esc(c.grp ? c.members.length + " members" : fill(c.status, c));
     var row = document.createElement("div"); row.className = "row";
@@ -4110,9 +4110,12 @@ function renderStream(){
     rw.className = "mrow " + (out?"out":"in") + (msg.react?" reacted":"");
     var inner = "";
     if (!out && c.grp) {
+      /* the author may have been deleted since — say so plainly rather than
+         rendering a question mark where a person used to be */
       var by = getChar(msg.by);
-      rw.innerHTML = avatarEl(by || {name:"?"}, "xs");
-      inner += '<span class="who" style="color:'+(by?by.ring:"var(--acc)")+'">'+esc(by?by.name:"?")+'</span>';
+      rw.innerHTML = avatarEl(by || {name:"Someone"}, "xs");
+      inner += '<span class="who" style="color:'+(by?by.ring:"var(--mist)")+'">'+
+        esc(by ? by.name : "Someone")+'</span>';
     }
     inner += (msg.img
       ? (imgHidden(cur, msg)
@@ -4171,20 +4174,26 @@ function deliver(c, reply, by){
   }, delay);
   return delay;
 }
+/* A new group used to open with three hardcoded lines credited to the
+   original starter cast — so every group anyone made was greeted by a
+   writing partner, a dungeon master and a history professor, and once those
+   characters were retired the messages showed as "?" from nobody. The people
+   in the group open it themselves now. */
 function seedGroupChat(g){
-  var lines = [
-    {by:"nova", t:"Hey everyone! Let's build our new story. I'm thinking we open in media res — no throat-clearing."},
-    {by:"dm",   t:"I'll design the world and main quest. Give me a tone: grim, wondrous, or both?"},
-    {by:"hale", t:"I can confirm the time period and cultural details. Historically plausible fantasy is the best fantasy."}
-  ];
-  var t = 500;
-  lines.forEach(function(l, i){
+  var members = (g.members || []).map(getChar).filter(Boolean);
+  if (!members.length) return;
+  var openers = members.slice(0, 2);
+  var t = 600;
+  openers.forEach(function(ch){
     setTimeout(function(){
-      pushMsg(g.id, "them", l.t, l.by);
-      if (cur===g.id) renderStream(); else { g.unread=(g.unread||0)+1; save(); }
-      renderHome();
+      if (useLLM()) aiDeliver(g, ch, null, true);
+      else {
+        pushMsg(g.id, "them", greetingOf(ch), ch.id);
+        if (cur === g.id) renderStream(); else { g.unread = (g.unread || 0) + 1; save(); }
+        renderHome();
+      }
     }, t);
-    t += 900 + Math.random()*500;
+    t += 1400 + Math.random() * 600;
   });
 }
 /* ================= scene ================= */
@@ -5334,6 +5343,20 @@ if (!S.gseeded) { S.groups.push(JSON.parse(JSON.stringify(SEED_GROUP))); S.gseed
    S.removed stops them coming back on the next boot. */
 /* the starter household's tree, written once as real edges. setRel fills in
    the other half of each, so only one direction is listed. */
+/* the retired opener, if it already landed in someone's group */
+if (!S.gopen2) {
+  var STALE = ["Hey everyone! Let's build our new story. I'm thinking we open in media res — no throat-clearing.",
+    "I'll design the world and main quest. Give me a tone: grim, wondrous, or both?",
+    "I can confirm the time period and cultural details. Historically plausible fantasy is the best fantasy."];
+  Object.keys(S.msgs || {}).forEach(function(cid){
+    var before = S.msgs[cid].length;
+    S.msgs[cid] = S.msgs[cid].filter(function(m){
+      return !(m.who === "them" && !getChar(m.by) && STALE.indexOf(m.text) >= 0);
+    });
+    if (S.msgs[cid].length !== before) L("msg", "cleared the retired group opener from " + cid);
+  });
+  S.gopen2 = true; save();
+}
 if (!S.kin1) {
   [["amy","lilly","child"], ["amy","erin","child"], ["amy","jess","sibling"],
    ["amy","harper","nibling"], ["lilly","erin","sibling"], ["jess","harper","child"],

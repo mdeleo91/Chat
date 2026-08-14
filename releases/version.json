@@ -1,6 +1,6 @@
 {
-  "versionCode": 94,
-  "versionName": "0.31.0",
+  "versionCode": 95,
+  "versionName": "0.31.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Group chats you can actually make. The + button now asks whether you want a character or a group, and a group is a name and a list of people you tick. Everyone in one reads the whole thread — including what the others said — and now remembers it afterwards whether or not they spoke, which was the real gap: only the characters who happened to answer were learning anything, so a member sitting quietly through a conversation forgot it entirely. Who replies is decided by who you spoke to: names and relationships are recognised, including the words people actually use for them, so 'mum, can we talk' reaches your mother and 'hey harper' reaches Harper without anyone else interrupting. Members can be changed later from the menu inside the chat."
+  "notes": "New group chats no longer open with three messages from strangers. Every group started with the same hardcoded lines about building a fantasy story, credited to three of the original starter characters — so a group of your own people was greeted by a writing partner, a dungeon master and a history professor, and once those characters were retired the messages showed as question marks from nobody at all. The people actually in the group open it themselves now, in their own voices. Any of those stray messages already sitting in a group are cleared out on this update, leaving everything else in the thread alone, and a message whose author has since been deleted reads as Someone rather than a question mark."
 }
