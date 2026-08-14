@@ -1161,7 +1161,9 @@ function chLoraList(ch){
 /* which LoRAs actually apply to this photo, plus their trigger add-ons.
    Empty "when" = every photo (style LoRAs); keywords = only when the photo's
    description mentions one, so subject LoRAs can't bleed into other shots. */
-function lorasFor(ch, desc, isMature, picked, maxN){
+/* quiet: the route-log call recomputes what the engine call is about to
+   compute anyway, and without this its cap and damping notes print twice */
+function lorasFor(ch, desc, isMature, picked, maxN, quiet){
   var t = (desc || "").toLowerCase();
   var pick = (picked || []).map(function(n){ return String(n).trim().toLowerCase(); })
     .filter(Boolean);
@@ -1218,14 +1220,15 @@ function lorasFor(ch, desc, isMature, picked, maxN){
       i.lora = {path: i.lora.path, scale: s};
       damped.push(i.name + "→" + s);
     });
-    if (damped.length)
+    if (damped.length && !quiet)
       L("img", "face out of frame — damping likeness: " + damped.join(", "), true);
   }
   /* engines have hard LoRA limits (fal 422s above 3) and quality sags when
      too many stack — trim from the back of the priority order, and say so */
   if (maxN && items.length > maxN) {
-    L("img", "lora cap " + maxN + " — dropped: " +
-      items.slice(maxN).map(function(i){ return i.name; }).join(", "), true);
+    if (!quiet)
+      L("img", "lora cap " + maxN + " — dropped: " +
+        items.slice(maxN).map(function(i){ return i.name; }).join(", "), true);
     items = items.slice(0, maxN);
   }
   return {
@@ -2884,7 +2887,7 @@ function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature){
   if (isMature && isSelfie && refs && falReady()) refs = 0;   // 18+ selfies skip Kontext
   var damp = isSelfie && refs && falReady() ? 0.7 : 1;
   var lfLog = falReady() || rpReady()
-    ? lorasFor(ch, desc, isMature, picked, isMature && rpReady() ? 4 : 3)
+    ? lorasFor(ch, desc, isMature, picked, isMature && rpReady() ? 4 : 3, true)
     : {loras: [], names: [], whys: []};
   var llist = lfLog.loras.map(function(l, i){
     return lfLog.names[i] + "@" + Math.round(((l.scale || 1) * damp) * 100) / 100 +

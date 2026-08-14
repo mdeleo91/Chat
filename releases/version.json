@@ -1,6 +1,6 @@
 {
-  "versionCode": 77,
-  "versionName": "0.21.2",
+  "versionCode": 78,
+  "versionName": "0.21.3",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "The log now says why each LoRA loaded, not just which ones did. A LoRA whose WHEN field is empty applies to every photo — right for a style LoRA, a trap for a subject one, because its trigger words then ride a picture that has nothing to do with it. The route line listed the LoRA either way, so an accidental always-on subject LoRA looked identical to a genuine keyword match. Each entry now carries its reason: always, kw, 18+, 18+&kw, or picked by the photo director."
+  "notes": "The LoRA cap and damping notes printed twice per photo. The route log recomputes the LoRA stack that the engine call is about to compute anyway, and both copies were logging — so a single dropped LoRA looked like two. The route-log pass is now quiet."
 }
