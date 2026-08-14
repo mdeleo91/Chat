@@ -174,7 +174,7 @@
   .pane.on{display:flex}
 
   /* ------- chat ------- */
-  .scenebar{display:flex;justify-content:center;padding:6px 12px 0;background:linear-gradient(180deg,var(--wall1),var(--wall1))}
+  .scenebar{display:flex;justify-content:center;gap:6px;padding:6px 12px 0;background:linear-gradient(180deg,var(--wall1),var(--wall1))}
   .scenepill{max-width:100%;display:flex;align-items:center;gap:6px;border:1px dashed var(--line);
     background:var(--surface);color:var(--mist);border-radius:999px;padding:5px 13px;font-size:12px;
     font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -192,6 +192,7 @@
   .mrow.out .msg{background:var(--out);border-bottom-right-radius:5px}
   .msg .who{display:block;font-size:11.5px;font-weight:800;margin-bottom:2px}
   .msg .mimg{display:block;max-width:100%;border-radius:12px;margin:2px 0 6px}
+  .msg .act{font-style:italic;opacity:.82}
   .msg .imgstub{display:flex;align-items:center;gap:8px;padding:11px 13px;margin:2px 0 6px;
     border-radius:12px;border:1px dashed var(--line);background:rgba(128,128,128,.08);
     color:var(--mist);font-size:13px;cursor:pointer;user-select:none}
@@ -517,7 +518,8 @@
       <button class="icb" id="chat-menu" title="Conversation options">
         <span class="msr" style="font-size:19px">settings</span></button>
     </div>
-    <div class="scenebar"><button class="scenepill" id="scene-pill"></button></div>
+    <div class="scenebar"><button class="scenepill" id="mode-pill"></button>
+      <button class="scenepill" id="scene-pill"></button></div>
     <div class="stream" id="stream"></div>
     <div class="stagewrap" id="stagewrap">
       <img id="stage-img" alt="">
@@ -837,6 +839,9 @@ function load(){
   if (!S.scenes)  S.scenes = {};    // per-conversation scene ("texting", "at dinner"…)
   if (!S.groups)  S.groups = [];
   if (S.adult === undefined) S.adult = false;
+  /* how a conversation is happening. Texting is the default and the app's
+     whole premise; in-person turns it into a scene played out in the room. */
+  if (!S.modes) S.modes = {};
   var migrated = false;
   (S.chars || []).concat(S.groups || []).forEach(function(c){
     if (!c.icon) { c.icon = EMOJI2ICON[c.emoji] || "person"; delete c.emoji; migrated = true; }
@@ -2683,6 +2688,10 @@ function sysPrompt(ch, convo){
       "your expression, pose, what you're wearing. photo is for everything else — rooms, views, " +
       "objects, food, other people; if asked for a picture of a place or thing, send the place or " +
       "thing, without you in it. At most one per message; don't also describe sending it in your text.\n" +
+      (convo && chatMode(convo.id) === "person"
+        ? "Since you are together in person, a picture is something you hold up, show them on your " +
+          "phone, or take right there in front of them — describe it as that, not as something sent.\n"
+        : "") +
       (matureActive()
         ? "When the conversation has turned intimate and the picture itself is meant to be risqué or " +
           "explicit, add 18+ to the tag: [selfie 18+: …] or [photo 18+: …]. An 18+ description goes " +
@@ -2695,8 +2704,16 @@ function sysPrompt(ch, convo){
           "Ordinary pictures during flirty conversation stay untagged — " +
           "reserve 18+ for pictures that are themselves mature.\n"
         : "");
-  p += "Reply like a text message: short (1-3 sentences unless the user asks for more), natural, " +
-    "in character, plain text without markdown. Never mention being a language model.\n";
+  if (convo && chatMode(convo.id) === "person")
+    p += "You are physically together with the user right now — in the same room, not texting. " +
+      "Write the moment as it happens: put actions, gestures, touch, expressions and what is " +
+      "around you in *asterisks*, and spoken words as plain text outside them. Weave the two " +
+      "together rather than blocking them apart — a beat of action, a line of speech, a reaction. " +
+      "Present tense, 2-5 sentences, always from " + ch.name + "'s side of the scene; never write " +
+      "the user's words or actions for them. Never mention being a language model.\n";
+  else
+    p += "Reply like a text message: short (1-3 sentences unless the user asks for more), natural, " +
+      "in character, plain text without markdown. Never mention being a language model.\n";
   /* --- volatile from here down --- */
   var me = S.profile || {};
   if (me.name) p += "The user's name is " + me.name + ".\n";
@@ -3097,7 +3114,7 @@ async function runGeneration(convo, ch, nudge, done){
     if (!shown) return;              // still inside a think block — keep typing dots
     ensureLive();
     if (liveEl) {
-      liveEl.querySelector(".txt").textContent = shown;
+      liveEl.querySelector(".txt").innerHTML = fmtBody(shown);
       $("stream").scrollTop = 1e9;
     }
   }
@@ -3997,7 +4014,7 @@ function openChat(id, hideImages){
     $("chat-stat").innerHTML = '<span class="on">online</span> · ' + esc(fill(c.status, c));
   $("chat-call").style.display = c.grp ? "none" : "flex";
   setStaged(null);
-  renderStream(); scenePill(); show("v-chat"); updateChatStat();
+  renderStream(); scenePill(); modePill(); show("v-chat"); updateChatStat();
   if (!(S.msgs[id] && S.msgs[id].length)) {
     if (c.grp) seedGroupChat(c);
     else setTimeout(function(){ deliver(c, greetingOf(c)); }, 600);
@@ -4046,7 +4063,7 @@ function renderStream(){
       ? (imgHidden(cur, msg)
           ? '<div class="imgstub"><span class="msr">lock</span>Photo — tap to show</div>'
           : '<img class="mimg" src="' + msg.img + '">')
-      : '') + esc(msg.text) +
+      : '') + fmtBody(msg.text) +
       '<span class="mt">'+fmtClock(msg.ts)+(out?' <span class="tick msr">done_all</span>':'')+'</span>' +
       (msg.react?'<span class="react"><span class="msr fill">'+esc(msg.react)+'</span></span>':'');
     var b = document.createElement("div"); b.className = "msg"; b.innerHTML = inner;
@@ -4076,6 +4093,13 @@ function renderStream(){
   var p = PENDING[cur];
   if (p) { ty.classList.add("on"); $("ty-lab").textContent = tyLabel(p); renderTyBar(p); }
   st.scrollTop = st.scrollHeight;
+}
+/* *actions* read as actions. Escaped first, so the only markup that can
+   reach the DOM is the italics this puts there. Applies in both modes — a
+   character texting an aside still means it as one. */
+function fmtBody(t){
+  /* the asterisks have to hug their text, or "2 * 3 * 4" turns into italics */
+  return esc(t).replace(/\*(\S|\S[^*\n]{0,398}\S)\*/g, '<i class="act">$1</i>');
 }
 function pushMsg(id, who, text, by, img){
   (S.msgs[id] = S.msgs[id] || []).push({who:who, text:text, ts:Date.now(), by:by||null,
@@ -4109,6 +4133,23 @@ function seedGroupChat(g){
   });
 }
 /* ================= scene ================= */
+function chatMode(cid){ return S.modes[cid] === "person" ? "person" : "text"; }
+function modePill(){
+  var el = $("mode-pill"); if (!el || !cur) return;
+  var inPerson = chatMode(cur) === "person";
+  el.classList.toggle("on", inPerson);
+  el.innerHTML = '<span class="msr" style="font-size:14px">' +
+    (inPerson ? "group" : "chat_bubble") + '</span> ' + (inPerson ? "In person" : "Texting");
+}
+function toggleChatMode(){
+  if (!cur) return;
+  S.modes[cur] = chatMode(cur) === "person" ? "text" : "person";
+  save();
+  modePill();
+  toast(chatMode(cur) === "person"
+    ? "In person — replies play out the scene with actions"
+    : "Texting — replies read like messages");
+}
 function scenePill(){
   var el = $("scene-pill"); if (!el || !cur) return;
   var scn = S.scenes[cur];
@@ -4994,6 +5035,7 @@ $("pf-del").onclick = function(){
 };
 
 $("chat-menu").onclick = openChatMenu;
+$("mode-pill").onclick = toggleChatMode;
 $("mem-back").onclick = function(){ hide("v-mem"); renderMemHub(); };
 $("new-back").onclick = function(){ hide("v-new"); };
 $("nc-create").onclick = saveChar;
