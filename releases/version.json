@@ -1,6 +1,6 @@
 {
-  "versionCode": 86,
-  "versionName": "0.25.0",
+  "versionCode": 87,
+  "versionName": "0.25.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Settings stops being a junk drawer, and conversations get their own menus. The engine settings were one unbroken wall of keys, LoRA rows and endpoint fields; they are now four rows you open — text and replies, image generation, your own GPU, mature roleplay — each showing its current state on the right, so the screen tells you what you have rather than everything at once. A new Test LoRAs button checks every LoRA you have configured against both engines: it lists what is actually on your GPU's volume and names any file that is missing, and it fetches each URL fal would use, catching the Civitai login page that gets saved under a .safetensors name when the token is absent. Long-press any chat for Clear conversation, Delete chat, or Open with hidden images — which opens the thread with every photo collapsed behind a tap. Inside a chat, a new menu in the header offers the same, plus hide and show all images."
+  "notes": "Fixes the icon names printed across the settings screen. The app embeds a cut-down icon font so it works offline, and it carries only the glyphs the app already used. An icon outside that set does not come out blank — it spells its own name, which is why EXPAND_MORE, MEMORY and EXPLICIT appeared as words in yesterday's new settings rows. The new icons are now drawn from the set that is actually embedded: the accordion arrow reuses the chevron and turns when a section opens, the conversation menu is a gear, and hidden photos use a padlock."
 }
