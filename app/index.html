@@ -611,6 +611,19 @@
       <div class="field"><label>INTERESTS</label><input id="nc-int" placeholder="Subjects they light up about…"></div>
       <div class="field"><label>SCENARIO <span style="font-weight:400;text-transform:none">— optional</span></label>
         <textarea id="nc-scene" rows="2" placeholder="The setting and situation the roleplay always sits in. e.g. Set in 18th century Europe, {{char}} is a witch and the Inquisition hunts magic."></textarea></div>
+      <div class="field"><label>FAMILY <span style="font-weight:400;text-transform:none">— optional</span></label>
+        <div class="phint">Give everyone in one household the same word here and they all know each
+          other exists. Each is told who the others are to you, so they can talk about each other
+          without being introduced. Leave blank for characters who stand alone.</div>
+        <input id="nc-family" placeholder="e.g. Home"></div>
+      <div class="field"><label>RELATIONSHIP TO YOU</label>
+        <input id="nc-rel" placeholder="e.g. mother, little sister, cousin, oldest friend"></div>
+      <div class="field"><label>AGE</label>
+        <input id="nc-age" inputmode="numeric" placeholder="e.g. 42"></div>
+      <div class="field"><label>TIES TO THE OTHERS</label>
+        <div class="phint">How they are related to the rest of the family, in their own terms. What
+          the roster can't work out on its own — whose child is whose, which side a relative is on.</div>
+        <textarea id="nc-kin" rows="2" placeholder="e.g. Erin and Lilly are your daughters. Jess is your younger sister."></textarea></div>
       <div class="field"><label>APPEARANCE</label>
         <div class="phint">The written face and body that rides every photo they appear in. Image
           models hold onto this far harder than they hold onto reference photos, so it is the
@@ -931,6 +944,8 @@ var CAST = [
   style:"Fast and casual, lowercase, lots of ellipses and 'omg' and 'literally'. Rambles when nervous. Calls you by name a lot.",
   back:"Your little sister, eighteen and just finished school, still living at home and not in a hurry to leave. Sleeps late, leaves mugs everywhere, knows everyone's business in the house and reports it all to you.",
   ints:"Music, her friends' drama, thrifted clothes, staying up too late",
+  family:"Home", rel:"little sister", age:"18",
+  kin:"Amy is your mum. Erin is your older sister \u2014 by a year, and she never lets you forget it. Jess is your aunt, your mum's younger sister. Harper is your cousin, Jess's daughter.",
   look:"18-year-old adult woman, small heart-shaped face, long light-blonde hair usually messy, blue eyes, fair skin with a few freckles across the nose, petite slim build",
   greeting:"finally!! you never answer. ok so you have to hear what happened today, sit down"},
 
@@ -939,6 +954,8 @@ var CAST = [
   style:"Short lines. Understatement and deadpan. Punctuation intact. Long silences that mean something.",
   back:"Your other little sister, nineteen, a year of college in and unconvinced by it. Keeps her door shut, keeps her opinions sharp, and turns up in the kitchen at midnight when she actually wants to talk.",
   ints:"Films, playlists, drawing, arguing about small things",
+  family:"Home", rel:"little sister", age:"19",
+  kin:"Amy is your mum. Lilly is your younger sister by a year. Jess is your aunt, your mum's younger sister. Harper is your cousin, Jess's daughter \u2014 the same age as you and nothing like you.",
   look:"19-year-old adult woman, oval face, dark brown hair cut just past the shoulders, grey-green eyes, pale skin, slim build, usually in oversized clothes",
   greeting:"you're up. figured. \u2014 what's going on with you"},
 
@@ -947,6 +964,8 @@ var CAST = [
   style:"Loud and playful, exclamation marks, nicknames, constant challenges \u2014 'bet you won't', 'come on then'.",
   back:"Your cousin, nineteen, home for the summer and back in the spare room like she never left. You two were raised close enough to be siblings and fight like it.",
   ints:"Swimming, driving nowhere, terrible reality TV, winning",
+  family:"Home", rel:"cousin", age:"19",
+  kin:"Jess is your mum. Amy is your aunt, your mum's older sister. Lilly and Erin are your cousins \u2014 you grew up in and out of their house and treat it as half yours.",
   look:"19-year-old adult woman, square jaw, sun-streaked light brown hair in a high ponytail, hazel eyes, tanned skin, athletic build",
   greeting:"guess who's back \u2014 and before you say anything, the spare room is MINE this time. deal with it :)"},
 
@@ -955,6 +974,8 @@ var CAST = [
   style:"Easy and conversational, full sentences, dry asides in brackets. Asks good questions and actually waits for the answer.",
   back:"Your mother's younger sister, thirty-eight, lives twenty minutes away and drops in without warning. The one member of the family who treats you like an adult, which is why you tell her more than you tell the rest of them.",
   ints:"Gardening badly, true crime podcasts, cheap red wine, other people's business",
+  family:"Home", rel:"aunt", age:"38",
+  kin:"Amy is your older sister. Harper is your daughter. Lilly and Erin are your nieces, and you are the one they tell things to.",
   look:"38-year-old woman, long face with fine lines at the eyes, dark auburn hair to the shoulders, brown eyes, warm fair skin, slim build",
   greeting:"I'm outside, I brought wine, and I'm not staying long \u2014 which we both know is a lie. Let me in."},
 
@@ -963,6 +984,8 @@ var CAST = [
   style:"Full sentences, proper punctuation, an emoji at the end more often than she'd admit. Asks three questions in a row.",
   back:"Your mother, forty-two, holding a full household together \u2014 two daughters at home, a sister who lets herself in, and a niece back for the summer. Was very young when she had you and the two of you have always been more like allies than parent and child.",
   ints:"The garden, long phone calls, feeding people, everyone's whereabouts",
+  family:"Home", rel:"mother", age:"42",
+  kin:"Lilly and Erin are your daughters. Jess is your younger sister. Harper is your niece, Jess's girl, and she is staying with you for the summer.",
   look:"42-year-old woman, soft oval face, shoulder-length ash-blonde hair, blue eyes, fair skin, curvy build",
   greeting:"There you are. Have you eaten? Don't answer that too quickly \u2014 I can always tell. \ud83d\ude4a"}
 ];
@@ -2626,6 +2649,31 @@ function sysPrompt(ch, convo){
   if (ch.ints)  p += "Interests: " + fill(ch.ints, ch) + "\n";
   if (ch.scene) p += "Scenario: " + fill(ch.scene, ch) + "\n";
   if (ch.example) p += "Example of how " + ch.name + " talks:\n" + fill(ch.example, ch) + "\n";
+  /* the family roster. Each character is told their own place and then who
+     everyone else is to the user — from which "the user's mother" and "the
+     user's little sister" resolve into "my daughter" without anyone having to
+     write out the whole cross-product. Ties fills in what that cannot reach:
+     which side a relative is on, whose child is whose. */
+  var famName = (ch.family || "").trim();
+  if (famName || ch.rel) {
+    if (ch.rel) p += "Your relationship to the user: you are their " + ch.rel +
+      (ch.age ? ", and you are " + ch.age : "") + ".\n";
+    else if (ch.age) p += "You are " + ch.age + ".\n";
+    var kinFolk = famName ? S.chars.filter(function(c){
+      return c.id !== ch.id && (c.family || "").trim().toLowerCase() === famName.toLowerCase();
+    }) : [];
+    if (kinFolk.length) {
+      p += "The rest of the " + famName + " family, and who each of them is to the user:\n";
+      kinFolk.forEach(function(c){
+        p += "- " + c.name + (c.age ? ", " + c.age : "") +
+             (c.rel ? " — their " + c.rel : "") + "\n";
+      });
+      p += "You know these people and share a life with them. Refer to them by name, work out " +
+        "your own relationship to each from the list above, and bring them up the way someone " +
+        "actually would — not as if being introduced.\n";
+    }
+    if ((ch.kin || "").trim()) p += "Your own ties: " + fill(ch.kin, ch) + "\n";
+  }
   if (convo && convo.grp) {
     var others = convo.members.filter(function(m){ return m !== ch.id; })
       .map(function(m){ var x = getChar(m); return x ? x.name : ""; }).filter(Boolean).join(", ");
@@ -4484,7 +4532,7 @@ function showMacroBar(on){
   if (rows) rows.classList.toggle("macropad", !!on);
 }
 function wireMacroChips(){
-  var fields = ["nc-name","nc-back","nc-pers","nc-style","nc-int","nc-tag","nc-status","nc-scene","nc-look","nc-imgstyle","nc-greet","nc-ex"];
+  var fields = ["nc-name","nc-back","nc-pers","nc-style","nc-int","nc-tag","nc-status","nc-scene","nc-family","nc-rel","nc-age","nc-kin","nc-look","nc-imgstyle","nc-greet","nc-ex"];
   fields.forEach(function(id){
     var el = $(id);
     if (!el || el._macroWired) return;
@@ -4602,6 +4650,10 @@ function openCharForm(id){
   $("nc-scene").value  = ch ? (ch.scene||"") : "";
   $("nc-imgstyle").value = ch ? (ch.imgstyle||"") : "";
   $("nc-look").value = ch ? (ch.look||"") : "";
+  $("nc-family").value = ch ? (ch.family||"") : "";
+  $("nc-rel").value = ch ? (ch.rel||"") : "";
+  $("nc-age").value = ch ? (ch.age||"") : "";
+  $("nc-kin").value = ch ? (ch.kin||"") : "";
   /* mutate in place — the row wiring holds a reference to this array */
   editLoras.length = 0;
   chLoraList(ch).forEach(function(l){
@@ -4627,6 +4679,10 @@ function saveChar(){
   var scene = $("nc-scene").value.trim();
   var imgstyle = $("nc-imgstyle").value.trim();
   var look = $("nc-look").value.trim().slice(0, 400);
+  var family = $("nc-family").value.trim().slice(0, 40);
+  var rel = $("nc-rel").value.trim().slice(0, 80);
+  var age = $("nc-age").value.trim().slice(0, 8);
+  var kin = $("nc-kin").value.trim().slice(0, 400);
   var loras = editLoras.filter(function(l){ return (l.path||"").trim(); })
     .map(function(l){ return {name:l.name||"", path:l.path.trim(), scale:l.scale||null, when:l.when||"", add:l.add||"", face:l.face}; });
   var greet = $("nc-greet").value.trim();
@@ -4635,6 +4691,7 @@ function saveChar(){
     var ch = getChar(editId);
     ch.name=name; ch.pers=pers; ch.style=style; ch.back=back; ch.ints=ints;
     ch.tag=tag; ch.status=status; ch.scene=scene; ch.imgstyle=imgstyle; ch.look=look;
+    ch.family=family; ch.rel=rel; ch.age=age; ch.kin=kin;
     ch.loraList=loras; delete ch.loras;
     ch.greeting=greet; ch.example=example;
     if (editRefs.length) ch.refimgs = editRefs.slice(); else delete ch.refimgs;
@@ -4648,6 +4705,7 @@ function saveChar(){
   var nch = {
     id:id, name:name, photo:pickedPhoto || null, ring:pickedRing, tag:tag, status:status, custom:true,
     pers:pers, style:style, back:back, ints:ints, scene:scene, imgstyle:imgstyle, look:look,
+    family:family, rel:rel, age:age, kin:kin,
     loraList:loras, refimgs: editRefs.length ? editRefs.slice() : undefined,
     greeting:greet, example:example,
     created:Date.now(),

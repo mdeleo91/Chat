@@ -1,6 +1,6 @@
 {
-  "versionCode": 91,
-  "versionName": "0.28.0",
+  "versionCode": 92,
+  "versionName": "0.29.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "A new starter cast. Chef Rosa stays; the writing partner, dungeon master, coach, professor and listener are retired and replaced by a household — Amy, Lilly, Erin, Harper and Jess, each with their own temperament, way of speaking, history and written appearance rather than a one-line label. The Family group chat replaces the old writing team. Upgrading is careful about it: a retired character you actually held a conversation with is kept, along with everything they remember, and only the ones you never opened are cleared away. Two long-standing crashes are fixed along the way — group chats and the no-API-key fallback both assumed every character carried scripted replies, which no character you made yourself ever has."
+  "notes": "Characters can belong to a family and know where they stand in it. Give everyone in a household the same word in the new Family field and each one is told their own relationship to you, their age, and who every other member is to you — enough for them to work out their own relationship to each other without anyone writing out every pair. A Ties field covers what that cannot reach on its own: whose child is whose, which side a relative is on. They then talk about each other by name, as people who share a life rather than strangers being introduced. Editing anyone's relationship updates what all the others are told immediately. The starter household comes filled in — mother, two sisters, an aunt and a cousin, with the ages and connections between them already set — and characters with no family named are unaffected."
 }
