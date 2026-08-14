@@ -1,6 +1,6 @@
 {
-  "versionCode": 90,
-  "versionName": "0.27.0",
+  "versionCode": 91,
+  "versionName": "0.28.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Conversations can now happen in the room instead of over the phone. A new pill at the top of every chat switches between Texting and In person. Texting is unchanged and still the default — short messages, plain words, the way the app has always worked. In person tells the character you are physically together: actions, touch, expressions and surroundings written in asterisks, speech in plain text between them, present tense, and never putting words or actions in your mouth. Actions now render in italics in the thread, in both modes, so a scene reads as a scene rather than a wall of punctuation. Pictures adapt too — in person a photo is something held up or shown to you rather than sent. The setting is per conversation and remembered, so one character can be a texting friend and another can be sitting across from you."
+  "notes": "A new starter cast. Chef Rosa stays; the writing partner, dungeon master, coach, professor and listener are retired and replaced by a household — Amy, Lilly, Erin, Harper and Jess, each with their own temperament, way of speaking, history and written appearance rather than a one-line label. The Family group chat replaces the old writing team. Upgrading is careful about it: a retired character you actually held a conversation with is kept, along with everything they remember, and only the ones you never opened are cleared away. Two long-standing crashes are fixed along the way — group chats and the no-API-key fallback both assumed every character carried scripted replies, which no character you made yourself ever has."
 }
