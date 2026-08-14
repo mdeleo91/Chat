@@ -1,6 +1,6 @@
 {
-  "versionCode": 82,
-  "versionName": "0.22.3",
+  "versionCode": 83,
+  "versionName": "0.23.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "The app now asks the vision endpoint what model it serves instead of assuming. vLLM rejects any name it did not register, and the registered name depends on how the endpoint was created — paste a Hugging Face URL into RunPod's model box and the served name can be that URL rather than the repository id, which returns a 404 on every request while the GPU sits there perfectly healthy. On that error the endpoint's model list is fetched, the Vision model field is corrected to what it actually serves, and the request is retried once. Test vision endpoint checks the same thing up front and fixes the field before spending a job on the wrong name."
+  "notes": "You can now see what the model saw. A photo you send used to go straight from pixels to an in-character reply, so what the model actually made of it was never written down — a reply that misread a picture looked exactly like one that read it perfectly. Before answering, the same vision engine is now asked for a plain description, and it goes in the troubleshooting log under a vision tag with how long it took and which engine read it. The description is also kept on the message, which fixes something else: photos only ride along as pixels for a couple of messages, and after that the character used to see nothing but a note that a photo had been sent. Now it still knows what was in it."
 }

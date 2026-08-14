@@ -1775,6 +1775,85 @@ function stripImages(messages){
       "pretend to have seen it — say it didn't come through and ask them about it.]"};
   });
 }
+/* ================= reading a photo you sent =================
+   The reply path goes straight from pixels to in-character words, so what
+   the model actually saw was never written down anywhere — a reply that
+   misreads a photo looked identical to one that read it fine. This asks the
+   same vision engine for a plain description first, logs it, and keeps it on
+   the message. It costs one extra vision call per photo, once, and it earns
+   that back: when the pixels age out of the window the description takes
+   their place, so the character still remembers what you showed it instead
+   of seeing "[a photo, no longer attached]". */
+var SEE_PROMPT = "Describe this photo plainly and factually for someone who cannot see it: " +
+  "who or what is in frame, what they are doing, clothing or state of dress, the setting, " +
+  "the mood, and any visible text. Two or three sentences. No preamble, no refusal, no " +
+  "commentary — just what is there.";
+/* a small job on the vision endpoint, submitted and polled like the reply */
+function rpQuickJob(messages, maxTok, cb){
+  fetch(rpVisionUrl("/run"), {
+    method: "POST", headers: rpJobHeaders(),
+    body: JSON.stringify({input: {openai_route: "/v1/chat/completions",
+      openai_input: {model: rp().vmodel, messages: messages, stream: false,
+        max_tokens: maxTok, temperature: 0.2}}})
+  }).then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      if (!j || !j.id) { cb(null); return; }
+      var tries = 45;
+      (function poll(){
+        if (tries-- <= 0) { rpCancelJob(j.id); cb(null); return; }
+        setTimeout(function(){
+          fetch(rpVisionUrl("/status/" + j.id), {headers: rpJobHeaders()})
+            .then(function(r){ return r.json(); })
+            .then(function(st){
+              if (st.status === "COMPLETED") { cb(rpJobText(st.output)); return; }
+              if (st.status === "FAILED" || st.status === "CANCELLED" ||
+                  st.status === "TIMED_OUT") { cb(null); return; }
+              poll();
+            }).catch(function(){ poll(); });
+        }, 3000);
+      })();
+    }).catch(function(){ cb(null); });
+}
+function describePhoto(dataUrl, cb){
+  var msgs = [{role: "user", content: [
+    {type: "image_url", image_url: {url: dataUrl}},
+    {type: "text", text: SEE_PROMPT}
+  ]}];
+  if (matureActive() && rpVisionReady()) { rpQuickJob(msgs, 220, cb); return; }
+  if (!glmReady()) { cb(null); return; }
+  fetch(GLM_URL, {
+    method: "POST", headers: apiHeaders(),
+    body: JSON.stringify({model: glm().vmodel || GLM_VISION_MODEL, messages: msgs,
+      stream: false, max_tokens: 220, temperature: 0.2})
+  }).then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      var c = j && j.choices && j.choices[0];
+      cb((c && c.message && c.message.content) || null);
+    }).catch(function(){ cb(null); });
+}
+/* describe the newest un-described photo the user sent, once */
+function ensurePhotoSeen(convo, cb){
+  var arr = S.msgs[convo.id] || [];
+  var target = null;
+  for (var i = arr.length - 1; i >= 0 && arr.length - i <= 4; i--)
+    if (arr[i].who === "me" && arr[i].img && !arr[i].seen) { target = arr[i]; break; }
+  if (!target) { cb(); return; }
+  setStage(convo.id, "looking at your photo");
+  var t0 = Date.now();
+  describePhoto(target.img, function(text){
+    var d = String(text || "").replace(/\s+/g, " ").trim();
+    if (d) {
+      target.seen = d.slice(0, 700);
+      save();
+      L("vision", "read your photo in " + Math.round((Date.now() - t0) / 1000) + "s via " +
+        (matureActive() && rpVisionReady() ? "your endpoint" : "Z.ai") + " ↓\n" + target.seen,
+        true, 2000);
+    } else {
+      L("vision", "couldn't read your photo — the reply goes ahead without a description", true);
+    }
+    cb();
+  });
+}
 /* stream a completion; a photo in the window bumps to a vision model —
    Z.ai's normally, the user's own RunPod vision endpoint when mature mode
    is on and one is configured (Z.ai refuses explicit image input) */
@@ -2502,8 +2581,9 @@ function buildMessages(ch, convo, nudge){
         if (m.text) parts.push({type:"text", text:m.text});
         add("user", parts);
       } else if (m.img) {
-        add("user", (m.text ? m.text + "\n" : "") +
-          "[the user sent a photo here — it's no longer attached]");
+        add("user", (m.text ? m.text + "\n" : "") + (m.seen
+          ? "[the user sent a photo here, no longer attached. It showed: " + m.seen + "]"
+          : "[the user sent a photo here — it's no longer attached]"));
       } else add("user", m.text);
     }
     else if (convo.grp && m.by !== ch.id) {
@@ -2817,6 +2897,10 @@ async function runGeneration(convo, ch, nudge, done){
     }
   }
   try {
+    /* before the reply, not after: the point is to see what the model saw
+       while there is still time to blame the description rather than the
+       character */
+    await new Promise(function(res){ ensurePhotoSeen(convo, res); });
     var msgs = buildMessages(ch, convo, nudge);
     await remoteGenerate(msgs, onDelta, convo.id);
     txt = visible(txt).trim();
