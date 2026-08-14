@@ -1,6 +1,6 @@
 {
-  "versionCode": 92,
-  "versionName": "0.29.0",
+  "versionCode": 93,
+  "versionName": "0.30.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Characters can belong to a family and know where they stand in it. Give everyone in a household the same word in the new Family field and each one is told their own relationship to you, their age, and who every other member is to you — enough for them to work out their own relationship to each other without anyone writing out every pair. A Ties field covers what that cannot reach on its own: whose child is whose, which side a relative is on. They then talk about each other by name, as people who share a life rather than strangers being introduced. Editing anyone's relationship updates what all the others are told immediately. The starter household comes filled in — mother, two sisters, an aunt and a cousin, with the ages and connections between them already set — and characters with no family named are unaffected."
+  "notes": "The family is a real tree now, not a description of one. Settings gains a Relationships page that lays a household out by generation, parents above children, with everyone's ties listed on their card and anyone not yet placed waiting underneath. Tap a person to say who they are to you, how they are referred to, and to link them to anyone else — pick the other character, pick what they are, and the reverse is written for you, so a mother never ends up with a child who thinks they are a sibling. The words come from the link rather than being typed: set someone as a parent and it reads mother or father depending on how they are referred to, and it stays right when anything is renamed. Characters are told these connections outright rather than left to work them out, which matters more the larger a household gets. The starter family arrives already built."
 }

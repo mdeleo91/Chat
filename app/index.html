@@ -273,6 +273,18 @@
   .accbtn .lbl{flex:1;font-weight:600}
   .accbtn .val{color:var(--mist);font-size:12.5px;max-width:45%;text-align:right;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* the tree: one row per generation, oldest at the top */
+  .gen{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;padding:10px 12px}
+  .genlab{text-align:center;font-size:10.5px;letter-spacing:.7px;color:var(--mist);
+    text-transform:uppercase;font-weight:700;padding-top:8px}
+  .genline{width:1px;height:16px;background:var(--line);margin:0 auto}
+  .kincard{width:104px;display:flex;flex-direction:column;align-items:center;gap:5px;
+    padding:10px 6px;border:1px solid var(--line);border-radius:14px;background:var(--card);
+    cursor:pointer;text-align:center}
+  .kincard.unplaced{border-style:dashed;opacity:.75}
+  .kincard .kn{font-weight:700;font-size:13px;line-height:1.2}
+  .kincard .kr{font-size:11px;color:var(--mist);line-height:1.25}
+  .kinempty{padding:18px 20px;text-align:center;color:var(--mist);font-size:13px}
   .accbtn .chev{color:var(--mist);transition:transform .18s ease}
   .accbtn.open .chev{transform:rotate(90deg)}
   .accbody{display:none;padding:4px 0 14px}
@@ -467,6 +479,8 @@
         <div class="sechead">FEATURES</div>
         <button class="srow" id="set-voice"><span class="ic msr">mic</span><span class="lbl">Voice</span>
           <span class="val">Simulated calls</span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
+        <button class="srow" id="set-rel"><span class="ic msr">group</span><span class="lbl">Relationships</span>
+          <span class="val" id="set-rel-val"></span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
         <button class="srow" id="set-mem"><span class="ic msr">psychology</span><span class="lbl">Memory</span>
           <span class="val">Manage memories</span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
         <div class="sechead">APPEARANCE</div>
@@ -574,6 +588,15 @@
   </div>
 
   <!-- ============ CHAR MEMORIES ============ -->
+  <div class="view right" id="v-rel">
+    <div class="subhead">
+      <button class="back" id="rel-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
+      <div class="cwrap"><div class="cname">Relationships</div>
+        <div class="cstat" id="rel-sub">who belongs to whom</div></div>
+    </div>
+    <div class="rows" id="rel-body"></div>
+  </div>
+
   <div class="view right" id="v-mem">
     <div class="subhead">
       <button class="back" id="mem-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
@@ -931,7 +954,7 @@ function applyTheme(){
 /* ================= starter cast ================= */
 var REACTIONS = ["favorite","mood","local_fire_department","thumb_up","auto_awesome"];
 var CAST = [
- {id:"rosa", name:"Chef Rosa", ring:"#F97316", tag:"Kitchen companion",
+ {id:"rosa", pronouns:"she/her", name:"Chef Rosa", ring:"#F97316", tag:"Kitchen companion",
   status:"something's simmering", pers:"Warm, direct, a little bossy",
   style:"Short, decisive sentences. Slips into Spanish when pleased or exasperated — cariño, claro, ay.",
   back:"Ran a neighbourhood kitchen for twenty years and now cooks for whoever turns up. Believes almost nothing is wrong with a person that a proper meal and a straight answer won't help.",
@@ -939,53 +962,53 @@ var CAST = [
   look:"woman in her early fifties, round face, dark eyes, greying black hair usually pinned up, warm olive skin, sturdy build",
   greeting:"\u00a1Hola! Rosa here. Tell me what's in your fridge and I'll tell you what's for dinner. And no, 'just condiments' is not a real answer \u2014 I've worked with worse."},
 
- {id:"lilly", name:"Lilly", ring:"#EC4899", tag:"Little sister \u00b7 18",
+ {id:"lilly", pronouns:"she/her", name:"Lilly", ring:"#EC4899", tag:"Little sister \u00b7 18",
   status:"in her room, probably", pers:"Bright, clingy, teasing. Youngest and plays it. Overshares constantly, hates being alone in the house, and will pick a fight to get attention rather than ask for it.",
   style:"Fast and casual, lowercase, lots of ellipses and 'omg' and 'literally'. Rambles when nervous. Calls you by name a lot.",
   back:"Your little sister, eighteen and just finished school, still living at home and not in a hurry to leave. Sleeps late, leaves mugs everywhere, knows everyone's business in the house and reports it all to you.",
   ints:"Music, her friends' drama, thrifted clothes, staying up too late",
   family:"Home", rel:"little sister", age:"18",
-  kin:"Amy is your mum. Erin is your older sister \u2014 by a year, and she never lets you forget it. Jess is your aunt, your mum's younger sister. Harper is your cousin, Jess's daughter.",
+  kin:"Erin is older than you by a year and never lets you forget it. Harper is the cousin you were always compared to.",
   look:"18-year-old adult woman, small heart-shaped face, long light-blonde hair usually messy, blue eyes, fair skin with a few freckles across the nose, petite slim build",
   greeting:"finally!! you never answer. ok so you have to hear what happened today, sit down"},
 
- {id:"erin", name:"Erin", ring:"#8B5CF6", tag:"Little sister \u00b7 19",
+ {id:"erin", pronouns:"she/her", name:"Erin", ring:"#8B5CF6", tag:"Little sister \u00b7 19",
   status:"headphones on", pers:"Dry, watchful, quietly funny. The quieter sister \u2014 says a third as much as Lilly and notices twice as much. Sarcastic when comfortable, closed when not. Loyal in a way she'd never say out loud.",
   style:"Short lines. Understatement and deadpan. Punctuation intact. Long silences that mean something.",
   back:"Your other little sister, nineteen, a year of college in and unconvinced by it. Keeps her door shut, keeps her opinions sharp, and turns up in the kitchen at midnight when she actually wants to talk.",
   ints:"Films, playlists, drawing, arguing about small things",
   family:"Home", rel:"little sister", age:"19",
-  kin:"Amy is your mum. Lilly is your younger sister by a year. Jess is your aunt, your mum's younger sister. Harper is your cousin, Jess's daughter \u2014 the same age as you and nothing like you.",
+  kin:"Lilly is a year younger and exhausting about it. Harper is exactly your age and nothing like you.",
   look:"19-year-old adult woman, oval face, dark brown hair cut just past the shoulders, grey-green eyes, pale skin, slim build, usually in oversized clothes",
   greeting:"you're up. figured. \u2014 what's going on with you"},
 
- {id:"harper", name:"Harper", ring:"#06B6D4", tag:"Cousin \u00b7 19",
+ {id:"harper", pronouns:"she/her", name:"Harper", ring:"#06B6D4", tag:"Cousin \u00b7 19",
   status:"back for the summer", pers:"Confident, mischievous, competitive. Grew up half in your house and treats it that way. Winds you up on purpose, dares first and thinks later, and is the one who talks everyone into the bad idea.",
   style:"Loud and playful, exclamation marks, nicknames, constant challenges \u2014 'bet you won't', 'come on then'.",
   back:"Your cousin, nineteen, home for the summer and back in the spare room like she never left. You two were raised close enough to be siblings and fight like it.",
   ints:"Swimming, driving nowhere, terrible reality TV, winning",
   family:"Home", rel:"cousin", age:"19",
-  kin:"Jess is your mum. Amy is your aunt, your mum's older sister. Lilly and Erin are your cousins \u2014 you grew up in and out of their house and treat it as half yours.",
+  kin:"You grew up in and out of that house and treat it as half yours.",
   look:"19-year-old adult woman, square jaw, sun-streaked light brown hair in a high ponytail, hazel eyes, tanned skin, athletic build",
   greeting:"guess who's back \u2014 and before you say anything, the spare room is MINE this time. deal with it :)"},
 
- {id:"jess", name:"Jess", ring:"#14B8A6", tag:"Aunt \u00b7 38",
+ {id:"jess", pronouns:"she/her", name:"Jess", ring:"#14B8A6", tag:"Aunt \u00b7 38",
   status:"pouring a glass of wine", pers:"Relaxed, wry, unshockable. The aunt everyone tells things to because she doesn't flinch or lecture. Curious about your life without prying, and honest to a fault when asked directly.",
   style:"Easy and conversational, full sentences, dry asides in brackets. Asks good questions and actually waits for the answer.",
   back:"Your mother's younger sister, thirty-eight, lives twenty minutes away and drops in without warning. The one member of the family who treats you like an adult, which is why you tell her more than you tell the rest of them.",
   ints:"Gardening badly, true crime podcasts, cheap red wine, other people's business",
   family:"Home", rel:"aunt", age:"38",
-  kin:"Amy is your older sister. Harper is your daughter. Lilly and Erin are your nieces, and you are the one they tell things to.",
+  kin:"You are the one the girls tell things to, which your sister knows and mostly doesn't mind.",
   look:"38-year-old woman, long face with fine lines at the eyes, dark auburn hair to the shoulders, brown eyes, warm fair skin, slim build",
   greeting:"I'm outside, I brought wine, and I'm not staying long \u2014 which we both know is a lie. Let me in."},
 
- {id:"amy", name:"Amy", ring:"#F59E0B", tag:"Mom \u00b7 42",
+ {id:"amy", pronouns:"she/her", name:"Amy", ring:"#F59E0B", tag:"Mom \u00b7 42",
   status:"has already asked if you've eaten", pers:"Warm, capable, quietly anxious about everyone. Runs the house and remembers everything. Fusses as a love language, apologises for fussing, then does it again. Sharper and funnier than her family gives her credit for.",
   style:"Full sentences, proper punctuation, an emoji at the end more often than she'd admit. Asks three questions in a row.",
   back:"Your mother, forty-two, holding a full household together \u2014 two daughters at home, a sister who lets herself in, and a niece back for the summer. Was very young when she had you and the two of you have always been more like allies than parent and child.",
   ints:"The garden, long phone calls, feeding people, everyone's whereabouts",
   family:"Home", rel:"mother", age:"42",
-  kin:"Lilly and Erin are your daughters. Jess is your younger sister. Harper is your niece, Jess's girl, and she is staying with you for the summer.",
+  kin:"Harper is staying with you for the summer, which has made the house louder than you admit you like.",
   look:"42-year-old woman, soft oval face, shoulder-length ash-blonde hair, blue eyes, fair skin, curvy build",
   greeting:"There you are. Have you eaten? Don't answer that too quickly \u2014 I can always tell. \ud83d\ude4a"}
 ];
@@ -2668,11 +2691,20 @@ function sysPrompt(ch, convo){
         p += "- " + c.name + (c.age ? ", " + c.age : "") +
              (c.rel ? " — their " + c.rel : "") + "\n";
       });
-      p += "You know these people and share a life with them. Refer to them by name, work out " +
-        "your own relationship to each from the list above, and bring them up the way someone " +
-        "actually would — not as if being introduced.\n";
+      p += "You know these people and share a life with them. Refer to them by name and bring " +
+        "them up the way someone actually would — not as if being introduced.\n";
+      /* the tree, stated outright. Everything above only says who each of
+         them is to the user; these are the links between them, and leaving
+         the model to deduce them gets steadily less reliable as a family
+         grows. */
+      var mine = relsOf(ch).map(function(r){
+        var o = getChar(r.who);
+        return o ? o.name + " is your " + relWord(r.type, o) : null;
+      }).filter(Boolean);
+      if (mine.length) p += "Your place among them: " + mine.join(". ") + ".\n";
     }
-    if ((ch.kin || "").trim()) p += "Your own ties: " + fill(ch.kin, ch) + "\n";
+    if ((ch.pronouns || "").trim()) p += "You are referred to as " + ch.pronouns.trim() + ".\n";
+    if ((ch.kin || "").trim()) p += "Anything else about your ties: " + fill(ch.kin, ch) + "\n";
   }
   if (convo && convo.grp) {
     var others = convo.members.filter(function(m){ return m !== ch.id; })
@@ -4203,6 +4235,233 @@ function openSceneSheet(){
   };
   openSheet();
 }
+/* ================= relationships =================
+   An edge lives on both characters and is stored as a type, never as a
+   label: {who: id, type: "parent"} on Erin means "Amy is my parent", and the
+   word "mother" is worked out at read time from Amy's pronouns. Storing the
+   word instead would go stale the moment a character was edited, and would
+   need the other person's gender guessed at the moment of writing. */
+var REL_INVERSE = {parent:"child", child:"parent", sibling:"sibling",
+  grandparent:"grandchild", grandchild:"grandparent",
+  pibling:"nibling", nibling:"pibling", cousin:"cousin", partner:"partner"};
+var REL_WORDS = {
+  parent:      ["mother","father","parent"],
+  child:       ["daughter","son","child"],
+  sibling:     ["sister","brother","sibling"],
+  grandparent: ["grandmother","grandfather","grandparent"],
+  grandchild:  ["granddaughter","grandson","grandchild"],
+  pibling:     ["aunt","uncle","aunt or uncle"],
+  nibling:     ["niece","nephew","niece or nephew"],
+  cousin:      ["cousin","cousin","cousin"],
+  partner:     ["wife","husband","partner"]
+};
+/* the pick order is she / he / neither */
+function pronounIdx(ch){
+  var g = ((ch && ch.pronouns) || "").toLowerCase();
+  if (g.indexOf("she") === 0) return 0;
+  if (g.indexOf("he") === 0) return 1;
+  return 2;
+}
+function relWord(type, ofChar){
+  var w = REL_WORDS[type]; if (!w) return type;
+  return w[pronounIdx(ofChar)];
+}
+function relsOf(ch){ return (ch && ch.rels) || []; }
+/* write both directions at once — a one-sided family tree is how the two
+   halves end up disagreeing */
+function setRel(aId, bId, type){
+  var a = getChar(aId), b = getChar(bId);
+  if (!a || !b || a === b || !REL_INVERSE[type]) return;
+  a.rels = relsOf(a).filter(function(r){ return r.who !== bId; });
+  b.rels = relsOf(b).filter(function(r){ return r.who !== aId; });
+  a.rels.push({who: bId, type: type});
+  b.rels.push({who: aId, type: REL_INVERSE[type]});
+  if ((b.family || "").trim() && !(a.family || "").trim()) a.family = b.family;
+  if ((a.family || "").trim() && !(b.family || "").trim()) b.family = a.family;
+  save();
+}
+function clearRel(aId, bId){
+  var a = getChar(aId), b = getChar(bId);
+  if (a) a.rels = relsOf(a).filter(function(r){ return r.who !== bId; });
+  if (b) b.rels = relsOf(b).filter(function(r){ return r.who !== aId; });
+  save();
+}
+function familyMembers(fam){
+  var f = (fam || "").trim().toLowerCase();
+  if (!f) return [];
+  return S.chars.filter(function(c){ return (c.family || "").trim().toLowerCase() === f; });
+}
+function familyNames(){
+  var seen = {}, out = [];
+  S.chars.forEach(function(c){
+    var f = (c.family || "").trim();
+    if (f && !seen[f.toLowerCase()]) { seen[f.toLowerCase()] = 1; out.push(f); }
+  });
+  return out;
+}
+/* depth from the parent edges: everyone starts level, a child is pushed one
+   below its parent, repeated until nothing moves. Cycles cannot run away
+   because the pass count is bounded by the size of the family. */
+function generations(members){
+  var depth = {};
+  members.forEach(function(c){ depth[c.id] = 0; });
+  for (var pass = 0; pass < members.length + 1; pass++) {
+    var moved = false;
+    members.forEach(function(c){
+      relsOf(c).forEach(function(r){
+        if (depth[r.who] === undefined) return;
+        if (r.type === "parent" && depth[c.id] <= depth[r.who]) { depth[c.id] = depth[r.who] + 1; moved = true; }
+        if (r.type === "grandparent" && depth[c.id] <= depth[r.who] + 1) { depth[c.id] = depth[r.who] + 2; moved = true; }
+      });
+    });
+    if (!moved) break;
+  }
+  /* a partner or sibling sits on the same row as the person they are tied to */
+  for (var k = 0; k < 3; k++) members.forEach(function(c){
+    relsOf(c).forEach(function(r){
+      if ((r.type === "sibling" || r.type === "partner") && depth[r.who] !== undefined)
+        depth[c.id] = depth[r.who] = Math.max(depth[c.id], depth[r.who]);
+    });
+  });
+  var rows = {};
+  members.forEach(function(c){ (rows[depth[c.id]] = rows[depth[c.id]] || []).push(c); });
+  return Object.keys(rows).sort(function(a, b){ return a - b; })
+    .map(function(d){ return rows[d]; });
+}
+/* ---- the tree page ---- */
+function relLine(ch){
+  var bits = relsOf(ch).map(function(r){
+    var o = getChar(r.who); if (!o) return null;
+    return relWord(r.type, o) + ": " + o.name;
+  }).filter(Boolean);
+  return bits.join(" · ");
+}
+function renderRel(){
+  var body = $("rel-body"); if (!body) return;
+  var fams = familyNames(), h = "";
+  var loose = S.chars.filter(function(c){ return !(c.family || "").trim(); });
+  if (!fams.length && !loose.length) { body.innerHTML = '<div class="kinempty">No characters yet.</div>'; return; }
+  fams.forEach(function(f){
+    var members = familyMembers(f);
+    h += '<div class="sechead">' + esc(f) + ' · ' + members.length + '</div>';
+    generations(members).forEach(function(row, i){
+      if (i) h += '<div class="genline"></div>';
+      h += '<div class="gen">';
+      row.forEach(function(c){
+        var rl = relLine(c);
+        h += '<button class="kincard" data-ch="' + c.id + '">' +
+          avatarEl(c, "sm") +
+          '<span class="kn">' + esc(c.name) + (c.age ? " · " + esc(c.age) : "") + '</span>' +
+          '<span class="kr">' + esc(c.rel ? "your " + c.rel : "—") + '</span>' +
+          (rl ? '<span class="kr">' + esc(rl) + '</span>' : '') + '</button>';
+      });
+      h += '</div>';
+    });
+  });
+  if (loose.length) {
+    h += '<div class="sechead">NOT IN A FAMILY</div><div class="gen">';
+    loose.forEach(function(c){
+      h += '<button class="kincard unplaced" data-ch="' + c.id + '">' + avatarEl(c, "sm") +
+        '<span class="kn">' + esc(c.name) + '</span>' +
+        '<span class="kr">tap to place</span></button>';
+    });
+    h += '</div>';
+  }
+  h += '<div class="note">Tap anyone to set who they are to you and to the others. ' +
+       'Every link is written to both people at once, so the two halves can never disagree.</div>';
+  body.innerHTML = h;
+  var cards = body.querySelectorAll(".kincard");
+  for (var i = 0; i < cards.length; i++) (function(b){
+    b.onclick = function(){ openKinSheet(b.dataset.ch); };
+  })(cards[i]);
+  $("rel-sub").textContent = fams.length
+    ? fams.length + (fams.length > 1 ? " families" : " family") + " · " +
+      S.chars.filter(function(c){ return (c.family||"").trim(); }).length + " placed"
+    : "nobody placed yet";
+}
+/* ---- one person's place in the tree ---- */
+function openKinSheet(id){
+  var ch = getChar(id); if (!ch) return;
+  var sh = $("asheet");
+  var rows = relsOf(ch).map(function(r){
+    var o = getChar(r.who); if (!o) return "";
+    return '<button class="as-btn" data-drop="' + o.id + '"><span class="msr">close</span>' +
+      esc(o.name) + ' is your ' + esc(relWord(r.type, o)) +
+      '<span class="hint">tap to remove</span></button>';
+  }).join("");
+  sh.innerHTML = '<div class="grip"></div>' +
+    '<div class="as-msg">' + esc(ch.name) + (ch.rel ? " — your " + esc(ch.rel) : "") + '</div>' +
+    '<button class="as-btn" data-act="family"><span class="msr">group</span>' +
+      'Family: ' + esc((ch.family || "").trim() || "none") + '</button>' +
+    '<button class="as-btn" data-act="rel"><span class="msr">person</span>' +
+      'To you: ' + esc(ch.rel || "not set") + '</button>' +
+    '<button class="as-btn" data-act="pron"><span class="msr">edit</span>' +
+      'Referred to as: ' + esc(ch.pronouns || "they/them") + '</button>' +
+    rows +
+    '<button class="as-btn" data-act="add"><span class="msr">add</span>Link to another character</button>';
+  sh.querySelectorAll(".as-btn").forEach(function(b){
+    b.onclick = function(){
+      if (b.dataset.drop) { clearRel(id, b.dataset.drop); renderRel(); openKinSheet(id); return; }
+      var a = b.dataset.act;
+      if (a === "family") {
+        var f = prompt("Which family does " + ch.name + " belong to?\nOne word, shared by everyone in it.",
+          (ch.family || "").trim() || (familyNames()[0] || "Home"));
+        if (f !== null) { ch.family = f.trim().slice(0, 40); save(); renderRel(); closeSheet(); }
+        return;
+      }
+      if (a === "rel") {
+        var r = prompt("What is " + ch.name + " to you?\ne.g. mother, little sister, cousin",
+          ch.rel || "");
+        if (r !== null) { ch.rel = r.trim().slice(0, 80); save(); renderRel(); closeSheet(); }
+        return;
+      }
+      if (a === "pron") {
+        var g = prompt("How is " + ch.name + " referred to?\nshe/her, he/him or they/them — this picks " +
+          "whether a link reads mother or father, daughter or son.", ch.pronouns || "she/her");
+        if (g !== null) { ch.pronouns = g.trim().slice(0, 20); save(); renderRel(); openKinSheet(id); }
+        return;
+      }
+      if (a === "add") openKinPick(id);
+    };
+  });
+  openSheet();
+}
+function openKinPick(id){
+  var ch = getChar(id);
+  var others = S.chars.filter(function(c){ return c.id !== id; });
+  if (!others.length) { toast("Make another character first"); return; }
+  var sh = $("asheet");
+  sh.innerHTML = '<div class="grip"></div><div class="as-msg">Who is this, to ' + esc(ch.name) + '?</div>' +
+    others.map(function(c){
+      return '<button class="as-btn" data-who="' + c.id + '"><span class="msr">person</span>' +
+        esc(c.name) + (c.rel ? '<span class="hint">your ' + esc(c.rel) + '</span>' : '') + '</button>';
+    }).join("");
+  sh.querySelectorAll(".as-btn").forEach(function(b){
+    b.onclick = function(){ openKinType(id, b.dataset.who); };
+  });
+  openSheet();
+}
+function openKinType(id, otherId){
+  var ch = getChar(id), other = getChar(otherId);
+  var types = ["parent","child","sibling","partner","pibling","nibling","grandparent","grandchild","cousin"];
+  var sh = $("asheet");
+  sh.innerHTML = '<div class="grip"></div>' +
+    '<div class="as-msg">' + esc(other.name) + ' is ' + esc(ch.name) + "'s…</div>" +
+    types.map(function(t){
+      return '<button class="as-btn" data-t="' + t + '"><span class="msr">person</span>' +
+        esc(relWord(t, other).replace(/^./, function(m){ return m.toUpperCase(); })) +
+        '<span class="hint">so ' + esc(ch.name) + ' becomes ' + esc(other.name) + "'s " +
+        esc(relWord(REL_INVERSE[t], ch)) + '</span></button>';
+    }).join("");
+  sh.querySelectorAll(".as-btn").forEach(function(b){
+    b.onclick = function(){
+      setRel(id, otherId, b.dataset.t);
+      closeSheet(); renderRel();
+      toast(other.name + " is now " + ch.name + "'s " + relWord(b.dataset.t, other));
+    };
+  });
+  openSheet();
+}
 /* ================= conversation actions =================
    Shared by the long-press sheet on the chat list and the menu inside the
    chat, so the two can never drift apart. */
@@ -4864,6 +5123,9 @@ function silentUpdateCheck(){
 /* ================= log viewer ================= */
 function renderLogCard(){
   var card = $("logcard");
+  var placed = S.chars.filter(function(c){ return (c.family || "").trim(); }).length;
+  var srv = $("set-rel-val");
+  if (srv) srv.textContent = placed ? placed + " placed" : "Family tree";
   $("set-logs-val").textContent = LOGS.length + " entries";
   if (!card.classList.contains("on")) return;
   var tail = LOGS.slice(-8).map(function(x){
@@ -4954,6 +5216,16 @@ if (!S.gseeded) { S.groups.push(JSON.parse(JSON.stringify(SEED_GROUP))); S.gseed
 /* the starter cast changed. Retire the old defaults on existing installs —
    but only the untouched ones: a character you actually talked to stays, and
    S.removed stops them coming back on the next boot. */
+/* the starter household's tree, written once as real edges. setRel fills in
+   the other half of each, so only one direction is listed. */
+if (!S.kin1) {
+  [["amy","lilly","child"], ["amy","erin","child"], ["amy","jess","sibling"],
+   ["amy","harper","nibling"], ["lilly","erin","sibling"], ["jess","harper","child"],
+   ["lilly","harper","cousin"], ["erin","harper","cousin"],
+   ["lilly","jess","pibling"], ["erin","jess","pibling"]
+  ].forEach(function(e){ if (getChar(e[0]) && getChar(e[1])) setRel(e[0], e[1], e[2]); });
+  S.kin1 = true; save();
+}
 if (!S.cast2) {
   ["nova","dm","kai","hale","sage"].forEach(function(id){
     if ((S.msgs[id] || []).length) return;
@@ -5072,6 +5344,8 @@ $("pf-del").onclick = function(){
 
 $("chat-menu").onclick = openChatMenu;
 $("mode-pill").onclick = toggleChatMode;
+$("set-rel").onclick = function(){ renderRel(); show("v-rel"); };
+$("rel-back").onclick = function(){ hide("v-rel"); initSettings(); };
 $("mem-back").onclick = function(){ hide("v-mem"); renderMemHub(); };
 $("new-back").onclick = function(){ hide("v-new"); };
 $("nc-create").onclick = saveChar;
