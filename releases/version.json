@@ -1,6 +1,6 @@
 {
-  "versionCode": 97,
-  "versionName": "0.32.0",
+  "versionCode": 98,
+  "versionName": "0.32.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Walk out of a group chat into a private one and they remember what just happened. Every conversation could previously only see its own thread, so someone who had been standing in a group discussion five minutes earlier met you privately with no idea it had taken place. Characters now carry the recent run of any group they belong to into their one-to-one chat, with everyone's names on the lines and how long ago it was, so you can pick something up privately without explaining it first. It does not work the other way: what you say in a private chat stays there and never reaches a room full of other characters, because a secret repeated in front of everyone is a worse failure than a forgotten one."
+  "notes": "Replies that came back blank, and photos told two different ages at once. The text model can think before it answers, and its thinking arrives on a separate channel the app never read — so it could spend its entire budget reasoning, close the stream having written nothing, and the failure reported only that the reply was empty. Thinking is now switched off for replies, as it already was for the smaller background calls, and if a model thinks anyway the log says that is what happened instead of leaving you guessing. Separately, a mature photo carried a blanket line insisting the subject was in their mid-twenties or older, which contradicted the character's own appearance a line later when she was eighteen. It now states her actual age when one is set, and falls back to the general wording only when nothing is known."
 }

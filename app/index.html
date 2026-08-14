@@ -1144,11 +1144,18 @@ function ensureLook(ch, cb){
    full stop) that doubles as a quality fix: FLUX renders age-ambiguous
    wording conservatively, and NSFW LoRAs are trained on adult-stated
    captions — an unanchored prompt is both the wrong output and a tame one */
-function adultDesc(desc){
+function adultDesc(desc, ch){
   if (/\b(adult|\d\d[\s-]*(?:year|yr)|(?:twent|thirt|fort|fift)\w*|milf|mature woman)\b/i.test(desc))
     return desc;
-  return desc + (/[.!?…]\s*$/.test(desc) ? " " : ". ") +
-    "Any person shown is unmistakably an adult in their mid-twenties or older.";
+  var tail = desc + (/[.!?…]\s*$/.test(desc) ? " " : ". ");
+  /* the character's own age when it is known and adult. The blanket
+     "mid-twenties or older" was being appended to a photo whose appearance
+     anchor two lines later read "18-year-old adult woman" — the prompt then
+     asserted both, and a model given two ages paints neither reliably. */
+  var age = parseInt((ch && ch.age) || "", 10);
+  if (age >= 18 && age < 120)
+    return tail + "The person shown is " + age + " years old, unmistakably an adult.";
+  return tail + "Any person shown is unmistakably an adult in their mid-twenties or older.";
 }
 /* shared response handling for every image endpoint — Z.ai answers
    {data:[{url|b64_json}]}, fal answers {images:[{url}]} */
@@ -1704,7 +1711,7 @@ function rpFilterLoras(lf){
   return {loras: keep, dropped: dropped};
 }
 function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame){
-  desc = adultDesc(desc);
+  desc = adultDesc(desc, ch);
   /* no hard API limit here, but past ~4 stacked LoRAs FLUX output turns
      mushy — same priority trim as fal, one slot looser */
   var lf = lorasFor(ch, desc, true, picked, 4);
@@ -1840,7 +1847,7 @@ function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked, inFrame){
      therefore go text-to-image, where content LoRAs work at full strength;
      identity there comes from a likeness LoRA in the character's cards. */
   var refs = isSelfie && !isMature ? (ch && ch.refimgs || []) : [];
-  if (isMature) desc = adultDesc(desc);
+  if (isMature) desc = adultDesc(desc, ch);
   var lf = lorasFor(ch, desc, isMature, picked, 3), loras = lf.loras;   // fal 422s above 3
   /* Kontext keeps a face best when addressed as an edit of "this person",
      and when style LoRAs are damped so they can't out-vote the identity */
@@ -2459,7 +2466,14 @@ async function remoteGenerate(messages, onDelta, cid){
     var body = JSON.stringify({
       model: model, messages: messages, stream: wantStream,
       temperature: 0.85, top_p: 0.95, max_tokens: 512,
-      presence_penalty: 0.3, frequency_penalty: 0.3
+      presence_penalty: 0.3, frequency_penalty: 0.3,
+      /* glm-5.x is a hybrid-reasoning model. Left to think, it streams into
+         delta.reasoning_content and can spend the entire 512-token budget
+         there, closing the stream with content never once set — which
+         surfaced as "the model returned an empty reply" with no clue why.
+         The utility calls have disabled it since the photo director hit the
+         same wall; the replies themselves never did. */
+      thinking: {type: "disabled"}
     });
     LASTREQ = {via: viaRp ? "vision endpoint" : "Z.ai", model: model,
                kb: Math.round(body.length / 1024)};
@@ -2507,9 +2521,13 @@ async function remoteGenerate(messages, onDelta, cid){
       }
       /* servers disagree on where the words live: streamed deltas, a full
          message, or completions-style text — accept whichever is present */
+      var sawReasoning = false;
       function fromChoice(j){
         var c = j && j.choices && j.choices[0];
         if (!c) return null;
+        /* noted but never shown: reasoning is not the character talking */
+        if ((c.delta && c.delta.reasoning_content) ||
+            (c.message && c.message.reasoning_content)) sawReasoning = true;
         return (c.delta && c.delta.content) ||
                (c.message && c.message.content) || c.text || null;
       }
@@ -2528,7 +2546,10 @@ async function remoteGenerate(messages, onDelta, cid){
         if (whole && whole.error)
           throw new Error(who + " answered with an error: " +
             String((whole.error && whole.error.message) || whole.error).slice(0, 200));
-        L("gen", "reply carried no tokens — body starts: “" + raw.slice(0, 180) + "”", true);
+        L("gen", "reply carried no tokens" +
+          (sawReasoning ? " — the model spent the whole budget reasoning and never wrote an " +
+            "answer. Thinking is requested off; this endpoint may be ignoring that." : "") +
+          " — body starts: “" + raw.slice(0, 180) + "”", true);
         if (viaRp && wantStream) {
           /* whatever came back, it wasn't a token stream — retry the same
              request as plain JSON before giving up on the reply */
