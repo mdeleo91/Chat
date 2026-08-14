@@ -1618,7 +1618,10 @@ function checkFaceTraining(ch, cb){
             when: "", add: faceTrigger(ch), face: true});
           delete ch.trainReq;
           save();
-          L("train", "face LoRA ready for " + ch.name + " — added to their LoRA cards", true);
+          L("train", "face LoRA ready for " + ch.name + " — added to their LoRA cards.\n" +
+            "It is hosted by fal, so it works on the fal path immediately. For photos that run " +
+            "on your own GPU (anything marked 18+ with a RunPod endpoint set), download it to " +
+            "the volume's loras folder as: " + rpLoraName(url), true, 900);
           cb(null, "done");
         });
     }).catch(function(e){
@@ -1676,6 +1679,30 @@ function buildFluxWorkflow(prompt, loras){
   wf["8"] = {class_type: "SaveImage", inputs: {images: ["7", 0], filename_prefix: "out"}};
   return wf;
 }
+/* what is actually on the volume. ComfyUI validates the whole graph before
+   running it and refuses an unknown lora_name outright, so one file that
+   isn't there loses the entire picture — which is how a face LoRA trained on
+   fal, and therefore living on fal's CDN rather than the GPU's disk, took
+   down every 18+ photo the moment it was added. The refusal names every file
+   it does have, so the fix is free: remember that list, drop what cannot
+   load, and paint with the rest. */
+var RPVOL = null;
+function rpVolNote(err){
+  var m = String(err || "").match(/not in\s*\(?\[([^\]]*)\]/);
+  if (!m) return false;
+  RPVOL = m[1].split(",").map(function(x){ return x.replace(/^[\s'"]+|[\s'"]+$/g, ""); }).filter(Boolean);
+  return true;
+}
+function rpFilterLoras(lf){
+  if (!RPVOL) return {loras: lf.loras, dropped: []};
+  var keep = [], dropped = [];
+  lf.loras.forEach(function(l, i){
+    var want = rpLoraName(l.path);
+    if (RPVOL.indexOf(want) >= 0) keep.push(l);
+    else dropped.push((lf.names[i] || want) + " → " + want);
+  });
+  return {loras: keep, dropped: dropped};
+}
 function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame){
   desc = adultDesc(desc);
   /* no hard API limit here, but past ~4 stacked LoRAs FLUX output turns
@@ -1697,22 +1724,45 @@ function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame){
      the longer wait of the two and had nothing but "painting the photo" */
   setBusy(cid, true);
   rpWatchStart(rp().ep.trim(), cid, "GPU is painting the photo");
-  fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
-    method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
-    body: JSON.stringify({input: {workflow: buildFluxWorkflow(prompt, lf.loras)}})
-  }).then(function(r){
-    if (!r.ok) return r.text().then(function(t){
-      throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 300) : ""));
+  var attempted = false;
+  function send(loras){
+    fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
+      body: JSON.stringify({input: {workflow: buildFluxWorkflow(prompt, loras)}})
+    }).then(function(r){
+      if (!r.ok) return r.text().then(function(t){
+        throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 300) : ""));
+      });
+      return r.json();
+    }).then(function(j){
+      /* a graph the worker refused because of a missing file is recoverable:
+         the refusal lists what it has, so retry once without the strays */
+      var em = j && j.error ? String(j.error) : "";
+      if (!attempted && /lora_name/.test(em) && rpVolNote(em)) {
+        attempted = true;
+        var f = rpFilterLoras(lf);
+        L("img", "not on your GPU's volume, dropped: " + f.dropped.join(", ") +
+          " — download the file there under exactly that name, or it can never load. " +
+          "(A LoRA trained in the app lives on fal, not on your GPU.) Retrying with " +
+          f.loras.length + " lora" + (f.loras.length === 1 ? "" : "s"), true, 1200);
+        if (!f.loras.length && !f.dropped.length) { rpFinish(j, isSelfie, cid, 0, cb, onFail); return; }
+        send(f.loras);
+        return;
+      }
+      rpFinish(j, isSelfie, cid, loras.length, cb, onFail);
+    }).catch(function(e){
+      rpWatchStop(cid);
+      L("img", "runpod failed: " + String(e && e.message || e).slice(0, 360), true);
+      if (onFail) onFail(); else cb(null);
     });
-    return r.json();
-  }).then(function(j){
-    rpFinish(j, isSelfie, cid, lf.loras.length, cb, onFail);
-  }).catch(function(e){
-    rpWatchStop(cid);
-    L("img", "runpod failed: " + String(e && e.message || e).slice(0, 360), true);
-    if (onFail) onFail(); else cb(null);
-  });
+  }
+  /* once the volume is known, strays never reach the GPU at all */
+  var pre = rpFilterLoras(lf);
+  if (pre.dropped.length)
+    L("img", "skipping " + pre.dropped.length + " lora(s) not on the volume: " +
+      pre.dropped.join(", "), true, 800);
+  send(pre.loras);
 }
 /* runsync gives up waiting during cold starts and answers IN_QUEUE with a job
    id — keep polling the job for up to ~5 minutes instead of failing over */

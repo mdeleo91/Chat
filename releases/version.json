@@ -1,6 +1,6 @@
 {
-  "versionCode": 95,
-  "versionName": "0.31.1",
+  "versionCode": 96,
+  "versionName": "0.31.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "New group chats no longer open with three messages from strangers. Every group started with the same hardcoded lines about building a fantasy story, credited to three of the original starter characters — so a group of your own people was greeted by a writing partner, a dungeon master and a history professor, and once those characters were retired the messages showed as question marks from nobody at all. The people actually in the group open it themselves now, in their own voices. Any of those stray messages already sitting in a group are cleared out on this update, leaving everything else in the thread alone, and a message whose author has since been deleted reads as Someone rather than a question mark."
+  "notes": "One missing LoRA file no longer costs you the whole picture. ComfyUI checks a workflow before it runs it and refuses an unknown file outright, so a single LoRA that is not on your GPU's volume killed the entire photo — which is exactly what happened the moment a face LoRA trained in the app was added, since the trainer's output is hosted by fal and never lands on the GPU's disk. The refusal names every file the volume does have, so the app now reads that list, drops what cannot load, says which ones and what they would need to be called, and paints with the rest. Afterwards it remembers the list and skips the strays before sending. Training also now tells you the exact filename to save the result under if you want it on the GPU path."
 }
