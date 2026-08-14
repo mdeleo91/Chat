@@ -1,6 +1,6 @@
 {
-  "versionCode": 87,
-  "versionName": "0.25.1",
+  "versionCode": 88,
+  "versionName": "0.25.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Fixes the icon names printed across the settings screen. The app embeds a cut-down icon font so it works offline, and it carries only the glyphs the app already used. An icon outside that set does not come out blank — it spells its own name, which is why EXPAND_MORE, MEMORY and EXPLICIT appeared as words in yesterday's new settings rows. The new icons are now drawn from the set that is actually embedded: the accordion arrow reuses the chevron and turns when a section opens, the conversation menu is a gear, and hidden photos use a padlock."
+  "notes": "Ask for something specific and you now get that thing. The photo director was weighing the character's draft above what you had just asked for, so a request for one particular kind of shot could come back as the nearest general version of it — the right idea somewhere in the conversation, the wrong LoRA in the picks. A request in the recent messages now outranks the draft: the scene has to show it by name, and any LoRA meant for it has to be picked even when a broader one also fits. The log also explains itself better. It records what the character originally asked for before the rewrite, prints the director's scene in full instead of the first hundred characters, and when the LoRA cap trims the stack it now lists what it kept and what it dropped with the reason each one qualified — so a LoRA losing its slot to another of equal rank is visible instead of mysterious."
 }

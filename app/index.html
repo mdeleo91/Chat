@@ -1250,8 +1250,11 @@ function lorasFor(ch, desc, isMature, picked, maxN, quiet){
      too many stack — trim from the back of the priority order, and say so */
   if (maxN && items.length > maxN) {
     if (!quiet)
-      L("img", "lora cap " + maxN + " — dropped: " +
-        items.slice(maxN).map(function(i){ return i.name; }).join(", "), true);
+      L("img", "lora cap " + maxN + " — kept " +
+        items.slice(0, maxN).map(function(i){ return i.name + "(" + i.why + ")"; }).join(", ") +
+        " · dropped " +
+        items.slice(maxN).map(function(i){ return i.name + "(" + i.why + ")"; }).join(", ") +
+        " — director picks outrank keyword matches, and equal ranks fall back to list order", true);
     items = items.slice(0, maxN);
   }
   return {
@@ -3169,6 +3172,14 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
     ch.name + " is about to send a " + (isSelfie ? "selfie" : "photo") +
     (isMature ? " (an explicit adult picture is intended and permitted; the subject is an adult)" : "") +
     ".\nDraft description: \"" + desc + "\"\n\n" +
+    /* the draft is the character's idea of the shot; a request in the
+       conversation is the user's, and the user's wins. Without this the
+       director would answer "nipple slip picture" with a generic nude — the
+       right concept in the transcript, the wrong LoRA in the picks. */
+    "If the user asked for something specific in the recent messages — a particular act, angle, " +
+    "state of dress, or detail — their request outranks the draft. The scene must show that thing " +
+    "plainly and by name, and any LoRA meant for it must be in your picks even if a more general " +
+    "one also fits.\n\n" +
     (catalog.length
       ? "Available LoRAs — pick only the ones that genuinely fit this picture:\n" +
         catalog.map(function(c){ return "- " + c.name + " (meant for: " + c.when + ")"; }).join("\n") + "\n\n"
@@ -3197,8 +3208,8 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
       var scene = String(j.scene || "").trim();
       var picked = Array.isArray(j.loras) ? j.loras.map(String) : null;
       if (scene.length >= 20) {
-        L("img", "director: “" + scene.slice(0, 110) + "” · picked=" +
-          (picked && picked.length ? picked.join(", ") : "(keyword match only)"), true);
+        L("img", "director rewrote it as: “" + scene + "” · picked=" +
+          (picked && picked.length ? picked.join(", ") : "(keyword match only)"), true, 1500);
         cb(scene, picked);
         return;
       }
@@ -3210,6 +3221,11 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
 /* the picture a character chose to send, generated then delivered as its own
    message — typing dots show while CogView paints */
 function deliverPhoto(convo, ch, desc, isSelfie, isMature){
+  /* the character's own words, before the director rewrites them. Without
+     this there is no way to tell whether a missing detail was dropped by the
+     character or lost in the rewrite. */
+  L("img", (ch.name || "character") + " asked for a " + (isSelfie ? "selfie" : "photo") +
+    (isMature ? " (18+)" : "") + ": “" + desc + "”", true, 1500);
   var ty = $("ty");
   if (cur === convo.id && ty){ ty.classList.add("on"); $("stream").scrollTop = 1e9; }
   setStage(convo.id, "framing the shot");
