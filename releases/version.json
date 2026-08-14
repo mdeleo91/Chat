@@ -1,6 +1,6 @@
 {
-  "versionCode": 93,
-  "versionName": "0.30.0",
+  "versionCode": 94,
+  "versionName": "0.31.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "The family is a real tree now, not a description of one. Settings gains a Relationships page that lays a household out by generation, parents above children, with everyone's ties listed on their card and anyone not yet placed waiting underneath. Tap a person to say who they are to you, how they are referred to, and to link them to anyone else — pick the other character, pick what they are, and the reverse is written for you, so a mother never ends up with a child who thinks they are a sibling. The words come from the link rather than being typed: set someone as a parent and it reads mother or father depending on how they are referred to, and it stays right when anything is renamed. Characters are told these connections outright rather than left to work them out, which matters more the larger a household gets. The starter family arrives already built."
+  "notes": "Group chats you can actually make. The + button now asks whether you want a character or a group, and a group is a name and a list of people you tick. Everyone in one reads the whole thread — including what the others said — and now remembers it afterwards whether or not they spoke, which was the real gap: only the characters who happened to answer were learning anything, so a member sitting quietly through a conversation forgot it entirely. Who replies is decided by who you spoke to: names and relationships are recognised, including the words people actually use for them, so 'mum, can we talk' reaches your mother and 'hey harper' reaches Harper without anyone else interrupting. Members can be changed later from the menu inside the chat."
 }

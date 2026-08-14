@@ -588,6 +588,23 @@
   </div>
 
   <!-- ============ CHAR MEMORIES ============ -->
+  <div class="view right" id="v-grp">
+    <div class="subhead">
+      <button class="back" id="grp-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
+      <div class="cwrap"><div class="cname" id="grp-title">New group chat</div>
+        <div class="cstat" id="grp-sub">everyone added is present for the whole conversation</div></div>
+      <button class="icb" id="grp-save" title="Save"><span class="msr" style="font-size:19px">check</span></button>
+    </div>
+    <div class="rows">
+      <div class="field" style="padding:14px 16px 4px"><label>GROUP NAME</label>
+        <input id="grp-name" placeholder="e.g. Kitchen table"></div>
+      <div class="sechead">WHO'S IN IT</div>
+      <div id="grp-members"></div>
+      <div class="note">Everyone in a group reads the whole thread, including what the others say —
+        and remembers it afterwards, whether or not they spoke.</div>
+    </div>
+  </div>
+
   <div class="view right" id="v-rel">
     <div class="subhead">
       <button class="back" id="rel-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
@@ -4328,6 +4345,64 @@ function generations(members){
   return Object.keys(rows).sort(function(a, b){ return a - b; })
     .map(function(d){ return rows[d]; });
 }
+/* ================= group chats =================
+   A group is a conversation with several characters in it. Everyone reads
+   the same thread, so being present is the whole point — including for the
+   members who happen not to answer a given message. */
+var grpEdit = null, grpPick = [];
+function openGroupForm(id){
+  var g = id ? getConvo(id) : null;
+  grpEdit = id || null;
+  grpPick = g ? g.members.slice() : [];
+  $("grp-title").textContent = g ? "Group members" : "New group chat";
+  $("grp-name").value = g ? g.name : "";
+  renderGroupPick();
+  show("v-grp");
+}
+function renderGroupPick(){
+  var box = $("grp-members");
+  box.innerHTML = S.chars.map(function(c){
+    var on = grpPick.indexOf(c.id) >= 0;
+    return '<button class="srow" data-ch="' + c.id + '">' +
+      '<span class="ic msr' + (on ? " fill" : "") + '" style="color:' +
+        (on ? "var(--acc-deep)" : "var(--mist)") + '">' +
+        (on ? "check_circle" : "person") + '</span>' +
+      '<span class="lbl">' + esc(c.name) + '</span>' +
+      '<span class="val">' + esc(c.rel ? "your " + c.rel : (c.tag || "")) + '</span></button>';
+  }).join("") || '<div class="kinempty">No characters yet.</div>';
+  var rows = box.querySelectorAll(".srow");
+  for (var i = 0; i < rows.length; i++) (function(b){
+    b.onclick = function(){
+      var id = b.dataset.ch, at = grpPick.indexOf(id);
+      if (at >= 0) grpPick.splice(at, 1); else grpPick.push(id);
+      renderGroupPick();
+    };
+  })(rows[i]);
+  $("grp-sub").textContent = grpPick.length
+    ? grpPick.length + (grpPick.length === 1 ? " character" : " characters")
+    : "pick at least two";
+}
+function saveGroup(){
+  var name = $("grp-name").value.trim();
+  if (grpPick.length < 2) { toast("A group needs at least two characters"); return; }
+  if (!name) name = grpPick.map(function(id){ var c = getChar(id); return c ? c.name : ""; })
+    .filter(Boolean).slice(0, 3).join(", ");
+  if (grpEdit) {
+    var g = getConvo(grpEdit);
+    g.name = name; g.members = grpPick.slice();
+    g.status = grpPick.length + " members";
+    save(); hide("v-grp"); renderHome();
+    if (cur === grpEdit) { $("chat-name").textContent = name; renderStream(); updateChatStat(); }
+    toast("Group updated");
+    return;
+  }
+  var gid = "g-" + Date.now().toString(36);
+  S.groups.push({id: gid, grp: true, name: name, ring: ACCENTS[0] ? ACCENTS[0].hex : "#22C55E",
+    members: grpPick.slice(), status: grpPick.length + " members"});
+  save(); hide("v-grp"); renderHome();
+  openChat(gid);
+  toast("Group created");
+}
 /* ---- the tree page ---- */
 function relLine(ch){
   var bits = relsOf(ch).map(function(r){
@@ -4524,6 +4599,8 @@ function openChatMenu(){
   var sh = $("asheet");
   sh.innerHTML = '<div class="grip"></div>' +
     '<div class="as-msg">' + esc(c.name) + '</div>' +
+    (c.grp ? '<button class="as-btn" data-act="members"><span class="msr">group</span>' +
+      'Members<span class="hint">' + c.members.length + ' in this group</span></button>' : '') +
     (has ? (IMGHIDE[cur]
       ? '<button class="as-btn" data-act="show"><span class="msr">image</span>Show all images</button>'
       : '<button class="as-btn" data-act="hide"><span class="msr">lock</span>Hide all images' +
@@ -4536,7 +4613,8 @@ function openChatMenu(){
     b.onclick = function(){
       var a = b.dataset.act;
       closeSheet();
-      if (a === "hide" || a === "show") { setImgHide(cur, a === "hide"); renderStream(); }
+      if (a === "members") openGroupForm(cur);
+      else if (a === "hide" || a === "show") { setImgHide(cur, a === "hide"); renderStream(); }
       else if (a === "clear") clearConvo(cur);
       else if (a === "del") deleteConvo(cur);
     };
@@ -4657,8 +4735,13 @@ function sendUserMessage(text, img){
   }
   var routeText = text || "[photo]";   // group-responder scoring needs something
   if (c.grp) {
+    /* everyone in the room hears it, not only whoever answers. Facts used to
+       be learned by the responders alone, so a member who happened to stay
+       quiet forgot a conversation they were sitting in. */
+    if (text) c.members.forEach(function(mid){
+      var m = getChar(mid); if (m) extractFacts(m, text);
+    });
     pickResponders(c, routeText).forEach(function(r){
-      if (text) extractFacts(r, text);
       aiDeliver(c, r, routeText);
     });
   } else {
@@ -4666,17 +4749,50 @@ function sendUserMessage(text, img){
     aiDeliver(c, c, routeText);
   }
 }
+/* nobody types "mother" — the relation as written is only ever one of the
+   words someone would actually use for it */
+var REL_ALIASES = {
+  mother:["mum","mom","mommy","mummy","mama"], father:["dad","daddy","papa"],
+  sister:["sis"], brother:["bro"], aunt:["auntie","aunty"], uncle:["unc"],
+  cousin:["cuz","cus"], grandmother:["grandma","gran","granny","nana","nan"],
+  grandfather:["grandpa","grandad","granddad","gramps"],
+  daughter:[], son:[], wife:[], husband:[], partner:[]
+};
+function reEsc(x){ return String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+function relTriggers(rel){
+  var r = (rel || "").toLowerCase().trim();
+  if (!r) return [];
+  var out = [r];
+  Object.keys(REL_ALIASES).forEach(function(k){
+    if (r.indexOf(k) >= 0) out = out.concat([k], REL_ALIASES[k]);
+  });
+  return out.filter(function(v, i, a){ return v && a.indexOf(v) === i; });
+}
+function mentions(text, words){
+  if (!words.length) return false;
+  return new RegExp("\\b(" + words.map(reEsc).join("|") + ")\\b", "i").test(text);
+}
 function pickResponders(g, text){
-  var t = text.toLowerCase();
+  var t = " " + text.toLowerCase() + " ";
   var scored = g.members.map(function(mid){
     var ch = getChar(mid); if (!ch) return null;
     var score = 0;
+    /* being spoken to by name settles it — the old keyword scoring only ever
+       matched the scripted starter cast, so for anything made since it was a
+       coin toss even when someone was addressed directly */
+    var nm = (ch.name || "").split(/\s+/)[0];
+    if (nm && mentions(text, [nm])) score += 10;
+    if (mentions(text, relTriggers(ch.rel))) score += 6;
     (ch.topics || []).forEach(function(tp){
       (tp.m || []).forEach(function(kw){ if (t.indexOf(kw) >= 0) score++; });
     });
-    return {ch:ch, score:score};
+    return {ch: ch, score: score};
   }).filter(Boolean);
-  scored.sort(function(a,b){ return b.score - a.score || (Math.random()-.5); });
+  if (!scored.length) return [];
+  scored.sort(function(a, b){ return b.score - a.score || (Math.random() - 0.5); });
+  var named = scored.filter(function(x){ return x.score >= 6; });
+  /* addressed by name: those people answer, and nobody else butts in */
+  if (named.length) return named.slice(0, 2).map(function(x){ return x.ch; });
   var out = [scored[0].ch];
   if (scored.length > 1 && Math.random() < 0.4) out.push(scored[1].ch);
   return out;
@@ -5263,8 +5379,25 @@ var tbtns = document.querySelectorAll(".tabbtn");
 for (var ti=0; ti<tbtns.length; ti++) (function(b){
   b.onclick = function(){ tab(b.dataset.tab); };
 })(tbtns[ti]);
-$("fab").onclick = function(){ openCharForm(null); };
-$("b-new2").onclick = function(){ openCharForm(null); };
+function openNewSheet(){
+  var sh = $("asheet");
+  sh.innerHTML = '<div class="grip"></div><div class="as-msg">Create</div>' +
+    '<button class="as-btn" data-act="char"><span class="msr">person</span>New character' +
+      '<span class="hint">someone to talk to one to one</span></button>' +
+    '<button class="as-btn" data-act="grp"><span class="msr">group</span>New group chat' +
+      '<span class="hint">several characters in one conversation</span></button>';
+  sh.querySelectorAll(".as-btn").forEach(function(b){
+    b.onclick = function(){
+      closeSheet();
+      if (b.dataset.act === "char") openCharForm(null); else openGroupForm(null);
+    };
+  });
+  openSheet();
+}
+$("fab").onclick = openNewSheet;
+$("b-new2").onclick = openNewSheet;
+$("grp-back").onclick = function(){ hide("v-grp"); };
+$("grp-save").onclick = saveGroup;
 
 $("b-theme").onclick = function(){
   S.mode = isDark() ? "light" : "dark";
