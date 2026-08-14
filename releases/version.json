@@ -1,6 +1,6 @@
 {
-  "versionCode": 76,
-  "versionName": "0.21.1",
+  "versionCode": 77,
+  "versionName": "0.21.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "A GPU that crashes on startup is now told apart from one that is merely slow. A container that starts, dies and starts again reports as 'initializing' on most health polls, which is exactly what a first boot downloading its model looks like — so the app kept granting it more time and waited out the entire budget for a worker that was never going to serve. RunPod does report the difference on the polls that land between restarts, and two sightings is now the verdict: the job is cancelled within about half a minute and the error names the cause instead of blaming a slow cold start. Test vision endpoint checks the same thing rather than sitting for 90 seconds and calling it a normal first boot. The usual culprit is a pinned model revision that no longer exists on Hugging Face — RunPod stamps that commit when the endpoint is created and it goes stale — so the message points at the endpoint's Logs tab and at clearing MODEL_REVISION."
+  "notes": "The log now says why each LoRA loaded, not just which ones did. A LoRA whose WHEN field is empty applies to every photo — right for a style LoRA, a trap for a subject one, because its trigger words then ride a picture that has nothing to do with it. The route line listed the LoRA either way, so an accidental always-on subject LoRA looked identical to a genuine keyword match. Each entry now carries its reason: always, kw, 18+, 18+&kw, or picked by the photo director."
 }

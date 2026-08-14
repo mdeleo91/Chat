@@ -1185,6 +1185,12 @@ function lorasFor(ch, desc, isMature, picked, maxN){
        baseline, except an 18+-gated LoRA can never ride a SFW picture */
     var pickOk = pick.indexOf(nm) >= 0 && (isMature || !matureGate);
     if (!kwOk && !pickOk) return;
+    /* why it made the cut. An empty WHEN means "every photo" — correct for a
+       style LoRA, a trap for a subject one, whose trigger words then ride a
+       picture that has nothing to do with it. The log named the LoRA but
+       never the reason, so "always" was indistinguishable from a real match. */
+    var why = !kws.length ? "always"
+      : (kwOk ? (matureGate ? (rest.length ? "18+&kw" : "18+") : "kw") : "picked");
     /* fal rejects scale > 4 outright (422, photo lost to the fallback) —
        clamp here so a "8" typo for "0.8" degrades instead of failing */
     var sc = l.scale ? Math.min(4, Math.max(0, l.scale)) : null;
@@ -1195,6 +1201,7 @@ function lorasFor(ch, desc, isMature, picked, maxN){
       rank: idx >= globals.length ? 0 : (pickOk && pick.length ? 1 : (kws.length ? 2 : 3)),
       lora: sc ? {path: withCivitaiToken(path), scale: sc} : {path: withCivitaiToken(path)},
       add: (l.add || "").trim(),
+      why: why,
       name: (l.name || "").trim() || path.split("/").pop().split("?")[0]
     });
   });
@@ -1224,6 +1231,7 @@ function lorasFor(ch, desc, isMature, picked, maxN){
   return {
     loras: items.map(function(i){ return i.lora; }),
     adds:  items.map(function(i){ return i.add; }).filter(Boolean),
+    whys:  items.map(function(i){ return i.why; }),
     names: items.map(function(i){ return i.name; })
   };
 }
@@ -2877,9 +2885,10 @@ function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature){
   var damp = isSelfie && refs && falReady() ? 0.7 : 1;
   var lfLog = falReady() || rpReady()
     ? lorasFor(ch, desc, isMature, picked, isMature && rpReady() ? 4 : 3)
-    : {loras: [], names: []};
+    : {loras: [], names: [], whys: []};
   var llist = lfLog.loras.map(function(l, i){
-    return lfLog.names[i] + "@" + Math.round(((l.scale || 1) * damp) * 100) / 100;
+    return lfLog.names[i] + "@" + Math.round(((l.scale || 1) * damp) * 100) / 100 +
+      "(" + ((lfLog.whys || [])[i] || "?") + ")";
   }).join(",");
   L("img", "route: " + (isSelfie ? "selfie" : "photo") + (isMature ? " 18+" : "") +
     " · engine=" + (isMature && rpReady() ? "runpod" : (falReady() ? "flux" : "glm")) + " · refs=" + refs +
