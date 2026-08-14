@@ -2315,16 +2315,23 @@ async function remoteGenerate(messages, onDelta, cid){
       }
     }
   } catch (e) {
-    /* a vision endpoint that can't serve used to take the whole reply down
-       with it. Only when nothing has been shown yet, the user didn't stop it,
-       and there is a text model to fall back to. */
-    if (!viaRp || emitted || !hasImg || !glmReady() || (e && e.canceled)) throw e;
-    L("gen", "vision endpoint unusable — answering without the photo: " +
-      String(e && e.message || e).slice(0, 200), true);
+    /* two different dead ends, one cure: an endpoint that cannot serve, and a
+       provider that refuses to look. Either way the turn used to die and the
+       photo sat in the thread unanswered. The text model is the way out of
+       both — it moderates far looser than the vision model, so the reply that
+       was refused with a photo attached usually lands without one. Only when
+       nothing has been shown yet, the user didn't stop it, and there is a
+       text model to fall back to. */
+    var canDrop = hasImg && glmReady() && !emitted && !(e && e.canceled);
+    if (!canDrop || !(viaRp || (e && e.refused))) throw e;
+    L("gen", (e && e.refused ? "provider refused to read the photo" : "vision endpoint unusable") +
+      " — answering without it: " + String(e && e.message || e).slice(0, 200), true);
     if (cid) setStage(cid, "answering without the photo");
-    toast("Vision endpoint is down — replying without reading your photo");
-    /* the stripped messages carry no image parts, so this lands on the plain
-       text model and cannot re-enter the vision path */
+    toast(e && e.refused
+      ? "That photo wouldn't be read — replying without it"
+      : "Vision endpoint is down — replying without reading your photo");
+    /* stripped messages carry no image parts, so this lands on the plain text
+       model and can neither re-enter the vision path nor loop back here */
     return await remoteGenerate(stripImages(messages), onDelta, cid);
   } finally {
     if (cid) { rpWatchStop(cid); setStage(cid, ""); setBusy(cid, false); }
