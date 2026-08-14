@@ -1497,6 +1497,7 @@ function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked){
      is the only place the assembled prompt exists. */
   L("img", "runpod prompt (" + prompt.length + " chars) ↓\n" + prompt, true, 12000);
   setStage(cid, "sending to your GPU");
+  rpSickClear(cid);
   /* the same live health narration the photo-read has had — generation is
      the longer wait of the two and had nothing but "painting the photo" */
   setBusy(cid, true);
@@ -1565,6 +1566,11 @@ function rpPoll(id, tries, isSelfie, cid, nLoras, cb, onFail, netMisses){
       if (j.status === "COMPLETED" || j.output) { rpFinish(j, isSelfie, cid, nLoras, cb, onFail); return; }
       if (j.status === "FAILED" || j.status === "CANCELLED" || j.status === "TIMED_OUT") {
         fail("worker " + j.status + (j.error ? " — " + String(j.error).slice(0, 240) : "")); return;
+      }
+      if (rpSick(cid)) {
+        fail("worker keeps starting and dying — check the endpoint's Logs in the RunPod " +
+             "console (a stale pinned model revision, or a model too big for the GPU)");
+        return;
       }
       if (tries <= 0) { fail("timed out waiting for the worker (cold start too slow)"); return; }
       setTimeout(function(){ rpPoll(id, tries - 1, isSelfie, cid, nLoras, cb, onFail, 0); }, 5000);
@@ -1790,6 +1796,28 @@ function rpPhase(h, working){
   return q > 1 ? "queued — " + (q - 1) + " job" + (q === 2 ? "" : "s") + " ahead of yours"
                : "waiting for a GPU";
 }
+/* a worker that starts, dies and starts again reads as "initializing" on
+   every poll, so a boot loop was indistinguishable from a slow download and
+   earned extension after extension until the whole budget was gone. RunPod
+   does report it — workers.unhealthy — but not on every poll while the
+   container is mid-restart, so the observation is latched, and takes two
+   sightings before it counts as a verdict rather than a blip. */
+var RPSICK = {};
+function rpNoteHealth(cid, h){
+  if (!cid || !h) return;
+  if (!((h.workers || {}).unhealthy || 0)) return;
+  RPSICK[cid] = (RPSICK[cid] || 0) + 1;
+}
+function rpSick(cid){ return (RPSICK[cid] || 0) >= 2; }
+function rpSickClear(cid){ delete RPSICK[cid]; }
+function rpSickError(who){
+  var e = new Error(who + " keeps starting and dying — RunPod is reporting unhealthy " +
+    "workers, so this is a boot failure, not a slow cold start. Open the endpoint's Logs " +
+    "tab in the RunPod console: a pinned model revision that no longer exists on Hugging " +
+    "Face, or a model too big for the GPU, both look exactly like this.");
+  e.viaRp = true;
+  return e;
+}
 /* poll an endpoint's health for as long as a request is in flight against it,
    and put the answer in the typing bubble. Returns its own stopper. */
 var RPWATCH = {};
@@ -1802,7 +1830,9 @@ function rpWatchStart(ep, cid, working){
     busy = true;
     rpHealthOf(ep).then(function(h){
       busy = false;
-      if (h && RPWATCH[cid]) setStage(cid, rpPhase(h, working));
+      if (!h || !RPWATCH[cid]) return;
+      rpNoteHealth(cid, h);
+      setStage(cid, rpSick(cid) ? "GPU keeps crashing on startup" : rpPhase(h, working));
     });
   }, 8000);
 }
@@ -1885,6 +1915,7 @@ async function remoteGenerate(messages, onDelta, cid){
      poll it and put the truth in the caption, with the progress bar
      filling against the current budget */
   if (viaRp && cid) {
+    rpSickClear(cid);
     setBusy(cid, true);
     rpWatchStart(rp().vep.trim(), cid, "GPU is reading your photo");
   }
@@ -1965,6 +1996,9 @@ async function remoteGenerate(messages, onDelta, cid){
           .test(em);
         throw fe;
       }
+      /* a boot loop is a verdict, not a wait — the watcher latches it and the
+         job is cancelled rather than left to ride out the whole budget */
+      if (rpSick(cid)) { rpCancelJob(jobId); throw rpSickError(who); }
       /* the stage caption is the health poller's job — it can tell a booting
          worker from a busy one, which the job status alone cannot */
       if (msLeft() > 0) continue;
@@ -1976,6 +2010,8 @@ async function remoteGenerate(messages, onDelta, cid){
         te2.isTimeout = true; te2.viaRp = true; throw te2;
       }
       var h = await rpHealthBrief();
+      rpNoteHealth(cid, h);
+      if (rpSick(cid)) { rpCancelJob(jobId); throw rpSickError(who); }
       var hw = (h && h.workers) || {};
       var aliveW = (hw.initializing || 0) + (hw.running || 0) + (hw.ready || 0) + (hw.idle || 0);
       if (h && !aliveW) {
@@ -2154,6 +2190,8 @@ async function remoteGenerate(messages, onDelta, cid){
            hard cap. No workers at all is a verdict, delivered as one. */
         if (e.isTimeout && viaRp && !emitted && budget < RP_MAX_TOTAL_MS) {
           var h = await rpHealthBrief();
+          rpNoteHealth(cid, h);
+          if (rpSick(cid)) throw rpSickError(who);
           var hw = (h && h.workers) || {};
           var aliveW = (hw.initializing || 0) + (hw.running || 0) +
                        (hw.ready || 0) + (hw.idle || 0);
@@ -2528,7 +2566,7 @@ function beginGen(cid){
 }
 function endGen(cid){
   var p = PENDING[cid]; if (!p) return;
-  if (--p.n <= 0) { delete PENDING[cid]; inflightClear(cid); rpWatchStop(cid); }
+  if (--p.n <= 0) { delete PENDING[cid]; inflightClear(cid); rpWatchStop(cid); rpSickClear(cid); }
   updateAwake();
   refreshPendingUI(cid);
 }
@@ -3030,6 +3068,17 @@ async function rpVisionTest(out){
     var hj = null; try { hj = JSON.parse(hb); } catch (e3) {}
     var w = (hj && hj.workers) || {}, jb = (hj && hj.jobs) || {};
     var alive = (w.idle || 0) + (w.ready || 0) + (w.running || 0) + (w.initializing || 0);
+    /* the failure this test used to sit through for 90s and then call a
+       normal first boot: workers that start, die and start again */
+    if ((w.unhealthy || 0) > 0) {
+      line("✗ " + w.unhealthy + " unhealthy worker(s) — the container is starting and dying, " +
+           "not booting slowly.");
+      line("Open this endpoint's Logs tab in the RunPod console and read the first error. The " +
+           "usual causes: a pinned model revision that no longer exists on Hugging Face (clear " +
+           "MODEL_REVISION so it tracks main), a gated model without a token, or a model too " +
+           "big for the GPU. Nothing here will work until that boot succeeds.");
+      return;
+    }
     if (hj && !alive) {
       line("✗ No workers can start (throttled=" + (w.throttled || 0) + ", unhealthy=" +
            (w.unhealthy || 0) + ") · queued jobs=" + (jb.inQueue || 0) +
@@ -3092,9 +3141,21 @@ async function rpVisionTest(out){
       if (Date.now() > deadline) {
         fetch("https://api.runpod.ai/v2/" + vep + "/cancel/" + sj.id,
           {method: "POST", headers: {"Authorization": "Bearer " + key}}).catch(function(){});
-        line("… still " + (last || "queued") + " after 90s. That is a normal first boot — the " +
-             "model downloads once. The test job was cancelled so it can't pile up; the app " +
-             "itself waits up to 15 minutes.");
+        /* "still queued" means one of two very different things — ask the
+           health API which, rather than assuming the happy one */
+        var h2 = await rpHealthOf(vep), w2 = (h2 && h2.workers) || {};
+        if ((w2.unhealthy || 0) > 0)
+          line("✗ Still " + (last || "queued") + " after 90s, and " + w2.unhealthy +
+               " worker(s) are unhealthy — the container is crash-looping, not downloading. " +
+               "Read the endpoint's Logs tab for the first error.");
+        else if ((w2.initializing || 0) > 0)
+          line("… still " + (last || "queued") + " after 90s with a worker initializing. That " +
+               "is a normal first boot — the model downloads once. The test job was cancelled " +
+               "so it can't pile up; the app itself waits up to 15 minutes. If it is still " +
+               "like this in 20 minutes, check the Logs tab.");
+        else
+          line("… still " + (last || "queued") + " after 90s with no worker booting (" +
+               "throttled=" + (w2.throttled || 0) + "). RunPod has not allocated a GPU yet.");
         return;
       }
     }

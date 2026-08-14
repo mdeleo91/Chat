@@ -114,6 +114,15 @@ outright if the wait is abandoned or you tap the typing bubble to stop.
   the extension granted for a booting worker.
 - **Purge queued jobs** in Settings empties a backlog. Worth one tap if reads
   were timing out on a build before 0.20.7, which left abandoned jobs behind.
+- **A crash-looping worker is caught and named.** A container that starts,
+  dies and starts again reports as `initializing` on most polls, so it used to
+  be indistinguishable from a slow download and earned extension after
+  extension until the budget ran out. RunPod reports `workers.unhealthy` on
+  the polls that land between restarts; two sightings is the verdict, the job
+  is cancelled and the error points at the endpoint's Logs tab. The usual
+  cause is a pinned model revision that no longer exists on Hugging Face —
+  RunPod's quick-deploy stamps the commit at endpoint-creation time, and it
+  rots. Clear `MODEL_REVISION` so it tracks `main`.
 - **What the typing bubble reports** is read live from the health API every 8
   seconds, on both the read and the generation path: booting and loading the
   model, ready and starting, queued with the number of jobs ahead of yours,
