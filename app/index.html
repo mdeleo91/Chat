@@ -2835,7 +2835,56 @@ function sysPrompt(ch, convo){
     p += "Things you remember about the user:\n";
     mems.forEach(function(m){ p += "- " + m.text + "\n"; });
   }
+  p += otherRooms(ch, convo);
   return p.replace(/\n$/, "");
+}
+/* ---- what they were part of in the other room ----
+   Each conversation only ever saw its own thread, so walking out of a group
+   chat and into a private one with someone who had just been standing there
+   met a blank stare. A character now carries the recent tail of every group
+   they are a member of into their one-to-one chat: they were present, so
+   they remember it.
+   Not the other way round — a private conversation stays private, and
+   leaking it into a room full of other characters is a worse failure than
+   forgetting. */
+var ROOM_TAIL = 14, ROOM_BUDGET = 2600, ROOM_LINE = 300;
+function roomWhen(ts){
+  var d = Date.now() - ts;
+  if (d < 36e5) return "in the last hour";
+  if (d < 864e5) return "earlier today";
+  if (d < 1728e5) return "yesterday";
+  return "on " + fmtTime(ts);
+}
+function otherRooms(ch, convo){
+  if (!convo || convo.grp) return "";
+  var gs = S.groups.filter(function(g){
+    return (g.members || []).indexOf(ch.id) >= 0 && (S.msgs[g.id] || []).length;
+  });
+  if (!gs.length) return "";
+  var lastTs = function(g){
+    var a = S.msgs[g.id]; return a.length ? a[a.length - 1].ts : 0;
+  };
+  gs.sort(function(a, b){ return lastTs(b) - lastTs(a); });
+  var out = "", used = 0;
+  gs.forEach(function(g){
+    if (used >= ROOM_BUDGET) return;
+    var arr = S.msgs[g.id];
+    var lines = arr.slice(-ROOM_TAIL).map(function(m){
+      var t = m.text || (m.img ? "[sent a photo]" : "");
+      if (!t) return "";
+      return speakerName(g, m) + ": " + String(t).slice(0, ROOM_LINE);
+    }).filter(Boolean).join("\n");
+    if (!lines) return;
+    var sm = S.sums[g.id];
+    var blk = "— the group chat “" + g.name + "”, " + roomWhen(lastTs(g)) + ":\n" +
+      (sm && sm.text ? "(before this: " + sm.text + ")\n" : "") + lines + "\n";
+    if (used + blk.length > ROOM_BUDGET && used) return;
+    out += blk; used += blk.length;
+  });
+  if (!out) return "";
+  return "You were also in these conversations, and you remember them — they happened to you, " +
+    "not to someone you were told about. The user may pick one up here, privately, without " +
+    "explaining it first:\n" + out;
 }
 /* pinned memories always go; the rest fill by recency */
 var MEM_SEND = 12;
