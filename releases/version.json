@@ -1,6 +1,6 @@
 {
-  "versionCode": 79,
-  "versionName": "0.22.0",
+  "versionCode": 80,
+  "versionName": "0.22.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "A broken vision endpoint no longer takes the whole reply down with it. Sending a photo in a mature conversation routed the reply through your own vision endpoint, and if that endpoint could not serve, nothing came back at all — the photo sat there and the character never answered. Now the pixels are dropped and the turn continues on the text model: the character is told the photo did not come through and asked to ask you about it, rather than inventing what it saw. The photo itself is not sent anywhere else — falling back with the image would hand an explicit picture to exactly the provider the self-hosted endpoint exists to avoid — and the app says plainly that it replied without reading it."
+  "notes": "A refusal is now told apart from an outage. When Z.ai's filter blocks a reply it does not return an error — it answers normally with an empty message and finish_reason 'sensitive'. The app read the stream for tokens only, found none, and reported 'the model returned an empty reply', with a toast telling you to check your API key and credit. Nothing was wrong with the key. The reason is now read straight out of the response and said plainly, including the specific case behind it: Z.ai's vision model moderates harder than its text model and will not read a photo inside an explicit conversation, which is exactly what a self-hosted vision endpoint is for. Refusals are also no longer retried, since the same messages get refused again."
 }

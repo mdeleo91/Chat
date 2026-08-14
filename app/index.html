@@ -2058,6 +2058,16 @@ async function remoteGenerate(messages, onDelta, cid){
         ") — extending to " + Math.round(budget / 60000) + " min; the job keeps its place", true);
     }
   }
+  /* a provider-side refusal, named as one. Retrying it is pointless — the
+     same messages will be refused again — so it is final, not droppable. */
+  function refusedError(){
+    var e = new Error(who + " refused this one: its content filter stopped the reply." +
+      (viaRp ? "" : " Z.ai's vision model moderates harder than its text model and won't " +
+       "read a photo inside an explicit conversation — that is what a self-hosted vision " +
+       "endpoint is for."));
+    e.refused = true; e.viaRp = viaRp;
+    return e;
+  }
   /* ---- one streaming attempt; throws with .isTimeout on its deadline ---- */
   async function streamOnce(){
     /* streaming is preferred, but a RunPod worker deployed without stream
@@ -2105,6 +2115,15 @@ async function remoteGenerate(messages, onDelta, cid){
         throw he;
       }
       var reader = r.body.getReader(), dec = new TextDecoder(), buf = "", raw = "";
+      /* a refusal is not an outage: Z.ai answers 200 with a well-formed
+         stream, empty content and finish_reason "sensitive". Read for tokens
+         only and it looks identical to a dead engine — which is how a
+         moderation block came out as "check your API key and credit". */
+      var finishReason = "";
+      function noteFinish(j){
+        var c0 = j && j.choices && j.choices[0];
+        if (c0 && c0.finish_reason) finishReason = String(c0.finish_reason);
+      }
       /* servers disagree on where the words live: streamed deltas, a full
          message, or completions-style text — accept whichever is present */
       function fromChoice(j){
@@ -2121,8 +2140,10 @@ async function remoteGenerate(messages, onDelta, cid){
            empty, log what actually came back instead of guessing. */
         var whole = null;
         try { whole = JSON.parse(raw.trim()); } catch (e) {}
+        noteFinish(whole);
         var d = fromChoice(whole);
         if (d) { emitted = true; onDelta(d); return; }
+        if (/sensitive|content[_-]?filter|safety|blocked/i.test(finishReason)) throw refusedError();
         if (whole && whole.error)
           throw new Error(who + " answered with an error: " +
             String((whole.error && whole.error.message) || whole.error).slice(0, 200));
@@ -2152,6 +2173,7 @@ async function remoteGenerate(messages, onDelta, cid){
           if (payload === "[DONE]") { finish(); return; }
           var j;
           try { j = JSON.parse(payload); } catch (e) { continue; }
+          noteFinish(j);
           var d = fromChoice(j);
           if (d) { emitted = true; onDelta(d); }
         }
@@ -2811,6 +2833,8 @@ async function runGeneration(convo, ch, nudge, done){
         : "The reply timed out — send again.");
     else if (e && e.viaRp)
       toast("Vision endpoint problem: " + emsg.slice(0, 160));
+    else if (e && e.refused)
+      toast(emsg.slice(0, 200));
     else if (/network|fetch/i.test(emsg))
       toast("Network hiccup — that reply didn't make it. Send again.");
     else
