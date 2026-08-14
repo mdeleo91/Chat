@@ -1756,6 +1756,25 @@ function messagesHaveImage(messages){
     });
   });
 }
+/* drop the pixels, keep the turn. Falling back to Z.ai *with* the photo
+   would send an explicit picture to the provider the RunPod endpoint exists
+   to avoid, so the image parts are replaced with a note and the character is
+   told to ask about it. A reply that says "it didn't load, describe it?"
+   beats the user's photo sitting there unanswered. */
+function stripImages(messages){
+  return messages.map(function(m){
+    if (!Array.isArray(m.content)) return m;
+    var had = false;
+    var txt = m.content.filter(function(p){
+      if (p.type === "image_url") { had = true; return false; }
+      return true;
+    }).map(function(p){ return p.text || ""; }).filter(Boolean).join("\n");
+    if (!had) return m;
+    return {role: m.role, content: (txt ? txt + "\n" : "") +
+      "[the user sent a photo here, but it could not be opened. Don't describe it or " +
+      "pretend to have seen it — say it didn't come through and ask them about it.]"};
+  });
+}
 /* stream a completion; a photo in the window bumps to a vision model —
    Z.ai's normally, the user's own RunPod vision endpoint when mature mode
    is on and one is configured (Z.ai refuses explicit image input) */
@@ -2273,6 +2292,18 @@ async function remoteGenerate(messages, onDelta, cid){
         await new Promise(function(res){ setTimeout(res, RP_RETRY_PAUSE_MS); });
       }
     }
+  } catch (e) {
+    /* a vision endpoint that can't serve used to take the whole reply down
+       with it. Only when nothing has been shown yet, the user didn't stop it,
+       and there is a text model to fall back to. */
+    if (!viaRp || emitted || !hasImg || !glmReady() || (e && e.canceled)) throw e;
+    L("gen", "vision endpoint unusable — answering without the photo: " +
+      String(e && e.message || e).slice(0, 200), true);
+    if (cid) setStage(cid, "answering without the photo");
+    toast("Vision endpoint is down — replying without reading your photo");
+    /* the stripped messages carry no image parts, so this lands on the plain
+       text model and cannot re-enter the vision path */
+    return await remoteGenerate(stripImages(messages), onDelta, cid);
   } finally {
     if (cid) { rpWatchStop(cid); setStage(cid, ""); setBusy(cid, false); }
   }
