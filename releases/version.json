@@ -1,6 +1,6 @@
 {
-  "versionCode": 84,
-  "versionName": "0.23.1",
+  "versionCode": 85,
+  "versionName": "0.24.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Photos you send are now read in the register the conversation is already in. The reader was asked to describe a picture 'plainly and factually', which produces an accurate police report and gives a character nothing to react to. In mature mode it is now asked for frank, direct language — pose and framing, state of undress, what the person is doing, expression and mood — and to open with the subject's apparent age stated outright, so the character has that to work with rather than guessing. The reading also travels with the photo instead of only replacing it later: a vision model left alone reads an intimate picture primly, and the character was reacting to the prim version. If the reader cannot place everyone in a photo as an adult, that photo is not used and nothing is sent on."
+  "notes": "Your characters stay themselves when you send a photo. Until now a photo in the conversation handed the entire reply to a vision model — so a 7B image reader was writing the character's lines instead of the model that writes every other message, and it brought its own refusal training with it. Send something intimate and the answer could be a polite offer to swap recipes. The vision model now only reads: it turns the photo into a description, and the character's reply is written from that description by the usual text model, in the usual voice. This also means an explicit photo is never uploaded to a hosted provider — only the reading travels, and it goes to the model that has been handling this conversation all along."
 }

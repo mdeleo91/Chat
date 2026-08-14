@@ -1875,7 +1875,8 @@ function ensurePhotoSeen(convo, cb){
       target.seen = d.slice(0, 700);
       save();
       L("vision", "read your photo in " + Math.round((Date.now() - t0) / 1000) + "s via " +
-        (matureActive() && rpVisionReady() ? "your endpoint" : "Z.ai") + " ↓\n" + target.seen,
+        (matureActive() && rpVisionReady() ? "your endpoint" : "Z.ai") +
+        "; the reply is written by " + glm().model + " from this ↓\n" + target.seen,
         true, 2000);
     } else {
       L("vision", "couldn't read your photo — the reply goes ahead without a description", true);
@@ -2600,7 +2601,15 @@ function buildMessages(ch, convo, nudge){
   var pixelIdx = {}, kept = 0;
   for (var pi = w.length - 1; pi >= 0 && kept < IMG_PIXELS; pi--) {
     if (w.length - pi > IMG_FRESH) break;
-    if (w[pi].who === "me" && w[pi].img && !w[pi].noimg) { pixelIdx[pi] = true; kept++; }
+    /* a described photo no longer travels as pixels. Carrying them forced
+       the whole reply onto a vision model, so a 7B reader ended up playing
+       the character — worse at roleplay than the text model and carrying its
+       own refusal training, which is how an intimate photo got answered with
+       an offer to share a recipe. The reading goes instead, and the reply
+       comes from the model that writes every other line in the chat. */
+    if (w[pi].who === "me" && w[pi].img && !w[pi].noimg && !w[pi].seen) {
+      pixelIdx[pi] = true; kept++;
+    }
   }
   w.forEach(function(m, mi){
     if (m.who === "scene") add("user", "[Scene: " + m.text + "]");
@@ -2615,7 +2624,7 @@ function buildMessages(ch, convo, nudge){
         add("user", parts);
       } else if (m.img) {
         add("user", (m.text ? m.text + "\n" : "") + (m.seen
-          ? "[the user sent a photo here, no longer attached. It showed: " + m.seen + "]"
+          ? "[the user sent you a photo. It shows: " + m.seen + "]"
           : m.noimg ? "[the user sent a photo here; it wasn't used]"
                     : "[the user sent a photo here — it's no longer attached]"));
       } else add("user", m.text);
