@@ -1788,6 +1788,26 @@ var SEE_PROMPT = "Describe this photo plainly and factually for someone who cann
   "who or what is in frame, what they are doing, clothing or state of dress, the setting, " +
   "the mood, and any visible text. Two or three sentences. No preamble, no refusal, no " +
   "commentary — just what is there.";
+/* the plain prompt reads an intimate photo like a police report — accurate
+   and useless to a character who is supposed to react to it. In mature mode
+   the reader is told to use the register the conversation is already in.
+   It also has to state apparent age: partly because the character needs it,
+   and partly because it is the one thing worth checking mechanically before
+   the photo goes any further. */
+var SEE_PROMPT_MATURE =
+  "Describe this photo for an adult roleplay partner who cannot see it. Be frank and " +
+  "direct — plain sexual and anatomical language, not clinical or euphemistic wording. " +
+  "Cover: pose and framing, state of undress and what is exposed, what the person is " +
+  "doing, expression and mood, the setting, and any visible text.\n\n" +
+  "Start with the apparent age of anyone shown, stated outright (e.g. \"a woman in her " +
+  "late twenties\"). If any person in the photo does not clearly appear to be an adult, " +
+  "reply with exactly SUBJECT-NOT-CLEARLY-ADULT and nothing else.\n\n" +
+  "Three or four sentences. No preamble, no disclaimer, no moralising.";
+/* the one check worth enforcing rather than prompting for */
+function seenBlocked(d){
+  return /SUBJECT-NOT-CLEARLY-ADULT/i.test(d) ||
+    /\b(child|minor|underage|under[- ]?18|prepubescent|toddler|infant)\b/i.test(d);
+}
 /* a small job on the vision endpoint, submitted and polled like the reply */
 function rpQuickJob(messages, maxTok, cb){
   fetch(rpVisionUrl("/run"), {
@@ -1817,7 +1837,7 @@ function rpQuickJob(messages, maxTok, cb){
 function describePhoto(dataUrl, cb){
   var msgs = [{role: "user", content: [
     {type: "image_url", image_url: {url: dataUrl}},
-    {type: "text", text: SEE_PROMPT}
+    {type: "text", text: matureActive() ? SEE_PROMPT_MATURE : SEE_PROMPT}
   ]}];
   if (matureActive() && rpVisionReady()) { rpQuickJob(msgs, 220, cb); return; }
   if (!glmReady()) { cb(null); return; }
@@ -1842,6 +1862,15 @@ function ensurePhotoSeen(convo, cb){
   var t0 = Date.now();
   describePhoto(target.img, function(text){
     var d = String(text || "").replace(/\s+/g, " ").trim();
+    if (d && seenBlocked(d)) {
+      /* the reader could not place the subject as an adult. Drop the photo
+         from the turn rather than pass it on — the pixels stay in your
+         thread, they just stop being sent anywhere. */
+      target.noimg = true; save();
+      L("vision", "photo not used — the reader could not confirm an adult subject", true);
+      toast("That photo wasn't used — the reader couldn't confirm an adult subject");
+      cb(); return;
+    }
     if (d) {
       target.seen = d.slice(0, 700);
       save();
@@ -2571,19 +2600,24 @@ function buildMessages(ch, convo, nudge){
   var pixelIdx = {}, kept = 0;
   for (var pi = w.length - 1; pi >= 0 && kept < IMG_PIXELS; pi--) {
     if (w.length - pi > IMG_FRESH) break;
-    if (w[pi].who === "me" && w[pi].img) { pixelIdx[pi] = true; kept++; }
+    if (w[pi].who === "me" && w[pi].img && !w[pi].noimg) { pixelIdx[pi] = true; kept++; }
   }
   w.forEach(function(m, mi){
     if (m.who === "scene") add("user", "[Scene: " + m.text + "]");
     else if (m.who === "me") {
       if (m.img && pixelIdx[mi]) {
         var parts = [{type:"image_url", image_url:{url:m.img}}];
+        /* the written reading rides with the pixels, not just after they age
+           out: a vision model left to its own devices reads an intimate photo
+           primly, and the character then reacts to the prim version */
+        if (m.seen) parts.push({type:"text", text:"[what this photo shows: " + m.seen + "]"});
         if (m.text) parts.push({type:"text", text:m.text});
         add("user", parts);
       } else if (m.img) {
         add("user", (m.text ? m.text + "\n" : "") + (m.seen
           ? "[the user sent a photo here, no longer attached. It showed: " + m.seen + "]"
-          : "[the user sent a photo here — it's no longer attached]"));
+          : m.noimg ? "[the user sent a photo here; it wasn't used]"
+                    : "[the user sent a photo here — it's no longer attached]"));
       } else add("user", m.text);
     }
     else if (convo.grp && m.by !== ch.id) {

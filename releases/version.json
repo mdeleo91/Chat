@@ -1,6 +1,6 @@
 {
-  "versionCode": 83,
-  "versionName": "0.23.0",
+  "versionCode": 84,
+  "versionName": "0.23.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "You can now see what the model saw. A photo you send used to go straight from pixels to an in-character reply, so what the model actually made of it was never written down — a reply that misread a picture looked exactly like one that read it perfectly. Before answering, the same vision engine is now asked for a plain description, and it goes in the troubleshooting log under a vision tag with how long it took and which engine read it. The description is also kept on the message, which fixes something else: photos only ride along as pixels for a couple of messages, and after that the character used to see nothing but a note that a photo had been sent. Now it still knows what was in it."
+  "notes": "Photos you send are now read in the register the conversation is already in. The reader was asked to describe a picture 'plainly and factually', which produces an accurate police report and gives a character nothing to react to. In mature mode it is now asked for frank, direct language — pose and framing, state of undress, what the person is doing, expression and mood — and to open with the subject's apparent age stated outright, so the character has that to work with rather than guessing. The reading also travels with the photo instead of only replacing it later: a vision model left alone reads an intimate picture primly, and the character was reacting to the prim version. If the reader cannot place everyone in a photo as an adult, that photo is not used and nothing is sent on."
 }
