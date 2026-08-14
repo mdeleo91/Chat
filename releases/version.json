@@ -1,6 +1,6 @@
 {
-  "versionCode": 85,
-  "versionName": "0.24.0",
+  "versionCode": 86,
+  "versionName": "0.25.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Your characters stay themselves when you send a photo. Until now a photo in the conversation handed the entire reply to a vision model — so a 7B image reader was writing the character's lines instead of the model that writes every other message, and it brought its own refusal training with it. Send something intimate and the answer could be a polite offer to swap recipes. The vision model now only reads: it turns the photo into a description, and the character's reply is written from that description by the usual text model, in the usual voice. This also means an explicit photo is never uploaded to a hosted provider — only the reading travels, and it goes to the model that has been handling this conversation all along."
+  "notes": "Settings stops being a junk drawer, and conversations get their own menus. The engine settings were one unbroken wall of keys, LoRA rows and endpoint fields; they are now four rows you open — text and replies, image generation, your own GPU, mature roleplay — each showing its current state on the right, so the screen tells you what you have rather than everything at once. A new Test LoRAs button checks every LoRA you have configured against both engines: it lists what is actually on your GPU's volume and names any file that is missing, and it fetches each URL fal would use, catching the Civitai login page that gets saved under a .safetensors name when the token is absent. Long-press any chat for Clear conversation, Delete chat, or Open with hidden images — which opens the thread with every photo collapsed behind a tap. Inside a chat, a new menu in the header offers the same, plus hide and show all images."
 }

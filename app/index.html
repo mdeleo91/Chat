@@ -188,6 +188,10 @@
   .mrow.out .msg{background:var(--out);border-bottom-right-radius:5px}
   .msg .who{display:block;font-size:11.5px;font-weight:800;margin-bottom:2px}
   .msg .mimg{display:block;max-width:100%;border-radius:12px;margin:2px 0 6px}
+  .msg .imgstub{display:flex;align-items:center;gap:8px;padding:11px 13px;margin:2px 0 6px;
+    border-radius:12px;border:1px dashed var(--line);background:rgba(128,128,128,.08);
+    color:var(--mist);font-size:13px;cursor:pointer;user-select:none}
+  .msg .imgstub .msr{font-size:18px}
   .msg .mt{float:right;font-size:10px;color:var(--mist);margin:8px -4px 0 8px}
   .msg .mt .tick{color:var(--acc-deep);font-size:12px}
   .msg .react{position:absolute;bottom:-12px;right:8px;background:var(--surface);
@@ -255,6 +259,17 @@
   .infocard{margin:10px 16px;background:var(--card);border:1px solid var(--line);border-radius:14px;
     padding:14px;font-size:13.5px;line-height:1.55;display:none}
   .infocard.on{display:block}
+  /* the engine settings were one unbroken wall of inputs; each block is now a
+     row you open, so the screen shows what you have rather than everything */
+  .accbtn{width:100%;display:flex;align-items:center;gap:12px;padding:12px 4px;
+    border:0;border-bottom:1px solid var(--line);background:none;color:inherit;
+    font:inherit;text-align:left;cursor:pointer}
+  .accbtn .ic{font-size:19px;width:26px;text-align:center;color:var(--acc-deep)}
+  .accbtn .lbl{flex:1;font-weight:600}
+  .accbtn .val{color:var(--mist);font-size:12.5px;max-width:45%;text-align:right;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .accbody{display:none;padding:4px 0 14px}
+  .accbody.on{display:block}
   .infocard b{display:block;margin-bottom:4px}
   .infocard .btn{margin-top:10px;display:inline-block;text-decoration:none;font-size:13.5px;padding:9px 18px}
   .setcard{margin:8px 16px;background:var(--acc-soft);border-radius:16px;padding:15px 16px;
@@ -439,8 +454,8 @@
         <div class="sechead">AI MODEL</div>
         <button class="srow"><span class="ic msr">neurology</span><span class="lbl">Active model</span>
           <span class="val" id="set-model-val"></span></button>
-        <button class="srow" id="set-model"><span class="ic msr">package_2</span><span class="lbl">Your server</span>
-          <span class="val">Connect &amp; choose</span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
+        <button class="srow" id="set-model"><span class="ic msr">package_2</span><span class="lbl">Engines &amp; keys</span>
+          <span class="val">Text, images, your GPU</span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
         <div class="infocard" id="modelcard"></div>
         <div class="sechead">FEATURES</div>
         <button class="srow" id="set-voice"><span class="ic msr">mic</span><span class="lbl">Voice</span>
@@ -493,6 +508,8 @@
         <div class="cstat" id="chat-stat"></div></div>
       <button class="icb" id="chat-call" title="Voice call">
         <span class="msr" style="font-size:19px">call</span></button>
+      <button class="icb" id="chat-menu" title="Conversation options">
+        <span class="msr" style="font-size:19px">more_vert</span></button>
     </div>
     <div class="scenebar"><button class="scenepill" id="scene-pill"></button></div>
     <div class="stream" id="stream"></div>
@@ -1237,6 +1254,120 @@ function lorasFor(ch, desc, isMature, picked, maxN, quiet){
     whys:  items.map(function(i){ return i.why; }),
     names: items.map(function(i){ return i.name; })
   };
+}
+/* ================= does this LoRA actually load? =================
+   The two engines fail in completely different ways and neither says so
+   until a photo comes back wrong. fal fetches the URL at request time, so a
+   Civitai link without a token quietly returns an HTML login page. RunPod
+   never fetches anything — it loads a file from the network volume by a name
+   derived from the URL, so the URL can be perfect and the file simply absent.
+   This checks both for every LoRA you have configured. */
+function allLoras(){
+  var seen = {}, out = [];
+  fal().loras.forEach(function(l){ out.push({l: l, where: "Settings"}); });
+  S.chars.forEach(function(ch){
+    chLoraList(ch).forEach(function(l){ out.push({l: l, where: ch.name}); });
+  });
+  return out.filter(function(x){
+    var p = (x.l.path || "").trim();
+    if (!p || seen[p]) return false;
+    seen[p] = 1; return true;
+  });
+}
+/* ComfyUI validates a graph before it runs it, and rejects an unknown
+   lora_name with the list of names it does have. Asking for one that cannot
+   exist is therefore a free directory listing of the volume — no GPU time,
+   no image generated. */
+function rpLoraProbe(cb){
+  var wf = {
+    "1": {class_type:"CheckpointLoaderSimple", inputs:{ckpt_name:"flux1-dev-fp8.safetensors"}},
+    "10": {class_type:"LoraLoader", inputs:{model:["1",0], clip:["1",1],
+      lora_name:"__pocketai_probe__.safetensors", strength_model:1, strength_clip:1}},
+    "3": {class_type:"CLIPTextEncode", inputs:{text:"probe", clip:["10",1]}},
+    "5": {class_type:"EmptySD3LatentImage", inputs:{width:64, height:64, batch_size:1}},
+    "6": {class_type:"KSampler", inputs:{model:["10",0], positive:["3",0], negative:["3",0],
+      latent_image:["5",0], seed:1, steps:1, cfg:1, sampler_name:"euler",
+      scheduler:"simple", denoise:1}},
+    "7": {class_type:"VAEDecode", inputs:{samples:["6",0], vae:["1",2]}},
+    "8": {class_type:"SaveImage", inputs:{images:["7",0], filename_prefix:"probe"}}
+  };
+  fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
+    body: JSON.stringify({input: {workflow: wf}})
+  }).then(function(r){ return r.text(); })
+    .then(function(t){
+      /* the names live inside a "not in [...]" clause somewhere in the error */
+      var m = t.match(/not in\s*\(?\[([^\]]*)\]/);
+      if (!m) { cb(null, t.slice(0, 300)); return; }
+      cb(m[1].split(",").map(function(x){
+        return x.replace(/^[\s'"]+|[\s'"]+$/g, "");
+      }).filter(Boolean), null);
+    }).catch(function(e){ cb(null, String(e && e.message || e).slice(0, 200)); });
+}
+async function loraTest(out){
+  function line(t){
+    if (out) out.innerHTML += esc(t) + "<br>";
+    L("img", "loratest: " + t, true, 1200);
+  }
+  if (out) out.innerHTML = "";
+  var items = allLoras();
+  if (!items.length) { line("No LoRAs configured yet."); return; }
+  line("Checking " + items.length + " LoRA" + (items.length > 1 ? "s" : "") + "…");
+
+  if (rpReady()) {
+    line("");
+    line("— Your GPU (RunPod): files on the network volume —");
+    await new Promise(function(res){
+      rpLoraProbe(function(names, err){
+        if (!names) {
+          line("? Couldn't list the volume — " + (err || "no answer"));
+          line("The probe asks ComfyUI to load a file that cannot exist so it replies with " +
+               "the list it does have. If your worker answers differently, check its Logs.");
+        } else {
+          line("Volume holds " + names.length + " LoRA file(s).");
+          items.forEach(function(x){
+            var want = rpLoraName(x.l.path);
+            line((names.indexOf(want) >= 0 ? "✓ " : "✗ ") + (x.l.name || want) +
+                 " → " + want + (names.indexOf(want) >= 0 ? "" : "  NOT on the volume"));
+          });
+          var missing = items.filter(function(x){ return names.indexOf(rpLoraName(x.l.path)) < 0; });
+          if (missing.length)
+            line("Download the missing files to the volume's loras folder under exactly the " +
+                 "names above — the name comes from the Civitai model id in the URL.");
+        }
+        res();
+      });
+    });
+  }
+
+  if (falReady()) {
+    line("");
+    line("— fal: the URLs it will fetch —");
+    for (var i = 0; i < items.length; i++) {
+      var x = items[i], url = withCivitaiToken((x.l.path || "").trim());
+      var label = (x.l.name || url.split("/").pop().split("?")[0]) + " (" + x.where + ")";
+      try {
+        var r = await fetch(url, {method: "GET", headers: {Range: "bytes=0-1023"}});
+        var ct = (r.headers.get("content-type") || "").toLowerCase();
+        var len = r.headers.get("content-range") || r.headers.get("content-length") || "";
+        if (r.body && r.body.cancel) try { r.body.cancel(); } catch (e) {}
+        if (!r.ok) line("✗ " + label + " — HTTP " + r.status);
+        else if (ct.indexOf("text/html") >= 0)
+          line("✗ " + label + " — got a web page, not a file. Civitai needs the API token " +
+               "(Settings → Civitai API token).");
+        else line("✓ " + label + (len ? " — " + len : ""));
+      } catch (e) {
+        line("? " + label + " — " + String(e && e.message || e).slice(0, 90) +
+             " (some hosts block browser fetches; that alone doesn't mean fal can't reach it)");
+      }
+    }
+  }
+
+  if (!rpReady() && !falReady()) line("No image engine configured, so nothing loads LoRAs yet.");
+  line("");
+  line("A LoRA that passes here can still sit out a photo — that's the WHEN field, and the " +
+       "route line in the log says which ones fired and why.");
 }
 /* structured editor rows for a LoRA list — used by Settings and the
    character form; wireLoraList attaches delegated handlers to a container */
@@ -3193,6 +3324,14 @@ function falSectionHTML(){
        'prompt (for the always-on style LoRAs).</div>';
   h += '<input id="fal-trigger" class="srvinput" placeholder="e.g. amateur photo" ' +
        'value="' + esc(f.trigger || "") + '">';
+  h += '<div class="srvbtns" style="margin-top:10px"><button class="use" id="lora-test">Test LoRAs</button></div>';
+  h += '<div id="lora-test-out" class="ds" style="padding-top:6px"></div>';
+  return h;
+}
+/* the self-hosted engines, kept apart from the fal settings they used to be
+   crammed in with */
+function rpSectionHTML(){
+  var f = fal(), h = "";
   h += '<div class="ds" style="padding:14px 0 6px;font-weight:800;letter-spacing:.5px">SELF-HOSTED 18+ (RUNPOD) · OPTIONAL</div>';
   h += '<div class="ds" style="padding-bottom:8px">fal moderates mature outputs no matter what the ' +
        'request says. With a RunPod serverless ComfyUI endpoint here (worker-comfyui, flux1-dev-fp8 ' +
@@ -3459,23 +3598,59 @@ function wireGlmUI(card){
     });
   };
 }
-function renderModelUI(){
-  var card = $("modelcard");
-  if (!card.classList.contains("on")) return;
-  var html = glmSectionHTML() + falSectionHTML();
-  html += '<div class="ds" style="padding:14px 0 4px;font-weight:800;letter-spacing:.5px">MATURE ROLEPLAY · 18+</div>';
-  html += '<div class="modelrow"><div class="mi"><div class="nm">' +
+var ACCOPEN = {};
+function accSection(key, icon, title, sub, body){
+  var on = !!ACCOPEN[key];
+  return '<button class="accbtn" data-acc="' + key + '"><span class="ic msr">' + icon + '</span>' +
+    '<span class="lbl">' + esc(title) + '</span><span class="val">' + esc(sub) + '</span>' +
+    '<span class="chev msr" style="font-size:20px">' + (on ? "expand_less" : "expand_more") +
+    '</span></button>' +
+    '<div class="accbody' + (on ? " on" : "") + '">' + body + '</div>';
+}
+function adultSectionHTML(){
+  return '<div class="modelrow"><div class="mi"><div class="nm">' +
     (S.adult ? "On — adult roleplay permitted" : "Off") + '</div>' +
     '<div class="ds">Text: Z.ai\'s own content rules still apply. Images: when on, characters may mark ' +
     'individual photos 18+ when the moment fits — only those skip fal\'s safety checker and load ' +
     '18+-gated LoRAs; everyday photos stay tame. Fictional characters only, never reference photos of ' +
     'real people; content is your responsibility under fal\'s terms.</div></div>' +
     '<button class="use" id="adult-toggle">' + (S.adult ? "Turn off" : "I\'m 18+ — turn on") + '</button></div>';
-  html += '<div class="ds" style="padding-top:10px">Replies come only from the API. If it\'s ' +
+}
+function renderModelUI(){
+  var card = $("modelcard");
+  if (!card.classList.contains("on")) return;
+  var nLora = allLoras().length;
+  card.innerHTML =
+    accSection("glm", "chat_bubble", "Text & replies",
+      glmReady() ? glm().model : "no key yet", glmSectionHTML()) +
+    accSection("img", "image", "Image generation",
+      falReady() ? "FLUX via fal" : (glmReady() ? "GLM images" : "no engine") +
+        (nLora ? " · " + nLora + " LoRA" + (nLora > 1 ? "s" : "") : ""),
+      falSectionHTML()) +
+    accSection("gpu", "memory", "Your own GPU",
+      rpReady() ? (rpVisionReady() ? "images + vision" : "images only")
+                : (rpVisionReady() ? "vision only" : "not set up"),
+      rpSectionHTML()) +
+    accSection("adult", "explicit", "Mature roleplay",
+      S.adult ? "On" : "Off", adultSectionHTML()) +
+    '<div class="ds" style="padding-top:12px">Replies come only from the API. If it\'s ' +
     'unreachable, messages will say so rather than being answered by anything else.</div>';
-  card.innerHTML = html;
+  var accs = card.querySelectorAll(".accbtn");
+  for (var i = 0; i < accs.length; i++) (function(b){
+    b.onclick = function(){
+      var k = b.dataset.acc;
+      ACCOPEN[k] = !ACCOPEN[k];
+      renderModelUI();
+    };
+  })(accs[i]);
   wireGlmUI(card);
   wireFalUI(card);
+  var lt = card.querySelector("#lora-test");
+  if (lt) lt.onclick = function(){
+    lt.disabled = true;
+    loraTest(card.querySelector("#lora-test-out"))
+      .then(function(){ lt.disabled = false; }, function(){ lt.disabled = false; });
+  };
   var at = card.querySelector("#adult-toggle");
   if (at) at.onclick = function(){
     if (!S.adult && !confirm("Mature mode permits explicit adult roleplay. Confirm you are 18 or older.")) return;
@@ -3719,6 +3894,7 @@ function renderHome(){
       '<div class="end"><div class="time'+(c.unread?' unread':'')+'">'+(lm?fmtTime(lm.ts):"")+'</div>'+
       (c.unread ? '<div class="pill">'+c.unread+'</div>' : "")+'</div>';
     row.onclick = function(){ openChat(c.id); };
+    attachPress(row, null, function(){ openConvoSheet(c.id); });
     list.appendChild(row);
   });
   if (!shown) list.innerHTML = '<div class="empty">Nothing here yet.<br>Tap <b style="color:var(--acc)">+</b> to create a character.</div>';
@@ -3744,7 +3920,21 @@ function renderContacts(){
 }
 
 /* ================= chat ================= */
-function openChat(id){
+/* Collapsed photos are a per-opening choice, not a stored property of the
+   chat: opening from the list the ordinary way always shows them, and
+   "open with hidden images" is one way in. Expanding is keyed on the
+   message timestamp, because indices move when messages are deleted or
+   rewound and an index-keyed set would reveal the wrong picture. */
+var IMGHIDE = {}, IMGSHOWN = {};
+function imgHidden(cid, m){
+  return !!IMGHIDE[cid] && !(IMGSHOWN[cid] && IMGSHOWN[cid][m.ts]);
+}
+function setImgHide(cid, on){ IMGHIDE[cid] = !!on; IMGSHOWN[cid] = {}; }
+function convoHasImages(cid){
+  return (S.msgs[cid] || []).some(function(m){ return !!m.img; });
+}
+function openChat(id, hideImages){
+  setImgHide(id, hideImages);
   cur = id; var c = getConvo(id);
   c.unread = 0; save();
   setAvatar($("chat-av"), c);
@@ -3761,9 +3951,9 @@ function openChat(id){
     else setTimeout(function(){ deliver(c, greetingOf(c)); }, 600);
   }
 }
-function attachPress(el, idx){
+function attachPress(el, idx, action){
   var t = null, sx = 0, sy = 0;
-  function fire(){ openMsgSheet(idx); }
+  function fire(){ if (action) action(); else openMsgSheet(idx); }
   el.addEventListener("touchstart", function(e){
     var p = e.touches[0]; sx = p.clientX; sy = p.clientY;
     t = setTimeout(fire, 480);
@@ -3800,11 +3990,26 @@ function renderStream(){
       rw.innerHTML = avatarEl(by || {name:"?"}, "xs");
       inner += '<span class="who" style="color:'+(by?by.ring:"var(--acc)")+'">'+esc(by?by.name:"?")+'</span>';
     }
-    inner += (msg.img ? '<img class="mimg" src="' + msg.img + '">' : '') + esc(msg.text) +
+    inner += (msg.img
+      ? (imgHidden(cur, msg)
+          ? '<div class="imgstub"><span class="msr">visibility_off</span>Photo — tap to show</div>'
+          : '<img class="mimg" src="' + msg.img + '">')
+      : '') + esc(msg.text) +
       '<span class="mt">'+fmtClock(msg.ts)+(out?' <span class="tick msr">done_all</span>':'')+'</span>' +
       (msg.react?'<span class="react"><span class="msr fill">'+esc(msg.react)+'</span></span>':'');
     var b = document.createElement("div"); b.className = "msg"; b.innerHTML = inner;
     rw.appendChild(b); st.appendChild(rw);
+    /* swap the one stub rather than re-rendering the thread — a full
+       re-render would jump the scroll back to the bottom */
+    var stub = b.querySelector(".imgstub");
+    if (stub) (function(stub, m){
+      stub.onclick = function(){
+        (IMGSHOWN[cur] = IMGSHOWN[cur] || {})[m.ts] = true;
+        var im = document.createElement("img");
+        im.className = "mimg"; im.src = m.img;
+        stub.parentNode.replaceChild(im, stub);
+      };
+    })(stub, msg);
     attachPress(rw, idx);
   });
   var ty = document.createElement("div"); ty.className="typing"; ty.id="ty";
@@ -3897,6 +4102,87 @@ function openSceneSheet(){
     save(); scenePill(); renderStream();
     closeSheet();
   };
+  openSheet();
+}
+/* ================= conversation actions =================
+   Shared by the long-press sheet on the chat list and the menu inside the
+   chat, so the two can never drift apart. */
+function clearConvo(cid){
+  var c = getConvo(cid); if (!c) return;
+  if (!confirm("Clear every message in " + c.name + "? The chat stays in your list.")) return;
+  S.msgs[cid] = [];
+  delete S.sums[cid];
+  c.unread = 0;
+  save();
+  L("msg", "cleared conversation " + c.name);
+  if (cur === cid) renderStream();
+  renderHome();
+  toast("Conversation cleared");
+}
+function deleteConvo(cid){
+  var c = getConvo(cid); if (!c) return;
+  if (!confirm("Delete " + c.name + "? The chat" + (c.grp ? "" : " and their memories") +
+      " will be gone for good.")) return;
+  if (c.grp) S.groups = S.groups.filter(function(x){ return x.id !== cid; });
+  else S.chars = S.chars.filter(function(x){ return x.id !== cid; });
+  delete S.msgs[cid]; delete S.mems[cid]; delete S.sums[cid]; delete S.scenes[cid];
+  S.removed[cid] = true;
+  save();
+  if (cur === cid) { hide("v-chat"); cur = null; }
+  renderHome(); renderContacts();
+  toast("Deleted");
+}
+/* ---- long-press a row in the chat list ---- */
+function openConvoSheet(cid){
+  var c = getConvo(cid); if (!c) return;
+  var sh = $("asheet");
+  sh.innerHTML = '<div class="grip"></div>' +
+    '<div class="as-msg">' + esc(c.name) + '</div>' +
+    (convoHasImages(cid)
+      ? '<button class="as-btn" data-act="hidden"><span class="msr">visibility_off</span>' +
+        'Open with hidden images<span class="hint">tap any photo to reveal it</span></button>' : '') +
+    '<button class="as-btn" data-act="open"><span class="msr">chat_bubble</span>Open</button>' +
+    '<button class="as-btn" data-act="clear"><span class="msr">delete_sweep</span>' +
+      'Clear conversation<span class="hint">keeps the chat, removes every message</span></button>' +
+    '<button class="as-btn danger" data-act="del"><span class="msr">delete</span>Delete chat</button>';
+  var btns = sh.querySelectorAll(".as-btn");
+  for (var i = 0; i < btns.length; i++) (function(b){
+    b.onclick = function(){
+      var a = b.dataset.act;
+      closeSheet();
+      if (a === "hidden") openChat(cid, true);
+      else if (a === "open") openChat(cid);
+      else if (a === "clear") clearConvo(cid);
+      else if (a === "del") deleteConvo(cid);
+    };
+  })(btns[i]);
+  openSheet();
+}
+/* ---- the menu inside a chat ---- */
+function openChatMenu(){
+  if (!cur) return;
+  var c = getConvo(cur); if (!c) return;
+  var has = convoHasImages(cur);
+  var sh = $("asheet");
+  sh.innerHTML = '<div class="grip"></div>' +
+    '<div class="as-msg">' + esc(c.name) + '</div>' +
+    (has ? (IMGHIDE[cur]
+      ? '<button class="as-btn" data-act="show"><span class="msr">visibility</span>Show all images</button>'
+      : '<button class="as-btn" data-act="hide"><span class="msr">visibility_off</span>Hide all images' +
+        '<span class="hint">tap any photo to reveal it again</span></button>') : '') +
+    '<button class="as-btn" data-act="clear"><span class="msr">delete_sweep</span>' +
+      'Clear conversation<span class="hint">keeps the chat, removes every message</span></button>' +
+    '<button class="as-btn danger" data-act="del"><span class="msr">delete</span>Delete conversation</button>';
+  var btns = sh.querySelectorAll(".as-btn");
+  for (var i = 0; i < btns.length; i++) (function(b){
+    b.onclick = function(){
+      var a = b.dataset.act;
+      closeSheet();
+      if (a === "hide" || a === "show") { setImgHide(cur, a === "hide"); renderStream(); }
+      else if (a === "clear") clearConvo(cur);
+      else if (a === "del") deleteConvo(cur);
+    };
+  })(btns[i]);
   openSheet();
 }
 /* ================= message action sheet ================= */
@@ -4653,6 +4939,7 @@ $("pf-del").onclick = function(){
   }
 };
 
+$("chat-menu").onclick = openChatMenu;
 $("mem-back").onclick = function(){ hide("v-mem"); renderMemHub(); };
 $("new-back").onclick = function(){ hide("v-new"); };
 $("nc-create").onclick = saveChar;
