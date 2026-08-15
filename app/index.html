@@ -192,6 +192,12 @@
   .mrow.out .msg{background:var(--out);border-bottom-right-radius:5px}
   .msg .who{display:block;font-size:11.5px;font-weight:800;margin-bottom:2px}
   .msg .mimg{display:block;max-width:100%;border-radius:12px;margin:2px 0 6px}
+  /* @-picker, sitting on top of the composer */
+  .atbar{display:none;gap:6px;flex-wrap:wrap;padding:8px 12px;background:var(--surface);
+    border-top:1px solid var(--line)}
+  .atbar.on{display:flex}
+  .atbar button{border:1px solid var(--line);background:var(--card);color:inherit;font:inherit;
+    font-size:13px;font-weight:600;border-radius:999px;padding:6px 13px;cursor:pointer}
   .msg .act{font-style:italic;opacity:.82}
   .msg .imgstub{display:flex;align-items:center;gap:8px;padding:11px 13px;margin:2px 0 6px;
     border-radius:12px;border:1px dashed var(--line);background:rgba(128,128,128,.08);
@@ -541,6 +547,7 @@
       <button class="icb" id="stage-x" title="Remove photo">
         <span class="msr" style="font-size:18px">close</span></button>
     </div>
+    <div class="atbar" id="atbar"></div>
     <div class="composer">
       <button class="rndbtn" id="attach" title="Send a photo">
         <span class="msr" style="font-size:20px">image</span></button>
@@ -4572,7 +4579,7 @@ function openGroupForm(id){
   var g = id ? getConvo(id) : null;
   grpEdit = id || null;
   grpPick = g ? g.members.slice() : [];
-  $("grp-title").textContent = g ? "Group members" : "New group chat";
+  $("grp-title").textContent = g ? "Group settings" : "New group chat";
   $("grp-name").value = g ? g.name : "";
   renderGroupPick();
   show("v-grp");
@@ -4838,7 +4845,7 @@ function openChatMenu(){
     '<button class="as-btn" data-act="len"><span class="msr">edit</span>Reply length' +
       '<span class="hint">' + esc(chatLen(cur).n) + '</span></button>' +
     (c.grp ? '<button class="as-btn" data-act="members"><span class="msr">group</span>' +
-      'Members<span class="hint">' + c.members.length + ' in this group</span></button>' : '') +
+      'Name &amp; members<span class="hint">' + c.members.length + ' in this group</span></button>' : '') +
     (has ? (IMGHIDE[cur]
       ? '<button class="as-btn" data-act="show"><span class="msr">image</span>Show all images</button>'
       : '<button class="as-btn" data-act="hide"><span class="msr">lock</span>Hide all images' +
@@ -4937,12 +4944,35 @@ function msgAction(act, idx){
     closeSheet();
   }
 }
-function continueConvo(){
-  var c = getConvo(cur); if (!c) return;
-  var ch = c.grp ? getChar(pick(c.members)) : c;
+function nudgeFrom(c, ch){
   if (!ch) return;
   if (useLLM()) aiDeliver(c, ch, null, true);
   else deliver(c, pick(ch.fall || ["…"]), ch.id);
+}
+function continueConvo(){
+  var c = getConvo(cur); if (!c) return;
+  /* in a one-to-one there is only one person it could be. In a group,
+     picking at random was a coin toss dressed as a feature — ask. */
+  if (!c.grp) { nudgeFrom(c, c); return; }
+  var members = (c.members || []).map(getChar).filter(Boolean);
+  if (!members.length) return;
+  if (members.length === 1) { nudgeFrom(c, members[0]); return; }
+  var sh = $("asheet");
+  sh.innerHTML = '<div class="grip"></div><div class="as-msg">Who speaks next?</div>' +
+    members.map(function(m){
+      return '<button class="as-btn" data-who="' + m.id + '"><span class="msr">person</span>' +
+        esc(m.name) + (m.rel ? '<span class="hint">your ' + esc(m.rel) + '</span>' : '') + '</button>';
+    }).join("") +
+    '<button class="as-btn" data-who="*"><span class="msr">group</span>Anyone' +
+      '<span class="hint">let the app pick</span></button>';
+  sh.querySelectorAll(".as-btn").forEach(function(b){
+    b.onclick = function(){
+      closeSheet();
+      var id = b.dataset.who;
+      nudgeFrom(c, id === "*" ? pick(members) : getChar(id));
+    };
+  });
+  openSheet();
 }
 /* a photo picked but not yet sent — it rides with the next send */
 var staged = null;
@@ -5011,7 +5041,26 @@ function mentions(text, words){
   if (!words.length) return false;
   return new RegExp("\\b(" + words.map(reEsc).join("|") + ")\\b", "i").test(text);
 }
+/* an @ is not a hint, it is an instruction — everyone named answers, and
+   nobody else joins in */
+function atMentions(g, text){
+  /* the @ has to open a word, or an email address reads as a summons */
+  var tags = String(text || "").match(/(?:^|\s)@[\w'-]+/g);
+  if (!tags) return [];
+  var out = [];
+  tags.forEach(function(tag){
+    var want = tag.trim().slice(1).toLowerCase();
+    (g.members || []).forEach(function(id){
+      var c = getChar(id); if (!c) return;
+      var first = c.name.split(/\s+/)[0].toLowerCase();
+      if ((first === want || c.name.toLowerCase() === want) && out.indexOf(c) < 0) out.push(c);
+    });
+  });
+  return out;
+}
 function pickResponders(g, text){
+  var at = atMentions(g, text);
+  if (at.length) return at.slice(0, 4);
   var t = " " + text.toLowerCase() + " ";
   var scored = g.members.map(function(mid){
     var ch = getChar(mid); if (!ch) return null;
@@ -5728,6 +5777,35 @@ $("pf-del").onclick = function(){
   }
 };
 
+/* offer the members while an @ is being typed */
+function renderAtBar(){
+  var bar = $("atbar"), inp = $("input");
+  if (!bar || !inp) return;
+  var c = cur ? getConvo(cur) : null;
+  var m = c && c.grp ? inp.value.match(/(?:^|\s)@([\w'-]*)$/) : null;
+  if (!m) { bar.classList.remove("on"); bar.innerHTML = ""; return; }
+  var want = m[1].toLowerCase();
+  var hits = (c.members || []).map(getChar).filter(Boolean).filter(function(ch){
+    return !want || ch.name.toLowerCase().indexOf(want) === 0;
+  });
+  if (!hits.length) { bar.classList.remove("on"); bar.innerHTML = ""; return; }
+  bar.innerHTML = hits.map(function(ch){
+    return '<button data-at="' + esc(ch.name.split(/\s+/)[0]) + '">@' +
+      esc(ch.name.split(/\s+/)[0]) + '</button>';
+  }).join("");
+  bar.querySelectorAll("button").forEach(function(b){
+    b.onclick = function(){
+      inp.value = inp.value.replace(/@[\w'-]*$/, "@" + b.dataset.at + " ");   // the match is anchored above
+      bar.classList.remove("on"); bar.innerHTML = "";
+      inp.focus();
+    };
+  });
+  bar.classList.add("on");
+}
+$("input").addEventListener("input", renderAtBar);
+$("input").addEventListener("blur", function(){
+  setTimeout(function(){ var b = $("atbar"); if (b) { b.classList.remove("on"); b.innerHTML = ""; } }, 180);
+});
 $("chat-menu").onclick = openChatMenu;
 $("mode-pill").onclick = toggleChatMode;
 $("set-rel").onclick = function(){ renderRel(); show("v-rel"); };
