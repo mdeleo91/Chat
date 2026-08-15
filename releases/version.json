@@ -1,6 +1,6 @@
 {
-  "versionCode": 102,
-  "versionName": "0.35.0",
+  "versionCode": 103,
+  "versionName": "0.36.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Three things for group chats. Type an @ and the members appear above the keyboard, filtering as you type; tap one to drop the name in. Anyone you tag answers — tag three and all three answer, and nobody who wasn't tagged joins in. Press send with the box empty and instead of a character at random you get the list of who's there, so you can pick who speaks next, or leave it to the app. And renaming a group was already possible but hidden behind a menu item called Members; it now reads Name and members, and the page it opens calls itself Group settings, with the chat header updating the moment you save."
+  "notes": "Replies that ignored the length you set, and a chat that looks like one. Setting a length only said so once, near the top of a system prompt that a long conversation then buries — and a model copies the length of the messages it can see far more readily than it obeys a sentence from a thousand tokens ago, so a thread that had been sprawling carried on sprawling. The length is now restated as the last thing before every reply, with the history named as something not to imitate. Bubbles have a tail at the corner nearest whoever sent them, sender pictures sit at the top of a message rather than the bottom, and in dark mode the incoming bubble is no longer a shade away from the wallpaper behind it — it now stands off the background about twenty times more clearly."
 }
