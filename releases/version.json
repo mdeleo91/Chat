@@ -1,6 +1,6 @@
 {
-  "versionCode": 100,
-  "versionName": "0.33.0",
+  "versionCode": 101,
+  "versionName": "0.34.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Memory between rooms now runs both ways. Characters already carried a group conversation into their private chat; they carry their private chat into the group as well, so something you worked out one to one can be picked straight up in front of everyone without repeating it. Each of them brings only their own conversation with you — nobody arrives knowing what you said to somebody else, since that would be a leak rather than continuity — and they are told it is theirs to raise or keep quiet about, which is roughly how a person would treat it. A character you have never spoken to privately brings nothing, and the whole recollection stays bounded so a long history cannot crowd out the conversation it is attached to."
+  "notes": "Reply length is now yours to set, per conversation. The menu inside each chat offers Brief, Short, Medium or Long — one line at the tightest, several paragraphs at the loosest — and it is remembered for that chat alone, so a quick back-and-forth with one character and a long scene with another can sit side by side. The setting moves the instruction and the token ceiling together, since asking for a paragraph while capping the budget just cuts a reply off mid-sentence, and it phrases itself differently for texting and in-person, where a beat of a scene is not the same unit as a text message. Existing chats are unchanged: Short is the default and matches how replies have always been written."
 }

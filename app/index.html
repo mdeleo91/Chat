@@ -895,6 +895,7 @@ function load(){
   /* how a conversation is happening. Texting is the default and the app's
      whole premise; in-person turns it into a scene played out in the room. */
   if (!S.modes) S.modes = {};
+  if (!S.lens) S.lens = {};
   var migrated = false;
   (S.chars || []).concat(S.groups || []).forEach(function(c){
     if (!c.icon) { c.icon = EMOJI2ICON[c.emoji] || "person"; delete c.emoji; migrated = true; }
@@ -2330,7 +2331,7 @@ async function remoteGenerate(messages, onDelta, cid){
     var body = JSON.stringify({input: {
       openai_route: "/v1/chat/completions",
       openai_input: {model: model, messages: messages, stream: false,
-        temperature: 0.85, top_p: 0.95, max_tokens: 512,
+        temperature: 0.85, top_p: 0.95, max_tokens: (cid ? chatLen(cid).tok : 512),
         presence_penalty: 0.3, frequency_penalty: 0.3}
     }});
     LASTREQ = {via: "vision job", model: model, kb: Math.round(body.length / 1024)};
@@ -2465,7 +2466,7 @@ async function remoteGenerate(messages, onDelta, cid){
     var wantStream = !(viaRp && rp().nostream);
     var body = JSON.stringify({
       model: model, messages: messages, stream: wantStream,
-      temperature: 0.85, top_p: 0.95, max_tokens: 512,
+      temperature: 0.85, top_p: 0.95, max_tokens: (cid ? chatLen(cid).tok : 512),
       presence_penalty: 0.3, frequency_penalty: 0.3,
       /* glm-5.x is a hybrid-reasoning model. Left to think, it streams into
          delta.reasoning_content and can spend the entire 512-token budget
@@ -2838,11 +2839,13 @@ function sysPrompt(ch, convo){
       "Write the moment as it happens: put actions, gestures, touch, expressions and what is " +
       "around you in *asterisks*, and spoken words as plain text outside them. Weave the two " +
       "together rather than blocking them apart — a beat of action, a line of speech, a reaction. " +
-      "Present tense, 2-5 sentences, always from " + ch.name + "'s side of the scene; never write " +
+      "Present tense, " + chatLen(convo.id).scene + ", always from " + ch.name +
+      "'s side of the scene; never write " +
       "the user's words or actions for them. Never mention being a language model.\n";
   else
-    p += "Reply like a text message: short (1-3 sentences unless the user asks for more), natural, " +
-      "in character, plain text without markdown. Never mention being a language model.\n";
+    p += "Reply like a text message: " + chatLen(convo ? convo.id : ch.id).text +
+      " unless the user asks for more, natural, in character, plain text without markdown. " +
+      "Never mention being a language model.\n";
   /* --- volatile from here down --- */
   var me = S.profile || {};
   if (me.name) p += "The user's name is " + me.name + ".\n";
@@ -4381,6 +4384,29 @@ function seedGroupChat(g){
 }
 /* ================= scene ================= */
 function chatMode(cid){ return S.modes[cid] === "person" ? "person" : "text"; }
+/* How long a reply should run, per conversation. The instruction and the
+   token ceiling have to move together: asking for a paragraph while capping
+   at 140 tokens just cuts it off mid-sentence, and a generous cap with no
+   instruction is what made everything sprawl. */
+var LENGTHS = [
+  {k:"brief",  n:"Brief",  tok:150,
+   text:"one line, two at the absolute most",
+   scene:"one or two sentences — a single beat, no more"},
+  {k:"short",  n:"Short",  tok:260,
+   text:"1-3 sentences",
+   scene:"2-3 sentences, one beat of action and a line of speech"},
+  {k:"medium", n:"Medium", tok:420,
+   text:"3-5 sentences",
+   scene:"4-6 sentences, a full beat of the scene"},
+  {k:"long",   n:"Long",   tok:800,
+   text:"as long as it needs, several paragraphs when the moment earns it",
+   scene:"several paragraphs — take your time with the scene"}
+];
+function chatLen(cid){
+  var k = S.lens && S.lens[cid];
+  for (var i = 0; i < LENGTHS.length; i++) if (LENGTHS[i].k === k) return LENGTHS[i];
+  return LENGTHS[1];                       // Short, which is how it always behaved
+}
 function modePill(){
   var el = $("mode-pill"); if (!el || !cur) return;
   var inPerson = chatMode(cur) === "person";
@@ -4595,6 +4621,24 @@ function saveGroup(){
   openChat(gid);
   toast("Group created");
 }
+function openLengthSheet(){
+  if (!cur) return;
+  var now = chatLen(cur).k, sh = $("asheet");
+  sh.innerHTML = '<div class="grip"></div><div class="as-msg">How long should replies run?</div>' +
+    LENGTHS.map(function(l){
+      return '<button class="as-btn" data-len="' + l.k + '">' +
+        '<span class="msr' + (l.k === now ? " fill" : "") + '">' +
+        (l.k === now ? "check_circle" : "person") + '</span>' + esc(l.n) +
+        '<span class="hint">' + esc(l.text) + '</span></button>';
+    }).join("");
+  sh.querySelectorAll(".as-btn").forEach(function(b){
+    b.onclick = function(){
+      S.lens[cur] = b.dataset.len; save(); closeSheet();
+      toast("Replies here will be " + chatLen(cur).n.toLowerCase());
+    };
+  });
+  openSheet();
+}
 /* ---- the tree page ---- */
 function relLine(ch){
   var bits = relsOf(ch).map(function(r){
@@ -4791,6 +4835,8 @@ function openChatMenu(){
   var sh = $("asheet");
   sh.innerHTML = '<div class="grip"></div>' +
     '<div class="as-msg">' + esc(c.name) + '</div>' +
+    '<button class="as-btn" data-act="len"><span class="msr">edit</span>Reply length' +
+      '<span class="hint">' + esc(chatLen(cur).n) + '</span></button>' +
     (c.grp ? '<button class="as-btn" data-act="members"><span class="msr">group</span>' +
       'Members<span class="hint">' + c.members.length + ' in this group</span></button>' : '') +
     (has ? (IMGHIDE[cur]
@@ -4805,7 +4851,8 @@ function openChatMenu(){
     b.onclick = function(){
       var a = b.dataset.act;
       closeSheet();
-      if (a === "members") openGroupForm(cur);
+      if (a === "len") openLengthSheet();
+      else if (a === "members") openGroupForm(cur);
       else if (a === "hide" || a === "show") { setImgHide(cur, a === "hide"); renderStream(); }
       else if (a === "clear") clearConvo(cur);
       else if (a === "del") deleteConvo(cur);
