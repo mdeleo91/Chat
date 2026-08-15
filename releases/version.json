@@ -1,6 +1,6 @@
 {
-  "versionCode": 98,
-  "versionName": "0.32.1",
+  "versionCode": 99,
+  "versionName": "0.32.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Replies that came back blank, and photos told two different ages at once. The text model can think before it answers, and its thinking arrives on a separate channel the app never read — so it could spend its entire budget reasoning, close the stream having written nothing, and the failure reported only that the reply was empty. Thinking is now switched off for replies, as it already was for the smaller background calls, and if a model thinks anyway the log says that is what happened instead of leaving you guessing. Separately, a mature photo carried a blanket line insisting the subject was in their mid-twenties or older, which contradicted the character's own appearance a line later when she was eighteen. It now states her actual age when one is set, and falls back to the general wording only when nothing is known."
+  "notes": "In a group chat, one character can no longer answer for everyone. What each member reads is a transcript where every line from someone else is written as a name followed by what they said — and a model shown that format continues it, writing the whole room's replies inside one message, so a single character would stage the entire conversation and nobody else got a turn. Asking it not to was never going to be reliable, so a reply is now cut at the first line spoken in somebody else's name, and a character labelling its own message has the label removed. Whatever they genuinely said as themselves is kept, and mentioning another person in an ordinary sentence still works. The instruction is sharper too: the transcript is explicitly described as something not to copy."
 }

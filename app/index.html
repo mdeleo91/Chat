@@ -2798,8 +2798,11 @@ function sysPrompt(ch, convo){
     var others = convo.members.filter(function(m){ return m !== ch.id; })
       .map(function(m){ var x = getChar(m); return x ? x.name : ""; }).filter(Boolean).join(", ");
     p += "You are in the group chat \"" + convo.name + "\" with the user and " + others + ". " +
-      "Other characters' messages appear prefixed with their name. Reply only as " + ch.name +
-      " and never prefix your own name or speak for others.\n";
+      "The messages you are shown are a transcript: every line from someone else is written " +
+      "\"Name: what they said\". Do not copy that format. You write one message, as " + ch.name +
+      ", and nothing else — no name in front of it, and not a single line for " + others +
+      " or for the user. They answer for themselves. If you want to know what one of them " +
+      "thinks, say so and stop.\n";
   }
   if (matureActive())
     p += "Mature mode — the user has confirmed they are an adult: romantic and explicit adult " +
@@ -3285,7 +3288,9 @@ async function runGeneration(convo, ch, nudge, done){
   function onDelta(delta){
     if (!delta) return;
     txt += delta;
-    var shown = hidePhotoTag(visible(txt)).trim();
+    var shown = hidePhotoTag(visible(txt));
+    if (convo.grp) shown = stripOtherVoices(shown, convo, ch);
+    shown = shown.trim();
     if (!shown) return;              // still inside a think block — keep typing dots
     ensureLive();
     if (liveEl) {
@@ -3323,6 +3328,14 @@ async function runGeneration(convo, ch, nudge, done){
         !/\b(me|my|myself|i|selfie|face|smil\w*|grin\w*|wink\w*|hair|eyes|wearing|outfit|holding|arm|hand|pos(?:e|ing)|peace sign|tongue|mirror|blonde|brunette|cheek|lips|shoulder\w*)\b/i.test(photoDesc)) {
       L("img", "demoted selfie → photo — no self-reference in “" + photoDesc.slice(0, 60) + "”", true);
       isSelfie = false;
+    }
+    if (convo.grp) {
+      var kept = stripOtherVoices(txt, convo, ch);
+      if (kept !== txt) {
+        L("gen", ch.name + " tried to speak for the others — cut " +
+          (txt.length - kept.length) + " chars of it", true);
+        txt = kept;
+      }
     }
     if (!txt && !photoDesc) throw new Error("the model returned an empty reply");
     if (txt) {
@@ -3438,6 +3451,28 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
     L("img", "director reply unusable — using the raw description", true);
     cb(desc, null, null);
   });
+}
+/* One character, one voice. What a group member reads is a script — every
+   other line is "Erin: …", "Harper: …" — and a model continues the format it
+   is shown, so it writes everybody's turn in a single bubble. The system
+   prompt asks it not to, which helps and does not settle it, so anything
+   spoken from another mouth is cut here rather than requested away. */
+function stripOtherVoices(txt, convo, ch){
+  if (!convo || !convo.grp || !txt) return txt;
+  var names = (convo.members || []).map(function(id){
+    var c = getChar(id);
+    return c && c.id !== ch.id ? c.name.split(/\s+/)[0] : null;
+  }).filter(Boolean);
+  names.push(userName());
+  var pat = new RegExp("^\\s*(" + names.map(reEsc).join("|") + ")\\s*:", "i");
+  var own = new RegExp("^\\s*" + reEsc(ch.name.split(/\s+/)[0]) + "\\s*:\\s*", "i");
+  var lines = txt.split("\n"), out = [];
+  for (var i = 0; i < lines.length; i++) {
+    /* the script starts here; everything past it belongs to someone else */
+    if (pat.test(lines[i])) break;
+    out.push(lines[i].replace(own, ""));
+  }
+  return out.join("\n").trim();
 }
 /* the picture a character chose to send, generated then delivered as its own
    message — typing dots show while CogView paints */
