@@ -1,6 +1,6 @@
 {
-  "versionCode": 99,
-  "versionName": "0.32.2",
+  "versionCode": 100,
+  "versionName": "0.33.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "In a group chat, one character can no longer answer for everyone. What each member reads is a transcript where every line from someone else is written as a name followed by what they said — and a model shown that format continues it, writing the whole room's replies inside one message, so a single character would stage the entire conversation and nobody else got a turn. Asking it not to was never going to be reliable, so a reply is now cut at the first line spoken in somebody else's name, and a character labelling its own message has the label removed. Whatever they genuinely said as themselves is kept, and mentioning another person in an ordinary sentence still works. The instruction is sharper too: the transcript is explicitly described as something not to copy."
+  "notes": "Memory between rooms now runs both ways. Characters already carried a group conversation into their private chat; they carry their private chat into the group as well, so something you worked out one to one can be picked straight up in front of everyone without repeating it. Each of them brings only their own conversation with you — nobody arrives knowing what you said to somebody else, since that would be a leak rather than continuity — and they are told it is theirs to raise or keep quiet about, which is roughly how a person would treat it. A character you have never spoken to privately brings nothing, and the whole recollection stays bounded so a long history cannot crowd out the conversation it is attached to."
 }

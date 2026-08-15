@@ -2879,36 +2879,64 @@ function roomWhen(ts){
   if (d < 1728e5) return "yesterday";
   return "on " + fmtTime(ts);
 }
+function roomSpeaker(room, m, ch){
+  if (m.who === "scene") return "[scene]";
+  if (m.who === "me") return userName();
+  if (room.grp) { var by = getChar(m.by); return by ? by.name : "Someone"; }
+  return ch.name;
+}
+function roomBlock(room, ch){
+  var arr = room.msgs;
+  var lines = arr.slice(-ROOM_TAIL).map(function(m){
+    var t = m.text || (m.img ? "[sent a photo]" : "");
+    if (!t) return "";
+    return roomSpeaker(room, m, ch) + ": " + String(t).slice(0, ROOM_LINE);
+  }).filter(Boolean).join("\n");
+  if (!lines) return "";
+  return "— " + room.label + ", " + roomWhen(arr[arr.length - 1].ts) + ":\n" +
+    (room.sum && room.sum.text ? "(before this: " + room.sum.text + ")\n" : "") + lines + "\n";
+}
 function otherRooms(ch, convo){
-  if (!convo || convo.grp) return "";
-  var gs = S.groups.filter(function(g){
-    return (g.members || []).indexOf(ch.id) >= 0 && (S.msgs[g.id] || []).length;
-  });
-  if (!gs.length) return "";
-  var lastTs = function(g){
-    var a = S.msgs[g.id]; return a.length ? a[a.length - 1].ts : 0;
-  };
-  gs.sort(function(a, b){ return lastTs(b) - lastTs(a); });
+  if (!convo || !ch) return "";
+  var rooms = [], intro;
+  if (convo.grp) {
+    /* the other direction, which used to be missing entirely: what this
+       character was told one to one. Only their own chat — nobody can know
+       what was said to someone else, and pulling in a third party's private
+       conversation would be a genuine leak rather than continuity. */
+    var mine = S.msgs[ch.id] || [];
+    if (!mine.length) return "";
+    rooms.push({id: ch.id, grp: null, msgs: mine, sum: S.sums[ch.id],
+      label: "your private chat with " + userName()});
+    intro = "You and " + userName() + " have also been talking one to one. You know all of it — " +
+      "it was said to you. They may pick it up here in front of the others, and you can raise it " +
+      "yourself if the moment fits; it is yours to bring up or keep to yourself:\n";
+  } else {
+    var gs = S.groups.filter(function(g){
+      return (g.members || []).indexOf(ch.id) >= 0 && (S.msgs[g.id] || []).length;
+    });
+    if (!gs.length) return "";
+    gs.sort(function(a, b){
+      var la = S.msgs[a.id], lb = S.msgs[b.id];
+      return lb[lb.length - 1].ts - la[la.length - 1].ts;
+    });
+    gs.forEach(function(g){
+      rooms.push({id: g.id, grp: g, msgs: S.msgs[g.id], sum: S.sums[g.id],
+        label: "the group chat \u201c" + g.name + "\u201d"});
+    });
+    intro = "You were also in these conversations, and you remember them \u2014 they happened to " +
+      "you, not to someone you were told about. The user may pick one up here, privately, " +
+      "without explaining it first:\n";
+  }
   var out = "", used = 0;
-  gs.forEach(function(g){
+  rooms.forEach(function(r){
     if (used >= ROOM_BUDGET) return;
-    var arr = S.msgs[g.id];
-    var lines = arr.slice(-ROOM_TAIL).map(function(m){
-      var t = m.text || (m.img ? "[sent a photo]" : "");
-      if (!t) return "";
-      return speakerName(g, m) + ": " + String(t).slice(0, ROOM_LINE);
-    }).filter(Boolean).join("\n");
-    if (!lines) return;
-    var sm = S.sums[g.id];
-    var blk = "— the group chat “" + g.name + "”, " + roomWhen(lastTs(g)) + ":\n" +
-      (sm && sm.text ? "(before this: " + sm.text + ")\n" : "") + lines + "\n";
+    var blk = roomBlock(r, ch);
+    if (!blk) return;
     if (used + blk.length > ROOM_BUDGET && used) return;
     out += blk; used += blk.length;
   });
-  if (!out) return "";
-  return "You were also in these conversations, and you remember them — they happened to you, " +
-    "not to someone you were told about. The user may pick one up here, privately, without " +
-    "explaining it first:\n" + out;
+  return out ? intro + out : "";
 }
 /* pinned memories always go; the rest fill by recency */
 var MEM_SEND = 12;
