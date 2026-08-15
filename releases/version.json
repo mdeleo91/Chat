@@ -1,6 +1,6 @@
 {
-  "versionCode": 103,
-  "versionName": "0.36.0",
+  "versionCode": 104,
+  "versionName": "0.36.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Replies that ignored the length you set, and a chat that looks like one. Setting a length only said so once, near the top of a system prompt that a long conversation then buries — and a model copies the length of the messages it can see far more readily than it obeys a sentence from a thousand tokens ago, so a thread that had been sprawling carried on sprawling. The length is now restated as the last thing before every reply, with the history named as something not to imitate. Bubbles have a tail at the corner nearest whoever sent them, sender pictures sit at the top of a message rather than the bottom, and in dark mode the incoming bubble is no longer a shade away from the wallpaper behind it — it now stands off the background about twenty times more clearly."
+  "notes": "Lilly is rewritten. Where she was bright, clingy and constantly talking, she is now quiet and watchful — inexperienced and unembarrassed about it, more likely to ask than to pretend she already knows, and willing in the sense of saying yes to things she is curious about rather than going along with whatever is suggested. Her writing changed to match: short lowercase messages with long pauses, questions she apologises for asking. Erin needed a small edit too, since she had been written as the quieter of the two sisters and that comparison no longer meant anything — she is now the guarded one rather than the shy one, which keeps them apart. Ages, appearances and family ties are untouched, and a version of Lilly you have edited yourself is left exactly as you wrote her."
 }
