@@ -209,7 +209,16 @@
   .atbar.on{display:flex}
   .atbar button{border:1px solid var(--line);background:var(--card);color:inherit;font:inherit;
     font-size:13px;font-weight:600;border-radius:999px;padding:6px 13px;cursor:pointer}
-  .msg .act{font-style:italic;opacity:.82}
+  /* a description reads as a stage direction: its own line, set apart from
+     the speech either side of it rather than buried mid-sentence */
+  .msg .act{display:block;font-style:italic;opacity:.78;margin:2px 0}
+  /* composer, while you are typing inside a description.
+     .rndbtn is display:flex, which beats the [hidden] attribute's UA rule —
+     without this the button shows up in texting chats too */
+  .rndbtn[hidden]{display:none}
+  #desc{background:var(--card2);color:var(--mist)}
+  #desc.on{background:var(--acc);color:#fff}
+  .cfield.desc{font-style:italic}
   .msg .imgstub{display:flex;align-items:center;gap:8px;padding:11px 13px;margin:2px 0 6px;
     border-radius:12px;border:1px dashed var(--line);background:rgba(128,128,128,.08);
     color:var(--mist);font-size:13px;cursor:pointer;user-select:none}
@@ -564,6 +573,8 @@
         <span class="msr" style="font-size:20px">image</span></button>
       <input type="file" id="attach-file" accept="image/*" hidden>
       <input type="file" id="attach-cam" accept="image/*" capture="environment" hidden>
+      <button class="rndbtn" id="desc" title="Describe an action" hidden>
+        <span class="msr" style="font-size:20px">edit</span></button>
       <textarea class="cfield" id="input" rows="1" placeholder="Message…"></textarea>
       <button class="rndbtn" id="mic" title="Voice call">
         <span class="msr" style="font-size:20px">mic</span></button>
@@ -4491,7 +4502,7 @@ function openChat(id, hideImages){
     $("chat-stat").innerHTML = '<span class="on">online</span> · ' + esc(fill(c.status, c));
   $("chat-call").style.display = c.grp ? "none" : "flex";
   setStaged(null);
-  renderStream(); scenePill(); modePill(); show("v-chat"); updateChatStat();
+  renderStream(); scenePill(); modePill(); descBtn(); show("v-chat"); updateChatStat();
   if (!(S.msgs[id] && S.msgs[id].length)) {
     if (c.grp) seedGroupChat(c);
     else setTimeout(function(){ deliver(c, greetingOf(c)); }, 600);
@@ -4577,9 +4588,24 @@ function renderStream(){
 /* *actions* read as actions. Escaped first, so the only markup that can
    reach the DOM is the italics this puts there. Applies in both modes — a
    character texting an aside still means it as one. */
+/* Descriptions get their own line. A bubble that runs "hey *she leans over
+   the counter* what are you drinking" is one long smear to read; broken at
+   each boundary it reads like a script. The <i> is display:block, so the
+   break is the layout's job — all this has to do is take the whitespace off
+   the ends, or pre-wrap leaves a hanging indent where the space used to be. */
 function fmtBody(t){
   /* the asterisks have to hug their text, or "2 * 3 * 4" turns into italics */
-  return esc(t).replace(/\*(\S|\S[^*\n]{0,398}\S)\*/g, '<i class="act">$1</i>');
+  var s = esc(t), re = /\*(\S|\S[^*\n]{0,398}\S)\*/g, out = "", last = 0, m, any = false;
+  while ((m = re.exec(s))) {
+    any = true;
+    /* both ends: every plain run here already sits on its own line between
+       two blocks, so the space that used to separate them is now an indent */
+    out += s.slice(last, m.index).replace(/^\s+|\s+$/g, "");
+    out += '<i class="act">' + m[1] + '</i>';
+    last = m.index + m[0].length;
+  }
+  if (!any) return s;
+  return out + s.slice(last).replace(/^\s+/, "");
 }
 function pushMsg(id, who, text, by, img){
   (S.msgs[id] = S.msgs[id] || []).push({who:who, text:text, ts:Date.now(), by:by||null,
@@ -4654,10 +4680,52 @@ function toggleChatMode(){
   if (!cur) return;
   S.modes[cur] = chatMode(cur) === "person" ? "text" : "person";
   save();
-  modePill();
+  modePill(); descBtn();
   toast(chatMode(cur) === "person"
-    ? "In person — replies play out the scene with actions"
+    ? "In person — replies play out the scene, and the pencil writes an action"
     : "Texting — replies read like messages");
+}
+/* ---- the describe button ----
+   In person you are writing a scene, and wrapping every action in asterisks
+   by hand on a phone keyboard is miserable. The button opens a description at
+   the cursor and closes it again, so one message can carry speech, an action
+   and more speech without ever typing a *. State is read from the text itself
+   — an odd number of asterisks before the cursor means you are inside one —
+   rather than kept in a variable that the text could drift away from. */
+function descOpen(){
+  var el = $("input"); if (!el) return false;
+  var at = el.selectionStart;
+  if (at === null || at === undefined) at = el.value.length;
+  return (el.value.slice(0, at).split("*").length - 1) % 2 === 1;
+}
+function descBtn(){
+  var b = $("desc"), el = $("input"); if (!b || !el) return;
+  var show = !!cur && chatMode(cur) === "person";
+  b.hidden = !show;
+  var on = show && descOpen();
+  b.classList.toggle("on", on);
+  el.classList.toggle("desc", on);
+  b.title = on ? "Back to speech" : "Describe an action";
+}
+function toggleDesc(){
+  var el = $("input"); if (!el) return;
+  var v = el.value, at = el.selectionStart;
+  if (at === null || at === undefined) at = v.length;
+  var ins;
+  if (descOpen()) ins = "* ";                                  // close it, then keep talking
+  else ins = (at > 0 && !/\s$/.test(v.slice(0, at)) ? " " : "") + "*";
+  el.value = v.slice(0, at) + ins + v.slice(at);
+  at += ins.length;
+  el.focus(); el.setSelectionRange(at, at);
+  el.dispatchEvent(new Event("input"));                        // keep the field's auto-grow honest
+  descBtn();
+}
+/* an unfinished description would otherwise be sent as a stray asterisk and
+   read as literal punctuation by the model */
+function closeDesc(t){
+  t = String(t).replace(/\*\s*\*/g, "");                       // an opened-then-abandoned pair
+  if ((t.split("*").length - 1) % 2 === 1) t = t.replace(/\s*$/, "") + "*";
+  return t.trim();
 }
 function scenePill(){
   var el = $("scene-pill"); if (!el || !cur) return;
@@ -5212,10 +5280,10 @@ function setStaged(url){
   else { $("stage-img").removeAttribute("src"); w.classList.remove("on"); }
 }
 function sendCurrent(){
-  var inp = $("input"); var text = inp.value.trim();
+  var inp = $("input"); var text = closeDesc(inp.value);
   if (!cur) return;
   if (!text && !staged) { continueConvo(); return; }
-  inp.value = ""; inp.style.height = "auto";
+  inp.value = ""; inp.style.height = "auto"; descBtn();
   var img = staged; setStaged(null);
   sendUserMessage(text, img);
 }
@@ -6006,6 +6074,12 @@ $("input").addEventListener("keydown", function(e){
 });
 $("input").addEventListener("input", function(){
   this.style.height = "auto"; this.style.height = Math.min(this.scrollHeight, 110) + "px";
+});
+$("desc").onclick = toggleDesc;
+/* the button reports where the cursor is, so moving it in or out of a
+   description has to repaint — typing alone is not enough */
+["input", "click", "keyup", "focus", "select"].forEach(function(ev){
+  $("input").addEventListener(ev, descBtn);
 });
 
 $("prof-back").onclick = function(){ hide("v-prof"); renderContacts(); renderHome(); };
