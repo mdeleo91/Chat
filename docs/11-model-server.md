@@ -23,7 +23,10 @@ Built in `sysPrompt()` and `buildMessages()`:
   interests
 - your own persona — name and description, from Settings → Your persona
   (the description can be withheld with the toggle there; the name always goes)
-- that character's stored memories (pinned first, then most recent)
+- that character's stored memories — pinned first, then whatever the last few
+  messages are about (scored by word overlap against the whole store, so
+  something from weeks ago resurfaces when you mention it again), then the
+  most recent. Up to 40 of them; the store itself holds 400.
 - group-chat context, when the conversation is a group
 - the rolling summary plus the un-summarized tail of the conversation
 - photos you've sent, as base64 `image_url` content parts — these switch the

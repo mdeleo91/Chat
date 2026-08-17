@@ -2875,7 +2875,7 @@ function sysPrompt(ch, convo){
   var sm = S.sums[convo ? convo.id : ch.id];
   if (sm && sm.text)
     p += "Summary of the conversation before the messages below:\n" + sm.text + "\n";
-  var mems = pickMemories(ch);
+  var mems = pickMemories(ch, convo);
   if (mems.length) {
     p += "Things you remember about the user:\n";
     mems.forEach(function(m){ p += "- " + m.text + "\n"; });
@@ -2959,13 +2959,62 @@ function otherRooms(ch, convo){
   });
   return out ? intro + out : "";
 }
-/* pinned memories always go; the rest fill by recency */
-var MEM_SEND = 12;
-function pickMemories(ch){
+/* ---- which memories ride along ----
+   Recency alone is what made "you said this last week" impossible: after a
+   fortnight of chatting, the thing that mattered had been pushed off the end
+   of the list by twenty pieces of small talk. So the budget is split. Pinned
+   first, then whatever the last few messages are actually about — scored by
+   word overlap against the whole store — and only then the recent tail. A
+   memory from last week resurfaces the moment you mention it again. */
+var MEM_SEND = 40, MEM_RECENT = 14, MEM_RELEVANT = 16;
+var MEM_STOP = " the and that this with have they them from your you for was were been " +
+  "about would could should when what which there their then than into over just some " +
+  "will more like also very much really thing things said says told tell going gone ";
+/* crude stemmer: "motorways"/"motorway" and "driving"/"drive" have to collide
+   or the overlap score misses the very restatement it is there to catch. */
+function memStem(w){
+  w = w.replace(/(ing|ed|es|s|ly)$/, "");
+  if (w.length > 3) w = w.replace(/e$/, "");
+  return w;
+}
+function memWords(t){
+  var seen = {}, out = [];
+  String(t).toLowerCase().replace(/[^a-z0-9]+/g, " ").split(" ").forEach(function(w){
+    if (w.length < 4 || MEM_STOP.indexOf(" " + w + " ") >= 0) return;
+    w = memStem(w);
+    if (w.length < 3 || seen[w]) return;
+    seen[w] = 1; out.push(w);
+  });
+  return out;
+}
+function pickMemories(ch, convo){
   var all = S.mems[ch.id] || [];
-  var pinned = all.filter(function(m){ return m.pin; });
+  var out = all.filter(function(m){ return m.pin; });
   var rest = all.filter(function(m){ return !m.pin; });
-  return pinned.concat(rest.slice(-(Math.max(0, MEM_SEND - pinned.length))));
+  var recent = rest.slice(-MEM_RECENT);
+  var older = rest.slice(0, Math.max(0, rest.length - MEM_RECENT));
+  if (older.length && convo) {
+    var msgs = (S.msgs[convo.id] || []).slice(-6);
+    var ctx = {}, n = 0;
+    msgs.forEach(function(m){
+      memWords(m.text || "").forEach(function(w){ if (!ctx[w]) { ctx[w] = 1; n++; } });
+    });
+    if (n) {
+      var scored = older.map(function(m, i){
+        var ws = memWords(m.text), hit = 0;
+        ws.forEach(function(w){ if (ctx[w]) hit++; });
+        return {m: m, i: i, s: ws.length ? hit / Math.sqrt(ws.length) : 0};
+      }).filter(function(x){ return x.s > 0; });
+      scored.sort(function(a, b){ return b.s - a.s || b.i - a.i; });
+      scored.slice(0, MEM_RELEVANT).forEach(function(x){ out.push(x.m); });
+    }
+  }
+  recent.forEach(function(m){ if (out.indexOf(m) < 0) out.push(m); });
+  /* room left over — a small store should go across whole rather than
+     have three quarters of itself withheld for no reason */
+  for (var i = older.length - 1; i >= 0 && out.length < MEM_SEND; i--)
+    if (out.indexOf(older[i]) < 0) out.push(older[i]);
+  return out.slice(0, MEM_SEND);
 }
 /* ---- history window: append-only, evicted in chunks ----
    A window that slides by one message every turn changes the prompt prefix
@@ -3115,15 +3164,18 @@ function scheduleSummarize(convo){
       if (err) { SUMBUSY[convo.id] = false; done(); return; }
       completeOnce(engine, [
         {role:"system", content:"You compress roleplay chat history into a running summary. " +
-          "Third person, plain text, at most 130 words. Keep facts learned, events, decisions, " +
-          "promises, emotional shifts and open threads. Drop pleasantries. Merge the previous " +
-          "summary with the new lines, preferring newer information. Reply with the summary only."},
+          "Third person, plain text, at most 250 words. Keep facts learned, events, decisions, " +
+          "promises, emotional shifts and open threads. Keep specifics — names, places, dates, " +
+          "numbers and the exact wording of anything promised — a summary that says \"they " +
+          "discussed work\" has thrown away the only part worth keeping. Drop pleasantries. " +
+          "Merge the previous summary with the new lines, preferring newer information. " +
+          "Reply with the summary only."},
         {role:"user", content:"Previous summary:\n" + (sm && sm.text || "(none)") +
           "\n\nNew messages:\n" + transcript + "\n\nUpdated summary:"}
-      ], 220, function(err2, text){
+      ], 420, function(err2, text){
         text = (text || "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
         if (!err2 && text) {
-          S.sums[convo.id] = {ts: chunk[chunk.length-1].ts, text: text.slice(0, 1400)};
+          S.sums[convo.id] = {ts: chunk[chunk.length-1].ts, text: text.slice(0, 2600)};
           save();
         }
         SUMBUSY[convo.id] = false; done();
@@ -3406,6 +3458,7 @@ async function runGeneration(convo, ch, nudge, done){
       renderHome();
     } else if (liveEl) liveEl.remove();
     scheduleSummarize(convo);
+    scheduleMemory(convo, ch);
     if (photoDesc) deliverPhoto(convo, ch, photoDesc, isSelfie, isMature);
     else endGen(convo.id);
   } catch(e) {
@@ -3605,7 +3658,111 @@ function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature, 
   else if (viaFal) viaFal();
   else viaGlm();
 }
-/* memory extraction (regex; the model itself sees the profile + memories) */
+/* ================= long-term memory =================
+   This used to be three regular expressions — "my name is", "i like", "i
+   work as" — so anything you said that wasn't one of those three shapes
+   lived in the history window and then evaporated. A model reads the
+   exchange instead and writes down what is worth keeping, which is the
+   difference between a character who knows you and one who knows your
+   name and one hobby. */
+var MEM_MAX = 400, MEM_EVERY = 2;
+function memNorm(t){
+  return String(t).toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+}
+/* Dedup on words, not on substrings. Substring containment looked right and
+   was quietly destructive: "filler fact number 1" swallows "filler fact
+   number 19", and "They have a sister" swallows the version that names her.
+   Comparing word sets instead means a restatement collapses, and the more
+   specific wording wins — the shorter entry is upgraded in place rather than
+   the longer one being thrown away. */
+function memHas(arr, fact){ return memMatch(arr, fact) >= 0; }
+function memMatch(arr, fact){
+  var n = memNorm(fact);
+  if (!n) return 0;
+  var nw = n.split(" ");
+  for (var i = 0; i < arr.length; i++) {
+    var o = memNorm(arr[i].text);
+    if (o === n) return i;
+    var ow = o.split(" ");
+    var few = ow.length < nw.length ? ow : nw, many = ow.length < nw.length ? nw : ow;
+    if (few.length < 4) continue;
+    var all = true;
+    for (var j = 0; j < few.length; j++)
+      if (many.indexOf(few[j]) < 0) { all = false; break; }
+    if (all) return i;
+  }
+  return -1;
+}
+function rememberMany(ch, facts, src){
+  var arr = S.mems[ch.id] = S.mems[ch.id] || [], added = 0;
+  facts.forEach(function(f){
+    f = String(f || "").trim().replace(/^[-•*\s]+/, "").slice(0, 220);
+    if (f.length < 6) return;
+    var at = memMatch(arr, f);
+    if (at >= 0) {
+      // fuller means says more, not merely longer — an added "!" is not an upgrade
+      if (memNorm(f).split(" ").length > memNorm(arr[at].text).split(" ").length) {
+        arr[at].text = f; arr[at].ts = Date.now(); added++;
+      }
+      return;
+    }
+    arr.push({text: f, ts: Date.now(), src: src || "from chat"});
+    added++;
+  });
+  if (arr.length > MEM_MAX) {
+    var keep = arr.filter(function(m){ return m.pin; });
+    var rest = arr.filter(function(m){ return !m.pin; });
+    S.mems[ch.id] = keep.concat(rest.slice(-(MEM_MAX - keep.length)));
+  }
+  if (added) save();
+  return added;
+}
+var MEMBUSY = {};
+function scheduleMemory(convo, ch){
+  if (!useLLM() || !ch || MEMBUSY[ch.id]) return;
+  var arr = S.msgs[convo.id] || [];
+  var since = (S.memts && S.memts[convo.id]) || 0;
+  var fresh = arr.filter(function(m){ return m.ts > since && m.who === "me"; });
+  if (fresh.length < MEM_EVERY) return;
+  var tail = arr.slice(-10).map(function(m){
+    var t = m.text || (m.img ? "[a photo]" : "");
+    return t ? speakerName(convo, m) + ": " + t.slice(0, 400) : "";
+  }).filter(Boolean).join("\n");
+  if (!tail) return;
+  var known = (S.mems[ch.id] || []).slice(-40).map(function(m){ return "- " + m.text; }).join("\n");
+  MEMBUSY[ch.id] = true;
+  enqueue(function(done){
+    completeOnce(REMOTE, [{role: "user", content:
+      "You keep the long-term memory for " + ch.name + ", a character in a private chat app.\n\n" +
+      "From the exchange below, list what is worth still knowing months from now: facts about " +
+      userName() + " (their life, work, health, people, history, tastes, plans), and things the two " +
+      "of them did, decided, promised or went through together.\n\n" +
+      "Rules: one short sentence each, written from " + ch.name + "'s side (\"They\" for " +
+      userName() + "). Only things that stay true — skip passing moods, small talk, and anything " +
+      "already in the list below. Nothing worth keeping is a perfectly good answer.\n\n" +
+      (known ? "Already remembered:\n" + known + "\n\n" : "") +
+      "Exchange:\n" + tail + "\n\n" +
+      "Reply with ONLY a JSON array of strings, e.g. [\"They have a sister called Erin\"]. " +
+      "Empty array if there is nothing."}, ], 500, function(err, text){
+      MEMBUSY[ch.id] = false;
+      if (!err && text) {
+        try {
+          var m = String(text).match(/\[[\s\S]*\]/);
+          var facts = JSON.parse(m ? m[0] : text);
+          if (Array.isArray(facts) && facts.length) {
+            var n = rememberMany(ch, facts, "from chat");
+            if (n) L("mem", ch.name + " remembered " + n + ": " +
+              facts.slice(0, 6).join(" · ").slice(0, 400), true, 900);
+          }
+        } catch (e) {}
+      }
+      (S.memts = S.memts || {})[convo.id] = Date.now();
+      save(); done();
+    });
+  });
+}
+/* the old regex pass still runs — it is free, instant, and catches a name
+   before the model call has come back */
 function extractFacts(ch, text){
   var t = text.toLowerCase(), m;
   if ((m = t.match(/my name(?:'s| is) ([a-z][a-z\-']{1,20})/i))) {
@@ -5134,14 +5291,44 @@ function openMems(id){
   $("mem-title").textContent = ch.name + "'s memories";
   var list = $("mem-list"); list.innerHTML = "";
   var arr = S.mems[id] || [];
-  if (!arr.length) list.innerHTML =
-    '<div class="empty">Nothing yet. Tell '+esc(ch.name)+' about yourself — your name, what you like — and it\'ll be remembered here.<br><br>Everything stays on this device.</div>';
+  var add = document.createElement("button");
+  add.className = "srow";
+  add.innerHTML = '<span class="ic msr">add</span><span class="lbl">Write a memory</span>' +
+    '<span class="val">' + arr.length + ' stored</span>';
+  add.onclick = function(){
+    var t = prompt("Something " + ch.name + " should always know:\n" +
+      "Written as they'd think of it — \u201cThey have two cats\u201d, \u201cWe agreed to meet Thursday\u201d.");
+    if (t && t.trim()) {
+      rememberMany(ch, [t.trim()], "you wrote");
+      var a2 = S.mems[id] || [];
+      /* something written by hand is meant to stick — pin it */
+      if (a2.length) a2[a2.length - 1].pin = true;
+      save(); openMems(id);
+    }
+  };
+  list.appendChild(add);
+  if (!arr.length) {
+    var e = document.createElement("div"); e.className = "empty";
+    e.innerHTML = "Nothing yet. Talk to " + esc(ch.name) + " and anything worth keeping is " +
+      "written down here automatically \u2014 or write one yourself above.<br><br>" +
+      "Pinned memories are always sent; the rest are chosen by what the conversation is about." +
+      "<br><br>Everything stays on this device.";
+    list.appendChild(e);
+  }
   arr.slice().reverse().forEach(function(mm){
-    var el = document.createElement("div"); el.className = "memcard";
-    el.innerHTML = '<div class="t">'+esc(mm.text)+'<span class="src">'+esc(mm.src)+' · '+new Date(mm.ts).toLocaleDateString()+'</span></div>'+
-      '<button class="op msr">delete</button>';
-    el.querySelector(".op").onclick = function(){
-      S.mems[id] = (S.mems[id]||[]).filter(function(x){ return x !== mm; });
+    var el = document.createElement("div");
+    el.className = "memcard" + (mm.pin ? " pinned" : "");
+    el.innerHTML = '<div class="t">' + (mm.pin ? '<span class="msr fill" style="font-size:13px;' +
+      'color:var(--acc-deep);vertical-align:-2px">star</span> ' : '') + esc(mm.text) +
+      '<span class="src">' + esc(mm.src) + ' · ' + new Date(mm.ts).toLocaleDateString() +
+      (mm.pin ? ' · always sent' : '') + '</span></div>' +
+      '<button class="op msr" data-op="pin">star</button>' +
+      '<button class="op msr" data-op="del">delete</button>';
+    el.querySelector('[data-op="pin"]').onclick = function(){
+      mm.pin = !mm.pin; save(); openMems(id);
+    };
+    el.querySelector('[data-op="del"]').onclick = function(){
+      S.mems[id] = (S.mems[id] || []).filter(function(x){ return x !== mm; });
       save(); openMems(id);
     };
     list.appendChild(el);
