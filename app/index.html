@@ -2861,9 +2861,14 @@ function sysPrompt(ch, convo){
       "'s side of the scene; never write " +
       "the user's words or actions for them. Never mention being a language model.\n";
   else
-    p += "Reply like a text message: " + chatLen(convo ? convo.id : ch.id).text +
-      " unless the user asks for more, natural, in character, plain text without markdown. " +
-      "Never mention being a language model.\n";
+    p += "This is a text conversation. You are on your phone, the user is on theirs — " +
+      "you cannot see each other. Write only what you would actually type into the message " +
+      "box: " + chatLen(convo ? convo.id : ch.id).text + ", natural, in character. " +
+      "No actions and no narration — nothing in *asterisks*, no stage directions in " +
+      "brackets, no describing your face, your body, your surroundings or what you are " +
+      "doing as if it were being watched. If you are doing something, type it the way " +
+      "anyone texts it (\"just got in\", \"making tea, one sec\") instead of acting it out. " +
+      "Plain text, no markdown. Never mention being a language model.\n";
   /* --- volatile from here down --- */
   var me = S.profile || {};
   if (me.name) p += "The user's name is " + me.name + ".\n";
@@ -3102,18 +3107,25 @@ function buildMessages(ch, convo, nudge){
       "message in character: build on what you said, ask something, or move things forward. Don't repeat yourself.]");
   else if (msgs.length === 1)
     add("user", "[Open the conversation in character.]");
-  /* Length is set once near the top of the system prompt and then buried
-     under everything a long conversation drags in — and a model copies the
-     length of what it can see far more readily than it obeys a sentence it
-     read a thousand tokens ago. So it is said again, last, and told outright
-     that the history is not the example to follow. */
-  var len = chatLen(convo.id);
-  if (len.k !== "long")
-    msgs.push({role: "system", content:
-      "Before you answer, check the length. " +
-      (chatMode(convo.id) === "person" ? len.scene : len.text) + " — no more. " +
-      "Earlier messages here may be far longer than that; they are not the example. " +
-      "Match the length asked for, not the length of what came before."});
+  /* Length and mode are set once near the top of the system prompt and then
+     buried under everything a long conversation drags in — and a model copies
+     the shape of what it can see far more readily than it obeys a sentence it
+     read a thousand tokens ago. Mode is the worse of the two, because
+     switching a chat to texting leaves the whole in-person history sitting
+     there in *asterisks* as a worked example of the thing being forbidden.
+     So both are said again, last, and the history is disowned outright. */
+  var len = chatLen(convo.id), person = chatMode(convo.id) === "person", last = "";
+  if (person) {
+    if (len.k !== "long") last = "Before you answer, check the length. " + len.scene + " — no more. ";
+  } else {
+    last = "Before you answer: this is a text message, not a scene. Type words only — " +
+      "no actions, nothing in *asterisks*, no narration, no stage directions. " +
+      (len.k !== "long" ? len.text + " — no more. " : "");
+  }
+  if (last)
+    msgs.push({role: "system", content: last +
+      "Earlier messages here may be longer than that, or written as a scene with actions " +
+      "in asterisks — they are not the example. Follow this instruction, not the history."});
   return msgs;
 }
 /* ---- rolling summary of evicted history ---- */
@@ -3403,6 +3415,10 @@ async function runGeneration(convo, ch, nudge, done){
     txt += delta;
     var shown = hidePhotoTag(visible(txt));
     if (convo.grp) shown = stripOtherVoices(shown, convo, ch);
+    if (chatMode(convo.id) !== "person")
+      /* mid-stream an action is still half-typed, so the unterminated tail
+         goes too — otherwise it appears, then vanishes when it closes */
+      shown = stripActions(shown.replace(/\*[^*\n]*$/, ""));
     shown = shown.trim();
     if (!shown) return;              // still inside a think block — keep typing dots
     ensureLive();
@@ -3448,6 +3464,19 @@ async function runGeneration(convo, ch, nudge, done){
         L("gen", ch.name + " tried to speak for the others — cut " +
           (txt.length - kept.length) + " chars of it", true);
         txt = kept;
+      }
+    }
+    if (txt && chatMode(convo.id) !== "person") {
+      var typed = stripActions(txt);
+      if (typed !== txt) {
+        /* a reply that was nothing but narration leaves nothing to send — a
+           blank bubble is worse than a stray asterisk, so that one stands */
+        if (typed) {
+          L("gen", ch.name + " acted it out in a texting chat — cut " +
+            (txt.length - typed.length) + " chars of narration", true);
+          txt = typed;
+        } else L("gen", ch.name + "'s whole reply was narration in a texting chat — " +
+          "left as-is rather than sending an empty message", true);
       }
     }
     if (!txt && !photoDesc) throw new Error("the model returned an empty reply");
@@ -3571,6 +3600,26 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
    is shown, so it writes everybody's turn in a single bubble. The system
    prompt asks it not to, which helps and does not settle it, so anything
    spoken from another mouth is cut here rather than requested away. */
+/* ---- texting means texting ----
+   Asking nicely gets most of the way and then stops: the model reads a
+   history full of *actions* from when the chat was in person and copies what
+   it sees. So in texting mode the actions are cut rather than requested away.
+   A one-word span is left alone and unwrapped — people do type *really* for
+   emphasis in a real message; a span with a space in it is a stage direction
+   and goes. Runs only in texting mode, where in person the asterisks are the
+   entire point. */
+function stripActions(t){
+  return String(t)
+    .replace(/\*([^*\n]{1,400})\*/g, function(_, inner){
+      return /\s/.test(inner.trim()) ? "" : inner;
+    })
+    .replace(/^[ \t]*[([][^)\]\n]{3,200}[)\]][ \t]*$/gm, "")   // a line that is only a stage direction
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/^[ \t]+|[ \t]+$/gm, "")
+    /* a cut line leaves a hole behind it; nobody texts in paragraphs anyway */
+    .replace(/\n\s*\n+/g, "\n")
+    .trim();
+}
 function stripOtherVoices(txt, convo, ch){
   if (!convo || !convo.grp || !txt) return txt;
   var names = (convo.members || []).map(function(id){
