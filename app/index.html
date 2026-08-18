@@ -424,6 +424,44 @@
   .accdot{width:42px;height:42px;border-radius:50%;cursor:pointer;border:3px solid transparent;padding:0}
   .accdot.on{border-color:var(--ink);box-shadow:0 0 0 2px var(--surface) inset}
   .wallrow{display:flex;gap:12px;padding:8px 20px}
+  /* ---- bottom sheet: the contact card, WhatsApp-style ---- */
+  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;
+    transition:opacity .22s;z-index:70}
+  .scrim.on{opacity:1;pointer-events:auto}
+  .sheet{position:fixed;left:0;right:0;bottom:0;z-index:71;background:var(--surface);
+    border-radius:22px 22px 0 0;transform:translateY(102%);max-height:88vh;overflow-y:auto;
+    transition:transform .28s cubic-bezier(.22,.9,.25,1);box-shadow:0 -12px 44px rgba(0,0,0,.34)}
+  .sheet.on{transform:translateY(0)}
+  .sheet .grab{width:38px;height:4px;border-radius:99px;background:var(--line);margin:9px auto 2px}
+  /* big enough to be the point of the sheet, short enough that the name,
+     the chips and the rows are all on screen without scrolling */
+  .sheet .hero{width:100%;aspect-ratio:1/1;max-height:34vh;object-fit:cover;display:block;cursor:zoom-in}
+  .sheet .herofb{width:100%;aspect-ratio:1/1;max-height:26vh;display:flex;align-items:center;
+    justify-content:center;font-size:64px;font-weight:800;color:#fff}
+  .sheet .sh-name{font-size:21px;font-weight:800;padding:13px 18px 0}
+  .sheet .sh-tag{font-size:13px;color:var(--mist);padding:2px 18px 0}
+  .sheet .sh-chips{display:flex;flex-wrap:wrap;gap:6px;padding:11px 18px 3px}
+  .sheet .sh-chips span{font-size:12px;font-weight:600;background:var(--card2);color:var(--mist);
+    border-radius:999px;padding:5px 11px}
+  .sheet .sh-strip{display:flex;gap:6px;overflow-x:auto;padding:12px 18px 4px}
+  .sheet .sh-strip img{width:74px;height:74px;object-fit:cover;border-radius:11px;flex:0 0 auto;cursor:pointer}
+  .sheet .sh-acts{padding:8px 10px 22px}
+  /* ---- gallery ---- */
+  .galgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px}
+  .galgrid img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:8px;cursor:pointer;display:block}
+  .galnote{font-size:12px;color:var(--mist);padding:10px 18px 4px;text-align:center}
+  /* ---- full-screen image viewer ---- */
+  .lbox{position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.94);display:none;
+    flex-direction:column;align-items:center;justify-content:center}
+  .lbox.on{display:flex}
+  .lbox img{max-width:100%;max-height:78vh;object-fit:contain}
+  .lbox .lbacts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;padding:16px 12px}
+  .lbox .lbacts button{border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.09);
+    color:#fff;font:inherit;font-size:13px;font-weight:600;border-radius:999px;padding:9px 16px;
+    cursor:pointer;display:flex;align-items:center;gap:6px}
+  .lbox .lbx{position:absolute;top:14px;right:14px;width:40px;height:40px;border-radius:50%;
+    border:none;background:rgba(255,255,255,.14);color:#fff;cursor:pointer;
+    display:flex;align-items:center;justify-content:center}
   .wallthumb{width:72px;height:104px;border-radius:14px;cursor:pointer;border:3px solid var(--line);
     display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px;font-size:10.5px;
     font-weight:700;color:var(--mist);background:var(--chatbg);font-family:inherit}
@@ -607,6 +645,8 @@
         <span class="val" id="pf-pers"></span></button>
       <button class="srow"><span class="ic msr">target</span><span class="lbl">Interests</span>
         <span class="val" id="pf-int"></span></button>
+      <button class="srow" id="pf-gal"><span class="ic msr">image</span><span class="lbl">Photos</span>
+        <span class="val" id="pf-galcount"></span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
       <button class="srow" id="pf-mem"><span class="ic msr">psychology</span><span class="lbl">Memory</span>
         <span class="val" id="pf-memcount"></span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
       <button class="srow"><span class="ic msr">calendar_month</span><span class="lbl">Created</span>
@@ -650,6 +690,19 @@
         <div class="cstat">what they remember about you</div></div>
     </div>
     <div class="rows" id="mem-list"></div>
+  </div>
+
+  <!-- ============ GALLERY ============ -->
+  <div class="view right" id="v-gal">
+    <div class="subhead">
+      <button class="back" id="gal-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
+      <div class="cwrap"><div class="cname" id="gal-title">Photos</div>
+        <div class="cstat" id="gal-stat"></div></div>
+      <button class="icb" id="gal-add" title="Add photos">
+        <span class="msr" style="font-size:20px">add</span></button>
+    </div>
+    <input type="file" id="gal-file" accept="image/*" multiple hidden>
+    <div id="gal-body"></div>
   </div>
 
   <!-- ============ NEW / EDIT CHARACTER ============ -->
@@ -815,6 +868,15 @@
   <div class="scrim" id="scrim"></div>
   <div class="asheet" id="asheet"></div>
 
+  <!-- ============ CONTACT SHEET + IMAGE VIEWER ============ -->
+  <div class="scrim" id="sheet-scrim"></div>
+  <div class="sheet" id="sheet"><div class="grab"></div><div id="sheet-body"></div></div>
+  <div class="lbox" id="lbox">
+    <button class="lbx" id="lb-x"><span class="msr" style="font-size:22px">close</span></button>
+    <img id="lb-img" alt="">
+    <div class="lbacts" id="lb-acts"></div>
+  </div>
+
   <div id="toast"></div>
 </div>
 
@@ -938,8 +1000,11 @@ function load(){
   });
   if (migrated) save();
 }
+/* returns false when the write was refused, so a caller that just added
+   something big (a gallery photo) can put the state back rather than leave
+   it sitting in memory looking saved until the next reload eats it */
 function save(){
-  try { localStorage.setItem(KEY, JSON.stringify(S)); }
+  try { localStorage.setItem(KEY, JSON.stringify(S)); return true; }
   catch(e){
     /* photos are the only thing here big enough to fill the quota — say so
        rather than losing the write silently */
@@ -947,6 +1012,7 @@ function save(){
       toast(/quota|exceed/i.test(String(e && e.name || e))
         ? "Storage full — remove a photo and try again"
         : "Couldn't save to this device");
+    return false;
   }
 }
 
@@ -4567,9 +4633,12 @@ function renderStream(){
         (IMGSHOWN[cur] = IMGSHOWN[cur] || {})[m.ts] = true;
         var im = document.createElement("img");
         im.className = "mimg"; im.src = m.img;
+        wirePhoto(im, m);
         stub.parentNode.replaceChild(im, stub);
       };
     })(stub, msg);
+    var shot = b.querySelector(".mimg");
+    if (shot) wirePhoto(shot, msg);
     attachPress(rw, idx);
   });
   var ty = document.createElement("div"); ty.className="typing"; ty.id="ty";
@@ -5397,9 +5466,234 @@ function openProfile(id){
   $("pf-pers").textContent = fill(ch.pers, ch) || "—";
   $("pf-int").textContent = fill(ch.ints, ch) || "—";
   $("pf-memcount").textContent = (S.mems[id]||[]).length + " memories";
+  var ng = galOf(id).length;
+  $("pf-galcount").textContent = ng ? ng + (ng === 1 ? " photo" : " photos") : "none yet";
   $("pf-created").textContent = ch.created ? new Date(ch.created).toLocaleDateString() : "Built-in";
   $("prof-fav-ic").className = "msr" + (ch.fav ? " fill gold" : "");
   show("v-prof");
+}
+
+/* ================= contact sheet, gallery, image viewer =================
+   Tapping a face should show you the face. The full profile is a whole
+   screen away from the conversation and reads like a settings page; this
+   slides up over the chat, shows the picture big, and puts the things you
+   actually reach for — their photos, their memories — one tap away. */
+function galOf(id){ return (S.gal && S.gal[id]) || []; }
+/* a picture in the thread opens full-screen, and if a character sent it,
+   offers to keep it — which is where most of a gallery comes from */
+function wirePhoto(el, msg){
+  el.style.cursor = "zoom-in";
+  el.onclick = function(e){
+    e.stopPropagation();
+    var c = getConvo(cur);
+    var owner = msg.who === "them" ? (msg.by || (c && !c.grp ? c.id : null)) : null;
+    openViewer(msg.img, owner && getChar(owner) ? {owner: owner} : {});
+  };
+}
+function sheetOpen(){ return $("sheet").classList.contains("on"); }
+function closeSheet(){
+  $("sheet").classList.remove("on");
+  $("sheet-scrim").classList.remove("on");
+}
+function openSheet(id){
+  var body = $("sheet-body");
+  var c = getConvo(id), ch = getChar(id);
+  if (c && c.grp) body.innerHTML = sheetGroup(c);
+  else if (ch) body.innerHTML = sheetChar(ch);
+  else return;
+  wireSheet(body, id);
+  $("sheet").classList.add("on");
+  $("sheet-scrim").classList.add("on");
+}
+function sheetRow(op, icon, label, val){
+  return '<button class="srow" data-op="' + op + '"><span class="ic msr">' + icon + '</span>' +
+    '<span class="lbl">' + label + '</span>' +
+    (val ? '<span class="val">' + esc(val) + '</span>' : '') + '</button>';
+}
+function picId(){ return "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function sheetChar(ch){
+  var g = galOf(ch.id), chips = [];
+  /* most taglines already read "Mom · 42"; a bare "42" chip beside it is noise */
+  if (ch.age && String(fill(ch.tag, ch) || "").indexOf(String(ch.age)) < 0)
+    chips.push(ch.age + " years old");
+  /* who they are to the rest of the cast — the one thing the profile page
+     makes you hunt for, and the thing you want when a name comes up */
+  relsOf(ch).slice(0, 3).forEach(function(r){
+    var o = getChar(r.who);
+    if (o) chips.push(relWord(r.type, o) + ": " + o.name);
+  });
+  chips.push((S.mems[ch.id] || []).length + " memories");
+  chips.push(g.length + (g.length === 1 ? " photo" : " photos"));
+  var hero = ch.photo
+    ? '<img class="hero" src="' + ch.photo + '" data-op="hero" alt="">'
+    : '<div class="herofb" style="background:' + avColor(ch) + '">' + esc(initialsOf(ch.name)) + '</div>';
+  return hero +
+    '<div class="sh-name">' + esc(ch.name) + '</div>' +
+    '<div class="sh-tag">' + esc(fill(ch.tag, ch) || "Companion") + '</div>' +
+    '<div class="sh-chips">' + chips.map(function(t){ return '<span>' + esc(t) + '</span>'; }).join("") + '</div>' +
+    (g.length
+      ? '<div class="sh-strip">' + g.slice(-12).reverse().map(function(p){
+          return '<img src="' + p.src + '" data-op="pic" data-pid="' + p.id + '" alt="">'; }).join("") + '</div>'
+      : "") +
+    '<div class="sh-acts">' +
+      sheetRow("gal", "image", g.length ? "Photos" : "Add photos", g.length ? String(g.length) : "none yet") +
+      sheetRow("mem", "smart_toy", "Memories", String((S.mems[ch.id] || []).length)) +
+      sheetRow("prof", "person", "Full profile", "") +
+    '</div>';
+}
+function sheetGroup(c){
+  var members = (c.members || []).map(function(mid){ return getChar(mid); }).filter(Boolean);
+  return '<div class="sh-name" style="padding-top:16px">' + esc(c.name) + '</div>' +
+    '<div class="sh-tag">' + members.length + " people · tap someone to see them</div>" +
+    '<div class="sh-strip">' + members.map(function(m){
+      return '<div data-op="who" data-cid="' + m.id + '" style="flex:0 0 auto;width:74px;text-align:center;cursor:pointer">' +
+        avatarEl(m, "") + '<div style="font-size:11px;margin-top:4px;overflow:hidden;' +
+        'text-overflow:ellipsis;white-space:nowrap">' + esc(m.name) + '</div></div>'; }).join("") + '</div>' +
+    '<div class="sh-acts">' + sheetRow("grp", "settings", "Name & members", "") + '</div>';
+}
+function wireSheet(body, id){
+  body.querySelectorAll("[data-op]").forEach(function(el){
+    el.onclick = function(){
+      var op = el.getAttribute("data-op");
+      if (op === "hero") { var ch = getChar(id); if (ch) openViewer(ch.photo, {owner: id}); return; }
+      if (op === "pic") { openViewer(null, {owner: id, pid: el.getAttribute("data-pid")}); return; }
+      if (op === "who") { openSheet(el.getAttribute("data-cid")); return; }
+      closeSheet();
+      if (op === "gal") openGallery(id);
+      else if (op === "mem") openMems(id);
+      else if (op === "prof") openProfile(id);
+      else if (op === "grp") openGroupForm(id);
+    };
+  });
+}
+/* ---- the gallery ----
+   Pictures live in localStorage with everything else, so they are shrunk on
+   the way in and the running total is shown rather than left to be
+   discovered as a "storage full" toast three months later. */
+var galId = null;
+function galBytes(id){
+  var n = 0; galOf(id).forEach(function(p){ n += (p.src || "").length; });
+  return n;
+}
+function fmtSize(n){
+  return n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.round(n / 1024) + " KB";
+}
+function openGallery(id){
+  var ch = getChar(id); if (!ch) return;
+  galId = id;
+  var g = galOf(id);
+  $("gal-title").textContent = ch.name + "'s photos";
+  $("gal-stat").textContent = g.length
+    ? g.length + (g.length === 1 ? " photo · " : " photos · ") + fmtSize(galBytes(id))
+    : "nothing here yet";
+  var body = $("gal-body");
+  if (!g.length) {
+    body.innerHTML = '<div class="empty">No photos of ' + esc(ch.name) + ' yet.<br><br>' +
+      'Tap <b>+</b> to add some from this device — and any picture they send you in ' +
+      'chat can be kept here too, from the photo itself.<br><br>' +
+      'They are stored on this device only, and shrunk on the way in so a few dozen fit.</div>';
+  } else {
+    body.innerHTML = '<div class="galgrid">' + g.slice().reverse().map(function(p){
+        return '<img src="' + p.src + '" data-pid="' + p.id + '" alt="">'; }).join("") + '</div>' +
+      '<div class="galnote">Tap a photo to see it full size, make it their picture, or delete it.</div>';
+    body.querySelectorAll("[data-pid]").forEach(function(el){
+      el.onclick = function(){ openViewer(null, {owner: id, pid: el.getAttribute("data-pid")}); };
+    });
+  }
+  show("v-gal");
+}
+function addGalleryPhotos(files){
+  if (!galId || !files || !files.length) return;
+  var ch = getChar(galId); if (!ch) return;
+  var left = files.length, added = 0, stopped = false;
+  Array.prototype.forEach.call(files, function(f){
+    readChatPhoto(f, function(src){
+      if (src && !stopped) {
+        var arr = (S.gal = S.gal || {})[galId] = galOf(galId).slice();
+        arr.push({id: picId(), src: src, ts: Date.now()});
+        S.gal[galId] = arr;
+        if (save()) added++;
+        else {
+          /* the write was refused — take it back out so what is on screen
+             matches what survives a reload */
+          arr.pop(); S.gal[galId] = arr; stopped = true;
+        }
+      }
+      if (--left <= 0) {
+        openGallery(galId);
+        if (added) toast(added + (added === 1 ? " photo added" : " photos added"));
+      }
+    });
+  });
+}
+/* ---- full-screen viewer, shared by the gallery, the sheet and chat ---- */
+var lbCtx = null;
+function openViewer(src, opts){
+  opts = opts || {};
+  lbCtx = opts;
+  if (!src && opts.owner && opts.pid) {
+    var p = galOf(opts.owner).filter(function(x){ return x.id === opts.pid; })[0];
+    if (!p) return;
+    src = p.src;
+  }
+  if (!src) return;
+  $("lb-img").src = src;
+  var acts = $("lb-acts"), html = "";
+  if (opts.owner) {
+    html += '<button data-op="av"><span class="msr" style="font-size:17px">person</span>' +
+      'Make this their picture</button>';
+    if (opts.pid) html += '<button data-op="del"><span class="msr" style="font-size:17px">delete</span>Delete</button>';
+    else html += '<button data-op="keep"><span class="msr" style="font-size:17px">image</span>Save to photos</button>';
+  }
+  acts.innerHTML = html;
+  acts.querySelectorAll("[data-op]").forEach(function(b){
+    b.onclick = function(){ viewerAct(b.getAttribute("data-op"), src); };
+  });
+  $("lbox").classList.add("on");
+}
+function closeViewer(){ $("lbox").classList.remove("on"); $("lb-img").src = ""; lbCtx = null; }
+function viewerAct(op, src){
+  var o = lbCtx || {}, ch = getChar(o.owner);
+  if (!ch) return;
+  if (op === "av") {
+    /* the avatar is a 256px square crop, not the full picture */
+    shrinkSquare(src, function(sq){
+      ch.photo = sq || src; save();
+      renderHome(); renderContacts();
+      if (cur === ch.id) setAvatar($("chat-av"), ch);
+      toast("Profile picture updated");
+      closeViewer();
+    });
+    return;
+  }
+  if (op === "del") {
+    S.gal[o.owner] = galOf(o.owner).filter(function(x){ return x.id !== o.pid; });
+    save(); closeViewer(); openGallery(o.owner); toast("Photo deleted");
+    return;
+  }
+  if (op === "keep") {
+    var arr = (S.gal = S.gal || {})[o.owner] = galOf(o.owner).slice();
+    if (arr.some(function(x){ return x.src === src; })) { toast("Already in their photos"); return; }
+    arr.push({id: picId(), src: src, ts: Date.now()});
+    S.gal[o.owner] = arr;
+    if (save()) toast("Saved to " + ch.name + "'s photos");
+    else { arr.pop(); S.gal[o.owner] = arr; }
+    closeViewer();
+  }
+}
+/* square-crop for avatar use, same shape readPhoto produces from a file */
+function shrinkSquare(src, cb){
+  var img = new Image();
+  img.onload = function(){
+    var N = 256, cv = document.createElement("canvas");
+    cv.width = cv.height = N;
+    var side = Math.min(img.width, img.height);
+    cv.getContext("2d").drawImage(img, (img.width - side) / 2, (img.height - side) / 2,
+      side, side, 0, 0, N, N);
+    try { cb(cv.toDataURL("image/jpeg", 0.82)); } catch (e) { cb(null); }
+  };
+  img.onerror = function(){ cb(null); };
+  img.src = src;
 }
 
 /* ================= character memories view ================= */
@@ -6048,6 +6342,19 @@ $("q-mem").oninput = renderMemHub;
 $("scene-pill").onclick = openSceneSheet;
 $("chat-back").onclick = function(){ hide("v-chat"); cur=null; renderHome(); };
 $("chat-contact").onclick = function(){ var c = getConvo(cur); if (c && !c.grp) openProfile(c.id); };
+$("chat-av").onclick = function(){ if (cur) openSheet(cur); };
+$("sheet-scrim").onclick = closeSheet;
+$("gal-back").onclick = function(){ hide("v-gal"); };
+$("gal-add").onclick = function(){ $("gal-file").click(); };
+$("gal-file").onchange = function(){ addGalleryPhotos(this.files); this.value = ""; };
+$("lb-x").onclick = closeViewer;
+$("lbox").onclick = function(e){ if (e.target === this || e.target.id === "lb-img") closeViewer(); };
+/* back closes whatever is on top before it leaves the screen underneath */
+document.addEventListener("keydown", function(e){
+  if (e.key !== "Escape") return;
+  if ($("lbox").classList.contains("on")) closeViewer();
+  else if (sheetOpen()) closeSheet();
+});
 $("chat-call").onclick = function(){ if (cur) startCall(cur); };
 $("mic").onclick = function(){ if (cur && !getConvo(cur).grp) startCall(cur); else toast("Voice calls are 1-on-1 for now"); };
 $("send").onclick = sendCurrent;
@@ -6093,6 +6400,7 @@ $("pf-msg").onclick = function(){ hide("v-prof"); openChat(profId); };
 $("pf-call").onclick = function(){ startCall(profId); };
 $("pf-edit").onclick = function(){ openCharForm(profId); };
 $("pf-mem").onclick = function(){ openMems(profId); };
+$("pf-gal").onclick = function(){ openGallery(profId); };
 $("pf-clear").onclick = function(){
   if (confirm("Clear this chat's history?")) {
     S.msgs[profId]=[]; delete S.sums[profId]; save(); toast("Chat history cleared");
