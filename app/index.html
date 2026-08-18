@@ -424,34 +424,36 @@
   .accdot{width:42px;height:42px;border-radius:50%;cursor:pointer;border:3px solid transparent;padding:0}
   .accdot.on{border-color:var(--ink);box-shadow:0 0 0 2px var(--surface) inset}
   .wallrow{display:flex;gap:12px;padding:8px 20px}
-  /* ---- bottom sheet: the contact card, WhatsApp-style ---- */
-  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;
-    transition:opacity .22s;z-index:70}
-  .scrim.on{opacity:1;pointer-events:auto}
-  .sheet{position:fixed;left:0;right:0;bottom:0;z-index:71;background:var(--surface);
-    border-radius:22px 22px 0 0;transform:translateY(102%);max-height:88vh;overflow-y:auto;
-    transition:transform .28s cubic-bezier(.22,.9,.25,1);box-shadow:0 -12px 44px rgba(0,0,0,.34)}
-  .sheet.on{transform:translateY(0)}
-  .sheet .grab{width:38px;height:4px;border-radius:99px;background:var(--line);margin:9px auto 2px}
-  /* big enough to be the point of the sheet, short enough that the name,
-     the chips and the rows are all on screen without scrolling */
-  .sheet .hero{width:100%;aspect-ratio:1/1;max-height:34vh;object-fit:cover;display:block;cursor:zoom-in}
-  .sheet .herofb{width:100%;aspect-ratio:1/1;max-height:26vh;display:flex;align-items:center;
-    justify-content:center;font-size:64px;font-weight:800;color:#fff}
-  .sheet .sh-name{font-size:21px;font-weight:800;padding:13px 18px 0}
-  .sheet .sh-tag{font-size:13px;color:var(--mist);padding:2px 18px 0}
-  .sheet .sh-chips{display:flex;flex-wrap:wrap;gap:6px;padding:11px 18px 3px}
-  .sheet .sh-chips span{font-size:12px;font-weight:600;background:var(--card2);color:var(--mist);
-    border-radius:999px;padding:5px 11px}
-  .sheet .sh-strip{display:flex;gap:6px;overflow-x:auto;padding:12px 18px 4px}
-  .sheet .sh-strip img{width:74px;height:74px;object-fit:cover;border-radius:11px;flex:0 0 auto;cursor:pointer}
-  .sheet .sh-acts{padding:8px 10px 22px}
+  /* ---- contact card ----
+     Lives inside .asheet and speaks its language: the same grip, the same
+     card-coloured block for context, the same hairline-separated .as-btn
+     rows underneath. A full-bleed hero photo was a different app. */
+  .sh-head{display:flex;align-items:center;gap:13px;background:var(--card);border-radius:14px;
+    padding:12px;margin-bottom:8px}
+  .sh-head .avatar{width:60px;height:60px;font-size:19px;flex:0 0 auto;cursor:zoom-in}
+  .sh-head .t{min-width:0}
+  .sh-head .n{font-size:17px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sh-head .s{font-size:12.5px;color:var(--mist);margin-top:1px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sh-chips{display:flex;flex-wrap:wrap;gap:5px;margin:-2px 0 9px}
+  .sh-chips span{font-size:11.5px;font-weight:600;background:var(--card);color:var(--mist);
+    border:1px solid var(--line);border-radius:999px;padding:4px 10px}
+  .sh-strip{display:flex;gap:5px;overflow-x:auto;margin-bottom:4px;padding-bottom:4px}
+  .sh-strip img,.sh-strip .more{width:62px;height:62px;border-radius:11px;flex:0 0 auto;cursor:pointer}
+  .sh-strip img{object-fit:cover}
+  .sh-strip .more{display:flex;align-items:center;justify-content:center;background:var(--card);
+    border:1px solid var(--line);color:var(--mist);font-size:12px;font-weight:700}
+  .sh-mem{display:flex;flex-direction:column;align-items:center;gap:4px;width:70px;flex:0 0 auto;
+    cursor:pointer;font-size:11px;color:var(--mist)}
+  .sh-mem .nm{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* ---- gallery ---- */
   .galgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px}
   .galgrid img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:8px;cursor:pointer;display:block}
   .galnote{font-size:12px;color:var(--mist);padding:10px 18px 4px;text-align:center}
   /* ---- full-screen image viewer ---- */
-  .lbox{position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.94);display:none;
+  /* absolute, not fixed — everything else lives inside the 480px #shell and
+     a fixed overlay would break out of it on a wide screen */
+  .lbox{position:absolute;inset:0;z-index:80;background:rgba(0,0,0,.94);display:none;
     flex-direction:column;align-items:center;justify-content:center}
   .lbox.on{display:flex}
   .lbox img{max-width:100%;max-height:78vh;object-fit:contain}
@@ -868,9 +870,7 @@
   <div class="scrim" id="scrim"></div>
   <div class="asheet" id="asheet"></div>
 
-  <!-- ============ CONTACT SHEET + IMAGE VIEWER ============ -->
-  <div class="scrim" id="sheet-scrim"></div>
-  <div class="sheet" id="sheet"><div class="grab"></div><div id="sheet-body"></div></div>
+  <!-- ============ IMAGE VIEWER ============ -->
   <div class="lbox" id="lbox">
     <button class="lbx" id="lb-x"><span class="msr" style="font-size:22px">close</span></button>
     <img id="lb-img" alt="">
@@ -5490,74 +5490,28 @@ function wirePhoto(el, msg){
     openViewer(msg.img, owner && getChar(owner) ? {owner: owner} : {});
   };
 }
-function sheetOpen(){ return $("sheet").classList.contains("on"); }
-function closeSheet(){
-  $("sheet").classList.remove("on");
-  $("sheet-scrim").classList.remove("on");
-}
-function openSheet(id){
-  var body = $("sheet-body");
-  var c = getConvo(id), ch = getChar(id);
-  if (c && c.grp) body.innerHTML = sheetGroup(c);
-  else if (ch) body.innerHTML = sheetChar(ch);
-  else return;
-  wireSheet(body, id);
-  $("sheet").classList.add("on");
-  $("sheet-scrim").classList.add("on");
-}
-function sheetRow(op, icon, label, val){
-  return '<button class="srow" data-op="' + op + '"><span class="ic msr">' + icon + '</span>' +
-    '<span class="lbl">' + label + '</span>' +
-    (val ? '<span class="val">' + esc(val) + '</span>' : '') + '</button>';
-}
 function picId(){ return "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
-function sheetChar(ch){
-  var g = galOf(ch.id), chips = [];
-  /* most taglines already read "Mom · 42"; a bare "42" chip beside it is noise */
-  if (ch.age && String(fill(ch.tag, ch) || "").indexOf(String(ch.age)) < 0)
-    chips.push(ch.age + " years old");
-  /* who they are to the rest of the cast — the one thing the profile page
-     makes you hunt for, and the thing you want when a name comes up */
-  relsOf(ch).slice(0, 3).forEach(function(r){
-    var o = getChar(r.who);
-    if (o) chips.push(relWord(r.type, o) + ": " + o.name);
-  });
-  chips.push((S.mems[ch.id] || []).length + " memories");
-  chips.push(g.length + (g.length === 1 ? " photo" : " photos"));
-  var hero = ch.photo
-    ? '<img class="hero" src="' + ch.photo + '" data-op="hero" alt="">'
-    : '<div class="herofb" style="background:' + avColor(ch) + '">' + esc(initialsOf(ch.name)) + '</div>';
-  return hero +
-    '<div class="sh-name">' + esc(ch.name) + '</div>' +
-    '<div class="sh-tag">' + esc(fill(ch.tag, ch) || "Companion") + '</div>' +
-    '<div class="sh-chips">' + chips.map(function(t){ return '<span>' + esc(t) + '</span>'; }).join("") + '</div>' +
-    (g.length
-      ? '<div class="sh-strip">' + g.slice(-12).reverse().map(function(p){
-          return '<img src="' + p.src + '" data-op="pic" data-pid="' + p.id + '" alt="">'; }).join("") + '</div>'
-      : "") +
-    '<div class="sh-acts">' +
-      sheetRow("gal", "image", g.length ? "Photos" : "Add photos", g.length ? String(g.length) : "none yet") +
-      sheetRow("mem", "smart_toy", "Memories", String((S.mems[ch.id] || []).length)) +
-      sheetRow("prof", "person", "Full profile", "") +
-    '</div>';
+/* the app already has one bottom sheet, with its own scrim, animation and
+   row style. This builds into that rather than standing up a second one —
+   an earlier pass had its own #sheet and its own .scrim rule, which
+   shadowed both the existing openSheet/closeSheet and the existing scrim
+   CSS and quietly broke the chat options menu. */
+function actBtn(op, icon, label, hint, cls){
+  return '<button class="as-btn' + (cls ? " " + cls : "") + '" data-op="' + op + '">' +
+    '<span class="msr">' + icon + '</span>' + esc(label) +
+    (hint ? '<span class="hint">' + esc(hint) + '</span>' : '') + '</button>';
 }
-function sheetGroup(c){
-  var members = (c.members || []).map(function(mid){ return getChar(mid); }).filter(Boolean);
-  return '<div class="sh-name" style="padding-top:16px">' + esc(c.name) + '</div>' +
-    '<div class="sh-tag">' + members.length + " people · tap someone to see them</div>" +
-    '<div class="sh-strip">' + members.map(function(m){
-      return '<div data-op="who" data-cid="' + m.id + '" style="flex:0 0 auto;width:74px;text-align:center;cursor:pointer">' +
-        avatarEl(m, "") + '<div style="font-size:11px;margin-top:4px;overflow:hidden;' +
-        'text-overflow:ellipsis;white-space:nowrap">' + esc(m.name) + '</div></div>'; }).join("") + '</div>' +
-    '<div class="sh-acts">' + sheetRow("grp", "settings", "Name & members", "") + '</div>';
-}
-function wireSheet(body, id){
-  body.querySelectorAll("[data-op]").forEach(function(el){
+function openContact(id){
+  var c = getConvo(id), ch = getChar(id), sh = $("asheet");
+  if (c && c.grp) sh.innerHTML = contactGroup(c);
+  else if (ch) sh.innerHTML = contactChar(ch);
+  else return;
+  sh.querySelectorAll("[data-op]").forEach(function(el){
     el.onclick = function(){
       var op = el.getAttribute("data-op");
-      if (op === "hero") { var ch = getChar(id); if (ch) openViewer(ch.photo, {owner: id}); return; }
+      if (op === "face") { var k = getChar(id); if (k && k.photo) openViewer(k.photo, {owner: id}); return; }
       if (op === "pic") { openViewer(null, {owner: id, pid: el.getAttribute("data-pid")}); return; }
-      if (op === "who") { openSheet(el.getAttribute("data-cid")); return; }
+      if (op === "who") { openContact(el.getAttribute("data-cid")); return; }
       closeSheet();
       if (op === "gal") openGallery(id);
       else if (op === "mem") openMems(id);
@@ -5565,6 +5519,44 @@ function wireSheet(body, id){
       else if (op === "grp") openGroupForm(id);
     };
   });
+  openSheet();
+}
+function contactChar(ch){
+  var g = galOf(ch.id), nm = (S.mems[ch.id] || []).length, chips = [];
+  /* most taglines already read "Mom · 42"; a bare "42" chip beside it is noise */
+  if (ch.age && String(fill(ch.tag, ch) || "").indexOf(String(ch.age)) < 0)
+    chips.push(ch.age + " years old");
+  /* who they are to the rest of the cast — the thing the profile page makes
+     you hunt for, and the thing you want when a name comes up */
+  relsOf(ch).slice(0, 3).forEach(function(r){
+    var o = getChar(r.who);
+    if (o) chips.push(relWord(r.type, o) + ": " + o.name);
+  });
+  return '<div class="grip"></div>' +
+    '<div class="sh-head"><div data-op="face">' + avatarEl(ch, "") + '</div>' +
+      '<div class="t"><div class="n">' + esc(ch.name) + '</div>' +
+      '<div class="s">' + esc(fill(ch.tag, ch) || "Companion") + '</div></div></div>' +
+    (chips.length ? '<div class="sh-chips">' +
+      chips.map(function(t){ return '<span>' + esc(t) + '</span>'; }).join("") + '</div>' : "") +
+    (g.length ? '<div class="sh-strip">' + g.slice(-7).reverse().map(function(p){
+        return '<img src="' + p.src + '" data-op="pic" data-pid="' + p.id + '" alt="">'; }).join("") +
+      (g.length > 7 ? '<div class="more" data-op="gal">+' + (g.length - 7) + '</div>' : "") +
+      '</div>' : "") +
+    actBtn("gal", "image", g.length ? "Photos" : "Add photos",
+      g.length ? g.length + (g.length === 1 ? " photo" : " photos") : "none yet") +
+    actBtn("mem", "psychology", "Memories", nm + (nm === 1 ? " thing" : " things") + " remembered") +
+    actBtn("prof", "person", "Full profile", "");
+}
+function contactGroup(c){
+  var members = (c.members || []).map(function(mid){ return getChar(mid); }).filter(Boolean);
+  return '<div class="grip"></div>' +
+    '<div class="sh-head" style="gap:11px">' + avatarEl(c, "") +
+      '<div class="t"><div class="n">' + esc(c.name) + '</div>' +
+      '<div class="s">' + members.length + " people · tap someone to see them</div></div></div>" +
+    '<div class="sh-strip">' + members.map(function(m){
+      return '<div class="sh-mem" data-op="who" data-cid="' + m.id + '">' + avatarEl(m, "sm") +
+        '<span class="nm">' + esc(m.name) + '</span></div>'; }).join("") + '</div>' +
+    actBtn("grp", "group", "Name & members", members.length + " in this group");
 }
 /* ---- the gallery ----
    Pictures live in localStorage with everything else, so they are shrunk on
@@ -6342,8 +6334,7 @@ $("q-mem").oninput = renderMemHub;
 $("scene-pill").onclick = openSceneSheet;
 $("chat-back").onclick = function(){ hide("v-chat"); cur=null; renderHome(); };
 $("chat-contact").onclick = function(){ var c = getConvo(cur); if (c && !c.grp) openProfile(c.id); };
-$("chat-av").onclick = function(){ if (cur) openSheet(cur); };
-$("sheet-scrim").onclick = closeSheet;
+$("chat-av").onclick = function(){ if (cur) openContact(cur); };
 $("gal-back").onclick = function(){ hide("v-gal"); };
 $("gal-add").onclick = function(){ $("gal-file").click(); };
 $("gal-file").onchange = function(){ addGalleryPhotos(this.files); this.value = ""; };
@@ -6353,7 +6344,7 @@ $("lbox").onclick = function(e){ if (e.target === this || e.target.id === "lb-im
 document.addEventListener("keydown", function(e){
   if (e.key !== "Escape") return;
   if ($("lbox").classList.contains("on")) closeViewer();
-  else if (sheetOpen()) closeSheet();
+  else if ($("asheet").classList.contains("on")) closeSheet();
 });
 $("chat-call").onclick = function(){ if (cur) startCall(cur); };
 $("mic").onclick = function(){ if (cur && !getConvo(cur).grp) startCall(cur); else toast("Voice calls are 1-on-1 for now"); };
