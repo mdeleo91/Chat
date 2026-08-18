@@ -5724,7 +5724,54 @@ function shrinkSquare(src, cb){
   img.src = src;
 }
 
-/* ================= character memories view ================= */
+/* ================= character memories view =================
+   A memory the model wrote is a first draft: it garbles a name, gets a
+   detail backwards, or is right but phrased so vaguely it is no use. Being
+   able to fix the wording matters more than being able to delete and retype
+   it, because what is stored is word for word what gets sent. */
+function openMemEditor(id, mm){
+  var ch = getChar(id); if (!ch) return;
+  var isNew = !mm, pin = isNew ? true : !!mm.pin, sh = $("asheet");
+  function paint(keep){
+    sh.innerHTML = '<div class="grip"></div>' +
+      '<div class="as-msg">' + (isNew
+        ? "Something " + esc(ch.name) + " should always know, written the way they would think " +
+          "of it \u2014 \u201cThey have two cats\u201d, \u201cWe agreed to meet Thursday\u201d."
+        : "This wording is word for word what gets sent to " + esc(ch.name) + ".") +
+      '</div>' +
+      '<textarea class="as-edit" id="mem-ta" placeholder="They\u2026"></textarea>' +
+      '<button class="as-btn" id="mem-pin"><span class="msr">star</span>Always send this' +
+        '<span class="hint">' + (pin ? "on" : "off") + '</span></button>' +
+      '<div style="display:flex;gap:8px;padding-top:10px">' +
+      '<button class="btn" id="mem-save" style="flex:1">Save</button>' +
+      '<button class="btn ghost" id="mem-cancel" style="flex:1">Cancel</button></div>';
+    var ta = $("mem-ta");
+    ta.value = keep != null ? keep : (isNew ? "" : mm.text);
+    $("mem-pin").classList.toggle("danger", false);
+    $("mem-pin").querySelector(".msr").style.color = pin ? "var(--acc-deep)" : "";
+    $("mem-pin").onclick = function(){ pin = !pin; paint(ta.value); };
+    $("mem-save").onclick = function(){
+      var v = $("mem-ta").value.trim().slice(0, 220);
+      if (!v) { toast("Nothing to save"); return; }
+      if (isNew) {
+        rememberMany(ch, [v], "you wrote");
+        var a2 = S.mems[id] || [], made = a2[a2.length - 1];
+        if (made && memNorm(made.text) === memNorm(v)) made.pin = pin;
+        else toast("They already remember that");
+      } else {
+        mm.text = v; mm.pin = pin;
+        /* the date stays put \u2014 it records when this was learned, and
+           rewording it does not change when you said it */
+        if (String(mm.src || "").indexOf("edited") < 0) mm.src = (mm.src || "from chat") + ", edited";
+      }
+      save(); closeSheet(); openMems(id);
+    };
+    $("mem-cancel").onclick = closeSheet;
+    ta.focus();
+  }
+  paint(null);
+  openSheet();
+}
 function openMems(id){
   var ch = getChar(id); if (!ch) return;
   $("mem-title").textContent = ch.name + "'s memories";
@@ -5734,17 +5781,7 @@ function openMems(id){
   add.className = "srow";
   add.innerHTML = '<span class="ic msr">add</span><span class="lbl">Write a memory</span>' +
     '<span class="val">' + arr.length + ' stored</span>';
-  add.onclick = function(){
-    var t = prompt("Something " + ch.name + " should always know:\n" +
-      "Written as they'd think of it — \u201cThey have two cats\u201d, \u201cWe agreed to meet Thursday\u201d.");
-    if (t && t.trim()) {
-      rememberMany(ch, [t.trim()], "you wrote");
-      var a2 = S.mems[id] || [];
-      /* something written by hand is meant to stick — pin it */
-      if (a2.length) a2[a2.length - 1].pin = true;
-      save(); openMems(id);
-    }
-  };
+  add.onclick = function(){ openMemEditor(id, null); };
   list.appendChild(add);
   if (!arr.length) {
     var e = document.createElement("div"); e.className = "empty";
@@ -5761,8 +5798,15 @@ function openMems(id){
       'color:var(--acc-deep);vertical-align:-2px">star</span> ' : '') + esc(mm.text) +
       '<span class="src">' + esc(mm.src) + ' · ' + new Date(mm.ts).toLocaleDateString() +
       (mm.pin ? ' · always sent' : '') + '</span></div>' +
+      '<button class="op msr" data-op="edit">edit</button>' +
       '<button class="op msr" data-op="pin">star</button>' +
       '<button class="op msr" data-op="del">delete</button>';
+    /* the text itself opens the editor too — a 15px pencil is a small
+       target, and reading a wrong memory is what makes you want to fix it */
+    var body = el.querySelector(".t");
+    body.style.cursor = "pointer";
+    body.onclick = function(){ openMemEditor(id, mm); };
+    el.querySelector('[data-op="edit"]').onclick = function(){ openMemEditor(id, mm); };
     el.querySelector('[data-op="pin"]').onclick = function(){
       mm.pin = !mm.pin; save(); openMems(id);
     };
