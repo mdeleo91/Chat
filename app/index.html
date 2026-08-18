@@ -3791,7 +3791,7 @@ function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature, 
    exchange instead and writes down what is worth keeping, which is the
    difference between a character who knows you and one who knows your
    name and one hobby. */
-var MEM_MAX = 400, MEM_EVERY = 2;
+var MEM_MAX = 400, MEM_EVERY = 2, MEM_TAIL_MAX = 30;
 function memNorm(t){
   return String(t).toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -3844,19 +3844,39 @@ function rememberMany(ch, facts, src){
   return added;
 }
 var MEMBUSY = {};
+/* The watermark — how far this character has read — is per character AND
+   per conversation. It used to be per conversation alone, which meant that
+   in a group the first member to finish marked the exchange read for
+   everyone: the others never ran their own pass and learned nothing from a
+   conversation they were sitting in. */
+function memKey(convo, ch){ return convo.id + "/" + ch.id; }
+function memSince(convo, ch){
+  var t = S.memts || {}, k = memKey(convo, ch);
+  if (t[k] != null) return t[k];
+  return t[convo.id] || 0;                      // watermarks written before the split
+}
 function scheduleMemory(convo, ch){
-  if (!useLLM() || !ch || MEMBUSY[ch.id]) return;
+  if (!useLLM() || !ch) return;
+  var key = memKey(convo, ch);
+  if (MEMBUSY[key]) return;
   var arr = S.msgs[convo.id] || [];
-  var since = (S.memts && S.memts[convo.id]) || 0;
+  var since = memSince(convo, ch);
   var fresh = arr.filter(function(m){ return m.ts > since && m.who === "me"; });
   if (fresh.length < MEM_EVERY) return;
-  var tail = arr.slice(-10).map(function(m){
+  /* the excerpt has to cover everything about to be marked read. A fixed
+     last-ten window left a hole whenever the pass fell behind — and it fell
+     behind on every failure, because the watermark used to move anyway. */
+  var from = arr.length;
+  for (var i = 0; i < arr.length; i++) if (arr[i].ts > since) { from = i; break; }
+  var span = Math.max(10, Math.min(MEM_TAIL_MAX, arr.length - from));
+  var mark = arr.length ? arr[arr.length - 1].ts : since;
+  var tail = arr.slice(-span).map(function(m){
     var t = m.text || (m.img ? "[a photo]" : "");
     return t ? speakerName(convo, m) + ": " + t.slice(0, 400) : "";
   }).filter(Boolean).join("\n");
   if (!tail) return;
   var known = (S.mems[ch.id] || []).slice(-40).map(function(m){ return "- " + m.text; }).join("\n");
-  MEMBUSY[ch.id] = true;
+  MEMBUSY[key] = true;
   enqueue(function(done){
     completeOnce(REMOTE, [{role: "user", content:
       "You keep the long-term memory for " + ch.name + ", a character in a private chat app.\n\n" +
@@ -3870,19 +3890,35 @@ function scheduleMemory(convo, ch){
       "Exchange:\n" + tail + "\n\n" +
       "Reply with ONLY a JSON array of strings, e.g. [\"They have a sister called Erin\"]. " +
       "Empty array if there is nothing."}, ], 500, function(err, text){
-      MEMBUSY[ch.id] = false;
-      if (!err && text) {
+      MEMBUSY[key] = false;
+      /* Only a pass that actually read the exchange may move the watermark.
+         It used to move on every outcome, so one failed call — a dropped
+         connection, a truncated reply, anything — retired those messages
+         unread and the facts in them were gone for good, silently. */
+      var ok = false;
+      if (err) {
+        L("mem", ch.name + "'s memory pass failed, will retry: " +
+          String(err && err.message || err).slice(0, 160), true);
+      } else {
         try {
-          var m = String(text).match(/\[[\s\S]*\]/);
+          var m = String(text || "").match(/\[[\s\S]*\]/);
           var facts = JSON.parse(m ? m[0] : text);
-          if (Array.isArray(facts) && facts.length) {
-            var n = rememberMany(ch, facts, "from chat");
-            if (n) L("mem", ch.name + " remembered " + n + ": " +
-              facts.slice(0, 6).join(" · ").slice(0, 400), true, 900);
+          if (Array.isArray(facts)) {
+            ok = true;                          // an empty array is a real answer
+            if (facts.length) {
+              var n = rememberMany(ch, facts, "from chat");
+              if (n) L("mem", ch.name + " remembered " + n + ": " +
+                facts.slice(0, 6).join(" · ").slice(0, 400), true, 900);
+            }
           }
-        } catch (e) {}
+        } catch (e) {
+          L("mem", ch.name + "'s memory pass returned nothing usable, will retry: " +
+            String(text || "").slice(0, 120), true);
+        }
       }
-      (S.memts = S.memts || {})[convo.id] = Date.now();
+      /* mark up to the last message the excerpt covered, not "now" — anything
+         sent while the call was in flight has not been read yet */
+      if (ok) (S.memts = S.memts || {})[key] = mark;
       save(); done();
     });
   });
