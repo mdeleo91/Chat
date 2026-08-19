@@ -69,6 +69,9 @@
   .grip{width:40px;height:4px;border-radius:2px;background:var(--line);margin:6px auto 12px}
   .as-msg{font-size:13px;color:var(--mist);background:var(--card);border-radius:12px;
     padding:10px 12px;margin-bottom:6px;max-height:76px;overflow:hidden;line-height:1.45}
+  /* the cap exists to stop a long message quoting itself over half the
+     screen; a sheet whose text IS the point must not be clipped */
+  .as-msg.full{max-height:none}
   .as-btn{display:flex;align-items:center;gap:14px;width:100%;padding:13px 6px;border:none;
     background:none;font-family:inherit;font-size:15px;color:var(--ink);cursor:pointer;
     border-bottom:1px solid var(--line);text-align:left}
@@ -992,6 +995,11 @@ function load(){
   if (!S.modes) S.modes = {};
   if (!S.lens) S.lens = {};
   var migrated = false;
+  Object.keys(S.mems || {}).forEach(function(k){       // "read back" was renamed
+    (S.mems[k] || []).forEach(function(m){
+      if (m.src === "read back") { m.src = "memory scan"; migrated = true; }
+    });
+  });
   (S.chars || []).concat(S.groups || []).forEach(function(c){
     if (!c.icon) { c.icon = EMOJI2ICON[c.emoji] || "person"; delete c.emoji; migrated = true; }
   });
@@ -5816,7 +5824,7 @@ function offerForget(list, what){
   if (!list.length) return;
   var grp = getConvo(cur) && getConvo(cur).grp, sh = $("asheet");
   sh.innerHTML = '<div class="grip"></div>' +
-    '<div class="as-msg">' + what + ", but " +
+    '<div class="as-msg full">' + what + ", but " +
       (list.length === 1 ? "one thing was" : list.length + " things were") +
       " already learned from " + (list.length === 1 ? "it" : "them") +
       ". Forget those too?</div>" +
@@ -5878,7 +5886,7 @@ function openScan(id){
   }
   var rooms = convosWith(ch).length, sh = $("asheet");
   sh.innerHTML = '<div class="grip"></div>' +
-    '<div class="as-msg">Read back through ' +
+    '<div class="as-msg full">Scan ' +
       (rooms === 1 ? "your conversation" : "all " + rooms + " conversations") + " with " +
       esc(ch.name) + " and write down anything worth remembering that is not " +
       "already on the list.<br><br>That is <b>" + chunks.length +
@@ -5889,7 +5897,7 @@ function openScan(id){
         " will be skipped, so run it again to reach further back." : "") +
     '</div>' +
     '<div style="display:flex;gap:8px;padding-top:8px">' +
-    '<button class="btn" id="sc-go" style="flex:1">Read them</button>' +
+    '<button class="btn" id="sc-go" style="flex:1">Start scan</button>' +
     '<button class="btn ghost" id="sc-no" style="flex:1">Cancel</button></div>';
   $("sc-no").onclick = closeSheet;
   $("sc-go").onclick = function(){
@@ -5905,7 +5913,7 @@ function scanPaint(){
   var ch = getChar(SCAN.id), sh = $("asheet");
   var pct = Math.round(100 * SCAN.i / SCAN.chunks.length);
   sh.innerHTML = '<div class="grip"></div>' +
-    '<div class="as-msg">Reading ' + esc(ch.name) + "'s history \u2014 " + SCAN.i + " of " +
+    '<div class="as-msg full">Scanning ' + esc(ch.name) + "'s history \u2014 " + SCAN.i + " of " +
       SCAN.chunks.length + " (" + pct + "%).<br>" +
       (SCAN.added ? SCAN.added + (SCAN.added === 1 ? " new memory" : " new memories") + " so far."
                   : "Nothing new yet.") + '</div>' +
@@ -5960,7 +5968,7 @@ function scanStep(){
           var facts = JSON.parse(mm ? mm[0] : text);
           if (Array.isArray(facts) && facts.length) {
             var first = part.msgs[0].ts, last = part.msgs[part.msgs.length - 1].ts;
-            s.added += rememberMany(ch, facts, "read back", {c: part.c.id, a: first, b: last});
+            s.added += rememberMany(ch, facts, "memory scan", {c: part.c.id, a: first, b: last});
           }
         } catch (e) {
           L("mem", "scan chunk " + (s.i + 1) + " returned nothing usable", true);
@@ -5982,7 +5990,7 @@ function openMemEditor(id, mm){
   var isNew = !mm, pin = isNew ? true : !!mm.pin, sh = $("asheet");
   function paint(keep){
     sh.innerHTML = '<div class="grip"></div>' +
-      '<div class="as-msg">' + (isNew
+      '<div class="as-msg full">' + (isNew
         ? "Something " + esc(ch.name) + " should always know, written the way they would think " +
           "of it \u2014 \u201cThey have two cats\u201d, \u201cWe agreed to meet Thursday\u201d."
         : "This wording is word for word what gets sent to " + esc(ch.name) + ".") +
@@ -6035,7 +6043,7 @@ function openMems(id){
   scan.className = "srow";
   var rooms = convosWith(ch).length;
   scan.innerHTML = '<span class="ic msr">refresh</span>' +
-    '<span class="lbl">Read back through your chats</span>' +
+    '<span class="lbl">Memory scan</span>' +
     '<span class="val">' + (rooms ? rooms + (rooms === 1 ? " chat" : " chats") : "nothing yet") +
     '</span><span class="chev msr" style="font-size:20px">chevron_right</span>';
   scan.onclick = function(){ openScan(id); };
