@@ -324,6 +324,10 @@
   .setcard span{font-size:12.5px;color:var(--mist)}
 
   /* ------- memories ------- */
+  /* a real progress bar — the typing bubble's is indeterminate and scoped
+     to .typing; a scan knows exactly how far through it is */
+  .pbar{width:100%;height:5px;border-radius:999px;background:var(--line);overflow:hidden}
+  .pbar div{height:100%;border-radius:999px;background:var(--acc);transition:width .25s}
   .memcard{margin:8px 16px;background:var(--card);border-radius:14px;
     padding:12px 14px;font-size:14px;line-height:1.45;display:flex;gap:10px;align-items:flex-start}
   .memcard .t{flex:1}
@@ -5836,6 +5840,138 @@ function offerForget(list, what){
   openSheet();
 }
 
+/* ================= re-reading the back catalogue =================
+   The extraction pass only ever looks forward, at messages sent since the
+   last time it ran — so everything said before it existed, and everything
+   lost to the failures fixed in 0.39.2, is sitting in the history unread.
+   This walks every conversation the character was part of, private and
+   group, in chunks, and adds what it finds. It only ever adds: existing
+   memories are left alone, and rememberMany's dedup keeps it from writing
+   the same fact twice. */
+var SCAN_CHUNK = 40, SCAN_MAX = 40;
+var SCAN = null;                      // {id, chunks, i, added, stop}
+function convosWith(ch){
+  var out = [];
+  if ((S.msgs[ch.id] || []).length) out.push(getConvo(ch.id));
+  (S.groups || []).forEach(function(g){
+    if ((g.members || []).indexOf(ch.id) >= 0 && (S.msgs[g.id] || []).length) out.push(g);
+  });
+  return out;
+}
+function scanChunks(ch){
+  var out = [];
+  convosWith(ch).forEach(function(c){
+    var arr = (S.msgs[c.id] || []).filter(function(m){ return m.text || m.img; });
+    for (var i = 0; i < arr.length; i += SCAN_CHUNK)
+      out.push({c: c, msgs: arr.slice(i, i + SCAN_CHUNK)});
+  });
+  return out;
+}
+function openScan(id){
+  var ch = getChar(id); if (!ch) return;
+  if (!useLLM()) { toast("Add your Z.ai key in Settings first"); return; }
+  var chunks = scanChunks(ch), dropped = 0;
+  if (!chunks.length) { toast("No conversations to read yet"); return; }
+  if (chunks.length > SCAN_MAX) {          // most recent first — never silently
+    dropped = chunks.length - SCAN_MAX;
+    chunks = chunks.slice(-SCAN_MAX);
+  }
+  var rooms = convosWith(ch).length, sh = $("asheet");
+  sh.innerHTML = '<div class="grip"></div>' +
+    '<div class="as-msg">Read back through ' +
+      (rooms === 1 ? "your conversation" : "all " + rooms + " conversations") + " with " +
+      esc(ch.name) + " and write down anything worth remembering that is not " +
+      "already on the list.<br><br>That is <b>" + chunks.length +
+      (chunks.length === 1 ? " request" : " requests") + "</b> to Z.ai, billed to your key. " +
+      "Nothing already saved is changed or removed." +
+      (dropped ? "<br><br>The history is longer than one pass can cover \u2014 the " +
+        dropped + " oldest " + (dropped === 1 ? "chunk" : "chunks") +
+        " will be skipped, so run it again to reach further back." : "") +
+    '</div>' +
+    '<div style="display:flex;gap:8px;padding-top:8px">' +
+    '<button class="btn" id="sc-go" style="flex:1">Read them</button>' +
+    '<button class="btn ghost" id="sc-no" style="flex:1">Cancel</button></div>';
+  $("sc-no").onclick = closeSheet;
+  $("sc-go").onclick = function(){
+    SCAN = {id: id, chunks: chunks, i: 0, added: 0, stop: false};
+    L("mem", "scanning " + chunks.length + " chunks of history for " + ch.name +
+      (dropped ? " (" + dropped + " older chunks skipped)" : ""), true);
+    scanPaint(); scanStep();
+  };
+  openSheet();
+}
+function scanPaint(){
+  if (!SCAN) return;
+  var ch = getChar(SCAN.id), sh = $("asheet");
+  var pct = Math.round(100 * SCAN.i / SCAN.chunks.length);
+  sh.innerHTML = '<div class="grip"></div>' +
+    '<div class="as-msg">Reading ' + esc(ch.name) + "'s history \u2014 " + SCAN.i + " of " +
+      SCAN.chunks.length + " (" + pct + "%).<br>" +
+      (SCAN.added ? SCAN.added + (SCAN.added === 1 ? " new memory" : " new memories") + " so far."
+                  : "Nothing new yet.") + '</div>' +
+    '<div class="pbar" style="margin:2px 0 12px"><div id="sc-fill"></div></div>' +
+    '<button class="btn ghost" id="sc-stop" style="width:100%">Stop</button>';
+  var f = $("sc-fill"); if (f) f.style.width = Math.max(3, pct) + "%";
+  $("sc-stop").onclick = function(){ if (SCAN) SCAN.stop = true; scanDone("Stopped"); };
+}
+function scanDone(why){
+  var s = SCAN; SCAN = null;
+  if (!s) return;
+  closeSheet();
+  L("mem", "history scan " + why.toLowerCase() + " \u2014 " + s.added + " added", true);
+  toast(s.added ? s.added + (s.added === 1 ? " new memory" : " new memories") + " added"
+                : why + " \u2014 nothing new to add");
+  openMems(s.id);
+}
+function scanStep(){
+  var s = SCAN; if (!s || s.stop) return;
+  if (s.i >= s.chunks.length) { scanDone("Finished"); return; }
+  var ch = getChar(s.id), part = s.chunks[s.i];
+  if (!ch) { scanDone("Finished"); return; }
+  var tail = part.msgs.map(function(m){
+    var t = m.text || (m.img ? "[a photo]" : "");
+    return t ? speakerName(part.c, m) + ": " + String(t).slice(0, 300) : "";
+  }).filter(Boolean).join("\n");
+  if (!tail) { s.i++; scanPaint(); scanStep(); return; }
+  var known = (S.mems[ch.id] || []).slice(-60).map(function(m){ return "- " + m.text; }).join("\n");
+  enqueue(function(done){
+    completeOnce(REMOTE, [{role: "user", content:
+      "You keep the long-term memory for " + ch.name + ", a character in a private chat app.\n\n" +
+      "This is part of " + (part.c.grp ? "a group conversation (" + part.c.name + ")" :
+        "a private conversation") + " that " + ch.name + " was present for. List what is worth " +
+      "still knowing months from now: facts about " + userName() + " (their life, work, health, " +
+      "people, history, tastes, plans), and things the two of them did, decided, promised or went " +
+      "through together.\n\n" +
+      "Rules: one short sentence each, written from " + ch.name + "'s side (\"They\" for " +
+      userName() + "). Only things that stay true \u2014 skip passing moods, small talk, and " +
+      "anything already in the list below. Nothing worth keeping is a perfectly good answer.\n\n" +
+      (known ? "Already remembered:\n" + known + "\n\n" : "") +
+      "Conversation:\n" + tail + "\n\n" +
+      "Reply with ONLY a JSON array of strings. Empty array if there is nothing."}], 500,
+    function(err, text){
+      done();
+      if (!SCAN || SCAN.stop) return;
+      if (err) {
+        L("mem", "scan chunk " + (s.i + 1) + " failed: " +
+          String(err && err.message || err).slice(0, 140), true);
+      } else {
+        try {
+          var mm = String(text || "").match(/\[[\s\S]*\]/);
+          var facts = JSON.parse(mm ? mm[0] : text);
+          if (Array.isArray(facts) && facts.length) {
+            var first = part.msgs[0].ts, last = part.msgs[part.msgs.length - 1].ts;
+            s.added += rememberMany(ch, facts, "read back", {c: part.c.id, a: first, b: last});
+          }
+        } catch (e) {
+          L("mem", "scan chunk " + (s.i + 1) + " returned nothing usable", true);
+        }
+      }
+      s.i++; scanPaint();
+      setTimeout(scanStep, 60);
+    });
+  });
+}
+
 /* ================= character memories view =================
    A memory the model wrote is a first draft: it garbles a name, gets a
    detail backwards, or is right but phrased so vaguely it is no use. Being
@@ -5895,6 +6031,15 @@ function openMems(id){
     '<span class="val">' + arr.length + ' stored</span>';
   add.onclick = function(){ openMemEditor(id, null); };
   list.appendChild(add);
+  var scan = document.createElement("button");
+  scan.className = "srow";
+  var rooms = convosWith(ch).length;
+  scan.innerHTML = '<span class="ic msr">refresh</span>' +
+    '<span class="lbl">Read back through your chats</span>' +
+    '<span class="val">' + (rooms ? rooms + (rooms === 1 ? " chat" : " chats") : "nothing yet") +
+    '</span><span class="chev msr" style="font-size:20px">chevron_right</span>';
+  scan.onclick = function(){ openScan(id); };
+  list.appendChild(scan);
   if (!arr.length) {
     var e = document.createElement("div"); e.className = "empty";
     e.innerHTML = "Nothing yet. Talk to " + esc(ch.name) + " and anything worth keeping is " +
