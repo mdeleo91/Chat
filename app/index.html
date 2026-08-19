@@ -3819,7 +3819,11 @@ function memMatch(arr, fact){
   }
   return -1;
 }
-function rememberMany(ch, facts, src){
+/* `from` records the stretch of conversation a memory was read out of:
+   {c: conversation, a: first message ts, b: last}. Without it, deleting a
+   message cannot undo what was learned from it — the fact outlives the
+   sentence with nothing to say which line it came from. */
+function rememberMany(ch, facts, src, from){
   var arr = S.mems[ch.id] = S.mems[ch.id] || [], added = 0;
   facts.forEach(function(f){
     f = String(f || "").trim().replace(/^[-•*\s]+/, "").slice(0, 220);
@@ -3829,10 +3833,13 @@ function rememberMany(ch, facts, src){
       // fuller means says more, not merely longer — an added "!" is not an upgrade
       if (memNorm(f).split(" ").length > memNorm(arr[at].text).split(" ").length) {
         arr[at].text = f; arr[at].ts = Date.now(); added++;
+        if (from) arr[at].from = from;
       }
       return;
     }
-    arr.push({text: f, ts: Date.now(), src: src || "from chat"});
+    var rec = {text: f, ts: Date.now(), src: src || "from chat"};
+    if (from) rec.from = from;
+    arr.push(rec);
     added++;
   });
   if (arr.length > MEM_MAX) {
@@ -3870,6 +3877,7 @@ function scheduleMemory(convo, ch){
   for (var i = 0; i < arr.length; i++) if (arr[i].ts > since) { from = i; break; }
   var span = Math.max(10, Math.min(MEM_TAIL_MAX, arr.length - from));
   var mark = arr.length ? arr[arr.length - 1].ts : since;
+  var span0 = arr[Math.max(0, arr.length - span)].ts;   // first message the excerpt covers
   var tail = arr.slice(-span).map(function(m){
     var t = m.text || (m.img ? "[a photo]" : "");
     return t ? speakerName(convo, m) + ": " + t.slice(0, 400) : "";
@@ -3906,7 +3914,8 @@ function scheduleMemory(convo, ch){
           if (Array.isArray(facts)) {
             ok = true;                          // an empty array is a real answer
             if (facts.length) {
-              var n = rememberMany(ch, facts, "from chat");
+              var n = rememberMany(ch, facts, "from chat",
+                {c: convo.id, a: span0, b: mark});
               if (n) L("mem", ch.name + " remembered " + n + ": " +
                 facts.slice(0, 6).join(" · ").slice(0, 400), true, 900);
             }
@@ -5188,14 +5197,21 @@ function openKinType(id, otherId){
 function clearConvo(cid){
   var c = getConvo(cid); if (!c) return;
   if (!confirm("Clear every message in " + c.name + "? The chat stays in your list.")) return;
+  var taught = memsSince(c, 0);
   S.msgs[cid] = [];
   delete S.sums[cid];
+  /* the watermarks pointed into messages that no longer exist */
+  Object.keys(S.memts || {}).forEach(function(k){
+    if (k === cid || k.indexOf(cid + "/") === 0) delete S.memts[k];
+  });
   c.unread = 0;
   save();
   L("msg", "cleared conversation " + c.name);
   if (cur === cid) renderStream();
   renderHome();
   toast("Conversation cleared");
+  if (taught.length) setTimeout(function(){
+    offerForget(taught, "Conversation cleared"); }, 300);
 }
 function deleteConvo(cid){
   var c = getConvo(cid); if (!c) return;
@@ -5323,12 +5339,16 @@ function msgAction(act, idx){
     return;
   }
   else if (act === "rewind") {
+    var cut = m.ts, gone = memsSince(c, cut);
     S.msgs[cur] = arr.slice(0, idx);
     if (m.who === "me") $("input").value = m.text;
     trimSummary(cur);
     save(); renderStream(); renderHome();
     L("msg", "rewound to #" + idx);
     closeSheet();
+    /* the messages are gone either way; this is only about the memories */
+    if (gone.length) setTimeout(function(){
+      offerForget(gone, "Rewound to here"); }, 260);
   }
   else if (act === "regen") {
     var ch = c.grp ? (getChar(m.by) || getChar(c.members[0])) : c;
@@ -5341,9 +5361,12 @@ function msgAction(act, idx){
     closeSheet();
   }
   else if (act === "del") {
+    var taught = memsAbout(c, m);
     arr.splice(idx, 1); trimSummary(cur); save(); renderStream(); renderHome();
     L("msg", "deleted #" + idx);
     closeSheet();
+    if (taught.length) setTimeout(function(){
+      offerForget(taught, "Message deleted"); }, 260);
   }
 }
 function nudgeFrom(c, ch){
@@ -5722,6 +5745,95 @@ function shrinkSquare(src, cb){
   };
   img.onerror = function(){ cb(null); };
   img.src = src;
+}
+
+/* ================= undoing what was learned =================
+   Deleting a message only ever cleared the verbatim history. The fact read
+   out of it stayed in the memory store and kept riding along in every
+   prompt, which is why steering a conversation by deleting worked for a few
+   replies and then drifted back. These find what a removed stretch of
+   conversation taught, and offer to forget it — offer, not do, because a
+   memory can be right even when the message that produced it was a misfire.
+
+   Memories written by builds before this one carry no provenance, so they
+   fall back to their own timestamp, which is close: a memory is written
+   within seconds of the exchange it came from. */
+function memCameFrom(m, cid, a, b){
+  if (m.from) return m.from.c === cid && m.from.b >= a && m.from.a <= b;
+  /* No provenance, so the conversation is unknowable — only a real time
+     window makes the guess fair. Without this guard, clearing one chat
+     would offer to forget things learned in another. */
+  return a > 0 && m.ts >= a && m.ts <= b + 12e4;   // two minutes of slack
+}
+function charsInConvo(c){
+  if (!c) return [];
+  if (!c.grp) { var ch = getChar(c.id); return ch ? [ch] : []; }
+  return (c.members || []).map(function(id){ return getChar(id); }).filter(Boolean);
+}
+/* everything learned at or after a cut — what "rewind" ought to undo */
+function memsSince(c, cutTs){
+  var out = [];
+  charsInConvo(c).forEach(function(ch){
+    (S.mems[ch.id] || []).forEach(function(m){
+      if (memCameFrom(m, c.id, cutTs, Infinity)) out.push({ch: ch, m: m});
+    });
+  });
+  return out;
+}
+/* what one deleted message taught. Its excerpt covered twenty other lines
+   too, so provenance alone would sweep up memories about all of them —
+   distinctive words shared with the deleted text are what narrow it. */
+function memsAbout(c, msg){
+  var words = memWords(msg.text || ""), out = [];
+  if (!words.length) return out;
+  charsInConvo(c).forEach(function(ch){
+    (S.mems[ch.id] || []).forEach(function(m){
+      if (!memCameFrom(m, c.id, msg.ts, msg.ts)) return;
+      var mw = memWords(m.text), hit = 0;
+      mw.forEach(function(w){ if (words.indexOf(w) >= 0) hit++; });
+      if (hit >= 2 || (hit === 1 && mw.length <= 3)) out.push({ch: ch, m: m});
+    });
+  });
+  return out;
+}
+function forgetThese(list){
+  var byChar = {};
+  list.forEach(function(x){ (byChar[x.ch.id] = byChar[x.ch.id] || []).push(x.m); });
+  Object.keys(byChar).forEach(function(id){
+    S.mems[id] = (S.mems[id] || []).filter(function(m){ return byChar[id].indexOf(m) < 0; });
+    L("mem", getChar(id).name + " forgot " + byChar[id].length + ": " +
+      byChar[id].slice(0, 4).map(function(m){ return m.text; }).join(" · ").slice(0, 300), true);
+  });
+  save();
+}
+/* Shown after the messages are already gone, so the choice is only about
+   the memories. Nothing is forgotten without being read first. */
+function offerForget(list, what){
+  if (!list.length) return;
+  var grp = getConvo(cur) && getConvo(cur).grp, sh = $("asheet");
+  sh.innerHTML = '<div class="grip"></div>' +
+    '<div class="as-msg">' + what + ", but " +
+      (list.length === 1 ? "one thing was" : list.length + " things were") +
+      " already learned from " + (list.length === 1 ? "it" : "them") +
+      ". Forget those too?</div>" +
+    '<div style="max-height:38vh;overflow-y:auto;margin-bottom:4px">' +
+      list.map(function(x){
+        return '<div class="memcard" style="margin:6px 0"><div class="t">' + esc(x.m.text) +
+          '<span class="src">' + (grp ? esc(x.ch.name) + " \u00b7 " : "") +
+          esc(x.m.src || "from chat") + (x.m.pin ? " \u00b7 always sent" : "") +
+          '</span></div></div>'; }).join("") +
+    '</div>' +
+    '<div style="display:flex;gap:8px;padding-top:6px">' +
+    '<button class="btn" id="fg-yes" style="flex:1">Forget ' +
+      (list.length === 1 ? "it" : "them") + '</button>' +
+    '<button class="btn ghost" id="fg-no" style="flex:1">Keep</button></div>';
+  $("fg-yes").onclick = function(){
+    forgetThese(list);
+    toast(list.length === 1 ? "Forgotten" : list.length + " memories forgotten");
+    closeSheet();
+  };
+  $("fg-no").onclick = closeSheet;
+  openSheet();
 }
 
 /* ================= character memories view =================
