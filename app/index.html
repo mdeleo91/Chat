@@ -525,6 +525,7 @@
       <div class="search"><span class="msr" style="font-size:18px">search</span>
         <input id="q-mem" placeholder="Search memories"></div>
       <div class="chips" id="chips-mem"></div>
+      <button class="srow" id="memhub-scan"></button>
       <div class="rows" id="memhub-list"></div>
       <div class="addform" id="addform">
         <textarea id="am-text" rows="2" placeholder="e.g. User prefers metric system"></textarea>
@@ -3952,10 +3953,13 @@ function extractFacts(ch, text){
     var nm = m[1].charAt(0).toUpperCase() + m[1].slice(1);
     S.profile.name = nm; remember(ch, "Their name is " + nm);
   }
-  if ((m = t.match(/i (?:really )?(?:like|love|enjoy)s? ([^.!?]{2,60})/i)))
-    remember(ch, "They like " + m[1].trim());
-  if ((m = t.match(/i (?:work|live) (?:as|in|at) ([^.!?]{2,60})/i)))
-    remember(ch, "They " + (t.indexOf("work")>=0?"work":"live") + " " + m[0].replace(/^i /i,"").trim());
+  /* "i like…" and "i work/live…" used to be captured here too. A pattern
+     cannot tell a fact from a pleasantry, so "I like you guys so much" was
+     filed forever as "They like you guys so much" — and again, slightly
+     reworded, every time it was said, since near-identical phrases are not
+     duplicates. The model pass reads the same messages and knows the
+     difference. Only the name is kept, because it also sets your profile
+     name, which nothing else does. */
 }
 /* the model picker: Z.ai's GLM API */
 function glmSectionHTML(){
@@ -5875,6 +5879,24 @@ function scanChunks(ch){
   });
   return out;
 }
+function openScanPick(){
+  var cands = (S.chars || []).filter(function(ch){ return convosWith(ch).length; });
+  if (!cands.length) { toast("No conversations to scan yet"); return; }
+  if (cands.length === 1) { openScan(cands[0].id); return; }
+  var sh = $("asheet");
+  sh.innerHTML = '<div class="grip"></div>' +
+    '<div class="as-msg full">Whose history should be read back through? Each is scanned on ' +
+    'its own \u2014 a memory belongs to one character, not to everyone.</div>' +
+    cands.map(function(ch){
+      var n = convosWith(ch).length;
+      return '<button class="as-btn" data-id="' + ch.id + '"><span class="msr">person</span>' +
+        esc(ch.name) + '<span class="hint">' + n + (n === 1 ? " chat" : " chats") + '</span></button>';
+    }).join("");
+  sh.querySelectorAll("[data-id]").forEach(function(b){
+    b.onclick = function(){ closeSheet(); openScan(b.getAttribute("data-id")); };
+  });
+  openSheet();
+}
 function openScan(id){
   var ch = getChar(id); if (!ch) return;
   if (!useLLM()) { toast("Add your Z.ai key in Settings first"); return; }
@@ -5929,7 +5951,7 @@ function scanDone(why){
   L("mem", "history scan " + why.toLowerCase() + " \u2014 " + s.added + " added", true);
   toast(s.added ? s.added + (s.added === 1 ? " new memory" : " new memories") + " added"
                 : why + " \u2014 nothing new to add");
-  openMems(s.id);
+  memRepaint(s.id);
 }
 function scanStep(){
   var s = SCAN; if (!s || s.stop) return;
@@ -5985,6 +6007,14 @@ function scanStep(){
    detail backwards, or is right but phrased so vaguely it is no use. Being
    able to fix the wording matters more than being able to delete and retype
    it, because what is stored is word for word what gets sent. */
+/* The memories list exists on two screens — the hub in the tab bar and a
+   character's own — and an edit can be started from either. Repaint the one
+   that is actually on screen; sending you to the other is a navigation you
+   did not ask for. */
+function memRepaint(id){
+  if (!$("v-mem").classList.contains("right")) openMems(id);
+  else if (typeof renderMemHub === "function") renderMemHub();
+}
 function openMemEditor(id, mm){
   var ch = getChar(id); if (!ch) return;
   var isNew = !mm, pin = isNew ? true : !!mm.pin, sh = $("asheet");
@@ -6020,7 +6050,7 @@ function openMemEditor(id, mm){
            rewording it does not change when you said it */
         if (String(mm.src || "").indexOf("edited") < 0) mm.src = (mm.src || "from chat") + ", edited";
       }
-      save(); closeSheet(); openMems(id);
+      save(); closeSheet(); memRepaint(id);
     };
     $("mem-cancel").onclick = closeSheet;
     ta.focus();
@@ -6097,6 +6127,18 @@ function renderMemHub(){
   mkchip("all","All");
   S.chars.forEach(function(ch){ if ((S.mems[ch.id]||[]).length) mkchip(ch.id, ch.name); });
 
+  /* the scan lived only on a character's own memories screen, reached from
+     their profile — which is not where anyone goes looking at a list of
+     memories. It belongs on both. */
+  var scan = $("memhub-scan");
+  if (scan) {
+    var only = memFilter !== "all" && getChar(memFilter);
+    scan.innerHTML = '<span class="ic msr">refresh</span><span class="lbl">Memory scan</span>' +
+      '<span class="val">' + (only ? esc(only.name) : "read back through your chats") +
+      '</span><span class="chev msr" style="font-size:20px">chevron_right</span>';
+    scan.onclick = function(){ if (only) openScan(only.id); else openScanPick(); };
+  }
+
   var q = ($("q-mem").value||"").toLowerCase();
   var list = $("memhub-list"); list.innerHTML = "";
   var flat = [];
@@ -6112,11 +6154,17 @@ function renderMemHub(){
     var el = document.createElement("div");
     el.className = "memcard" + (e.mm.pin?" pinned":"");
     el.innerHTML = '<div class="t">'+esc(e.mm.text)+
-      '<span class="src">'+esc(e.ch.name)+' · '+new Date(e.mm.ts).toLocaleDateString()+'</span></div>'+
+      '<span class="src">'+esc(e.ch.name)+' · '+esc(e.mm.src||"from chat")+' · '+
+      new Date(e.mm.ts).toLocaleDateString()+'</span></div>'+
+      '<button class="op msr">edit</button>'+
       '<button class="op msr'+(e.mm.pin?' fill gold':'')+'">star</button><button class="op msr">delete</button>';
+    var body = el.querySelector(".t");
+    body.style.cursor = "pointer";
+    body.onclick = function(){ openMemEditor(e.ch.id, e.mm); };
     var ops = el.querySelectorAll(".op");
-    ops[0].onclick = function(){ e.mm.pin = !e.mm.pin; save(); renderMemHub(); };
-    ops[1].onclick = function(){
+    ops[0].onclick = function(){ openMemEditor(e.ch.id, e.mm); };
+    ops[1].onclick = function(){ e.mm.pin = !e.mm.pin; save(); renderMemHub(); };
+    ops[2].onclick = function(){
       S.mems[e.ch.id] = (S.mems[e.ch.id]||[]).filter(function(x){ return x !== e.mm; });
       save(); renderMemHub();
     };
