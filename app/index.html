@@ -26,6 +26,9 @@
     --bub-in:#1F2A24; --bub-out:#10533A;
   }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  /* Any class that sets display beats the [hidden] attribute's UA rule, and
+     this has caught .rndbtn, .msr and .srow in turn. One rule, once. */
+  [hidden]{display:none !important}
   html,body{height:100%}
   body{
     background:var(--page); color:var(--ink); overflow:hidden;
@@ -52,8 +55,6 @@
     font-variation-settings:'FILL' 0;
     -webkit-font-feature-settings:'liga';font-feature-settings:'liga';-webkit-font-smoothing:antialiased}
   .msr.fill{font-variation-settings:'FILL' 1}
-  /* display:inline-block above beats the [hidden] attribute's UA rule */
-  .msr[hidden]{display:none}
   .msr.gold{color:#EAB308}
 
   .view{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--surface);
@@ -218,10 +219,7 @@
   /* a description reads as a stage direction: its own line, set apart from
      the speech either side of it rather than buried mid-sentence */
   .msg .act{display:block;font-style:italic;opacity:.78;margin:2px 0}
-  /* composer, while you are typing inside a description.
-     .rndbtn is display:flex, which beats the [hidden] attribute's UA rule —
-     without this the button shows up in texting chats too */
-  .rndbtn[hidden]{display:none}
+  /* composer, while you are typing inside a description */
   #desc{background:var(--card2);color:var(--mist)}
   #desc.on{background:var(--acc);color:#fff}
   .cfield.desc{font-style:italic}
@@ -340,15 +338,6 @@
   .memcard .src{display:block;font-size:11px;color:var(--mist);margin-top:4px}
   .memcard .op{cursor:pointer;font-size:15px;padding:2px 5px;background:none;border:none}
   .memcard.pinned{border:1px solid var(--acc)}
-  .addbar{padding:10px 16px calc(12px + env(safe-area-inset-bottom))}
-  .addbar .btn{width:100%}
-  .addform{margin:8px 16px;background:var(--card);border-radius:14px;padding:13px;display:none}
-  .addform.on{display:block}
-  .addform textarea{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:10px;
-    padding:10px;font-size:14px;font-family:inherit;color:var(--ink);outline:none;resize:none}
-  .addform select{width:100%;margin-top:8px;background:var(--surface);border:1px solid var(--line);
-    border-radius:10px;padding:9px;font-size:14px;font-family:inherit;color:var(--ink);outline:none}
-  .addform .btn{margin-top:10px;width:100%;padding:10px}
 
   /* ------- forms (new character) ------- */
   .field{margin:8px 16px;background:var(--card);border-radius:14px;padding:12px 14px}
@@ -524,18 +513,18 @@
 
     <!-- MEMORIES -->
     <div class="pane" id="p-mem">
-      <div class="apphead"><div class="title">Memories</div></div>
+      <div class="apphead">
+        <button class="back" id="mem-back" hidden><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
+        <div><div class="title" id="mem-title">Memories</div>
+          <div class="cstat" id="mem-sub"></div></div>
+      </div>
       <div class="search"><span class="msr" style="font-size:18px">search</span>
-        <input id="q-mem" placeholder="Search memories"></div>
+        <input id="q-mem" placeholder="Search memories">
+        <button class="qx msr" id="q-mem-x" hidden>close</button></div>
       <div class="chips" id="chips-mem"></div>
+      <button class="srow" id="memhub-add"></button>
       <button class="srow" id="memhub-scan"></button>
       <div class="rows" id="memhub-list"></div>
-      <div class="addform" id="addform">
-        <textarea id="am-text" rows="2" placeholder="e.g. User prefers metric system"></textarea>
-        <select id="am-char"></select>
-        <button class="btn" id="am-save">Save memory</button>
-      </div>
-      <div class="addbar"><button class="btn" id="b-addmem"><span class="msr" style="font-size:18px">add</span> Add Memory</button></div>
     </div>
 
     <!-- SETTINGS -->
@@ -696,17 +685,6 @@
     <div class="rows" id="rel-body"></div>
   </div>
 
-  <div class="view right" id="v-mem">
-    <div class="subhead">
-      <button class="back" id="mem-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
-      <div class="cwrap"><div class="cname" id="mem-title">Memories</div>
-        <div class="cstat" id="mem-sub">what they remember about you</div></div>
-    </div>
-    <div class="search"><span class="msr" style="font-size:18px">search</span>
-      <input id="q-memchar" placeholder="Search memories">
-      <button class="qx msr" id="q-memchar-x" hidden>close</button></div>
-    <div class="rows" id="mem-list"></div>
-  </div>
 
   <!-- ============ GALLERY ============ -->
   <div class="view right" id="v-gal">
@@ -4531,6 +4509,9 @@ function toast(t){
 function show(v){ $(v).classList.remove("right"); }
 function hide(v){ $(v).classList.add("right"); }
 function tab(name){
+  /* switching tab means going back to the tab layer — a full-screen view
+     left open would sit on top of whichever tab was just chosen */
+  document.querySelectorAll(".view").forEach(function(v){ v.classList.add("right"); });
   ["chats","contacts","mem","set"].forEach(function(t){
     $("p-"+t).classList.toggle("on", t===name);
   });
@@ -5595,7 +5576,7 @@ function openContact(id){
       if (op === "who") { openContact(el.getAttribute("data-cid")); return; }
       closeSheet();
       if (op === "gal") openGallery(id);
-      else if (op === "mem") openMems(id);
+      else if (op === "mem") openMems(id, function(){ openChat(id); });
       else if (op === "prof") openProfile(id);
       else if (op === "grp") openGroupForm(id);
     };
@@ -5957,7 +5938,7 @@ function scanDone(why){
   L("mem", "history scan " + why.toLowerCase() + " \u2014 " + s.added + " added", true);
   toast(s.added ? s.added + (s.added === 1 ? " new memory" : " new memories") + " added"
                 : why + " \u2014 nothing new to add");
-  memRepaint(s.id);
+  renderMemHub();
 }
 function scanStep(){
   var s = SCAN; if (!s || s.stop) return;
@@ -6013,14 +5994,6 @@ function scanStep(){
    detail backwards, or is right but phrased so vaguely it is no use. Being
    able to fix the wording matters more than being able to delete and retype
    it, because what is stored is word for word what gets sent. */
-/* The memories list exists on two screens — the hub in the tab bar and a
-   character's own — and an edit can be started from either. Repaint the one
-   that is actually on screen; sending you to the other is a navigation you
-   did not ask for. */
-function memRepaint(id){
-  if (!$("v-mem").classList.contains("right")) openMems(id);
-  else if (typeof renderMemHub === "function") renderMemHub();
-}
 function openMemEditor(id, mm){
   var ch = getChar(id); if (!ch) return;
   var isNew = !mm, pin = isNew ? true : !!mm.pin, sh = $("asheet");
@@ -6056,7 +6029,7 @@ function openMemEditor(id, mm){
            rewording it does not change when you said it */
         if (String(mm.src || "").indexOf("edited") < 0) mm.src = (mm.src || "from chat") + ", edited";
       }
-      save(); closeSheet(); memRepaint(id);
+      save(); closeSheet(); renderMemHub();
     };
     $("mem-cancel").onclick = closeSheet;
     ta.focus();
@@ -6064,120 +6037,68 @@ function openMemEditor(id, mm){
   paint(null);
   openSheet();
 }
-var memOpenId = null;
-function openMems(id){
-  var ch = getChar(id); if (!ch) return;
-  /* a query left over from the last character would silently hide most of
-     this one's list */
-  if (memOpenId !== id) { memOpenId = id; $("q-memchar").value = ""; }
-  $("mem-title").textContent = ch.name + "'s memories";
-  var q = memNorm($("q-memchar").value || "");
-  $("q-memchar-x").hidden = !q;
-  var list = $("mem-list"); list.innerHTML = "";
-  var arr = S.mems[id] || [];
-  /* every word of the query has to appear, rather than the query appearing
-     verbatim — so "green volvo" and "volvo green" both find the car, and a
-     typed apostrophe does not break the word it is inside */
-  var qw = q.split(" ").filter(Boolean);
-  var hits = qw.length ? arr.filter(function(m){
-    var t = memNorm(m.text);
-    return qw.every(function(w){ return t.indexOf(w) >= 0; });
-  }) : arr;
-  $("mem-sub").textContent = q
-    ? hits.length + (hits.length === 1 ? " match" : " matches") + " of " + arr.length
-    : "what they remember about you";
-  /* searching means looking for something already written down — the two
-     ways of adding more are noise until the search is cleared */
-  if (!q) {
-    var add = document.createElement("button");
-    add.className = "srow";
-    add.innerHTML = '<span class="ic msr">add</span><span class="lbl">Write a memory</span>' +
-      '<span class="val">' + arr.length + ' stored</span>';
-    add.onclick = function(){ openMemEditor(id, null); };
-    list.appendChild(add);
-    var scan = document.createElement("button");
-    scan.className = "srow";
-    var rooms = convosWith(ch).length;
-    scan.innerHTML = '<span class="ic msr">refresh</span>' +
-      '<span class="lbl">Memory scan</span>' +
-      '<span class="val">' + (rooms ? rooms + (rooms === 1 ? " chat" : " chats") : "nothing yet") +
-      '</span><span class="chev msr" style="font-size:20px">chevron_right</span>';
-    scan.onclick = function(){ openScan(id); };
-    list.appendChild(scan);
-  }
-  if (q && !hits.length) {
-    var nf = document.createElement("div"); nf.className = "empty";
-    nf.innerHTML = "Nothing here matches \u201c" + esc($("q-memchar").value.trim()) + "\u201d.";
-    list.appendChild(nf);
-  }
-  if (!arr.length) {
-    var e = document.createElement("div"); e.className = "empty";
-    e.innerHTML = "Nothing yet. Talk to " + esc(ch.name) + " and anything worth keeping is " +
-      "written down here automatically \u2014 or write one yourself above.<br><br>" +
-      "Pinned memories are always sent; the rest are chosen by what the conversation is about." +
-      "<br><br>Everything stays on this device.";
-    list.appendChild(e);
-  }
-  hits.slice().reverse().forEach(function(mm){
-    var el = document.createElement("div");
-    el.className = "memcard" + (mm.pin ? " pinned" : "");
-    el.innerHTML = '<div class="t">' + (mm.pin ? '<span class="msr fill" style="font-size:13px;' +
-      'color:var(--acc-deep);vertical-align:-2px">star</span> ' : '') + esc(mm.text) +
-      '<span class="src">' + esc(mm.src) + ' · ' + new Date(mm.ts).toLocaleDateString() +
-      (mm.pin ? ' · always sent' : '') + '</span></div>' +
-      '<button class="op msr" data-op="edit">edit</button>' +
-      '<button class="op msr" data-op="pin">star</button>' +
-      '<button class="op msr" data-op="del">delete</button>';
-    /* the text itself opens the editor too — a 15px pencil is a small
-       target, and reading a wrong memory is what makes you want to fix it */
-    var body = el.querySelector(".t");
-    body.style.cursor = "pointer";
-    body.onclick = function(){ openMemEditor(id, mm); };
-    el.querySelector('[data-op="edit"]').onclick = function(){ openMemEditor(id, mm); };
-    el.querySelector('[data-op="pin"]').onclick = function(){
-      mm.pin = !mm.pin; save(); openMems(id);
-    };
-    el.querySelector('[data-op="del"]').onclick = function(){
-      S.mems[id] = (S.mems[id] || []).filter(function(x){ return x !== mm; });
-      save(); openMems(id);
-    };
-    list.appendChild(el);
-  });
-  show("v-mem");
+/* the per-character memories screen is now the hub with their chip
+   selected; `back` is how you get returned to wherever you came from */
+function openMems(id, back){
+  if (!getChar(id)) return;
+  memFilter = id;
+  memBack = back || null;
+  $("q-mem").value = "";
+  tab("mem");
 }
 
 /* ================= memories hub ================= */
 var memFilter = "all";
+/* One memories screen, filtered — there used to be two, this one and a
+   near-identical per-character copy reached from a profile. Every
+   improvement had to be made twice and twice it was only made once: the
+   edit pencil and the memory scan both shipped to one screen and not the
+   other. A character's memories are now this screen with their chip
+   selected, and `memBack` remembers where you came from so the trip is
+   not one-way. */
+var memBack = null;
 function renderMemHub(){
+  var only = memFilter !== "all" && getChar(memFilter);
+  var back = $("mem-back");
+  back.hidden = !memBack;
+  back.onclick = function(){ var f = memBack; memBack = null; if (f) f(); };
+  $("mem-title").textContent = only ? only.name + "'s memories" : "Memories";
+
   var chipbox = $("chips-mem"); chipbox.innerHTML = "";
   var mkchip = function(id, label){
     var b = document.createElement("button");
     b.className = "chip" + (memFilter===id?" on":""); b.textContent = label;
-    b.onclick = function(){ memFilter = id; renderMemHub(); };
+    b.onclick = function(){ memFilter = id; memBack = null; renderMemHub(); };
     chipbox.appendChild(b);
   };
   mkchip("all","All");
-  S.chars.forEach(function(ch){ if ((S.mems[ch.id]||[]).length) mkchip(ch.id, ch.name); });
-
-  /* the scan lived only on a character's own memories screen, reached from
-     their profile — which is not where anyone goes looking at a list of
-     memories. It belongs on both. */
-  var scan = $("memhub-scan");
-  if (scan) {
-    var only = memFilter !== "all" && getChar(memFilter);
-    scan.innerHTML = '<span class="ic msr">refresh</span><span class="lbl">Memory scan</span>' +
-      '<span class="val">' + (only ? esc(only.name) : "read back through your chats") +
-      '</span><span class="chev msr" style="font-size:20px">chevron_right</span>';
-    scan.onclick = function(){ if (only) openScan(only.id); else openScanPick(); };
-  }
+  /* the selected character keeps a chip even with nothing stored yet, or
+     arriving from their profile would land on a filter with no way back */
+  S.chars.forEach(function(ch){
+    if ((S.mems[ch.id]||[]).length || ch.id === memFilter) mkchip(ch.id, ch.name);
+  });
 
   var q = memNorm($("q-mem").value || ""), qw = q.split(" ").filter(Boolean);
+  $("q-mem-x").hidden = !qw.length;
+  /* searching means looking for something already written down — the two
+     ways of adding more are noise until the search is cleared */
+  var add = $("memhub-add"), scan = $("memhub-scan");
+  add.hidden = scan.hidden = !!qw.length;
+  add.innerHTML = '<span class="ic msr">add</span><span class="lbl">Write a memory</span>' +
+    '<span class="val">' + (only ? esc(only.name) : "choose who remembers it") + '</span>';
+  add.onclick = function(){ if (only) openMemEditor(only.id, null); else openMemPick(); };
+  scan.innerHTML = '<span class="ic msr">refresh</span><span class="lbl">Memory scan</span>' +
+    '<span class="val">' + (only ? esc(only.name) : "read back through your chats") +
+    '</span><span class="chev msr" style="font-size:20px">chevron_right</span>';
+  scan.onclick = function(){ if (only) openScan(only.id); else openScanPick(); };
+
   var list = $("memhub-list"); list.innerHTML = "";
   var flat = [];
   S.chars.forEach(function(ch){
     (S.mems[ch.id]||[]).forEach(function(mm){ flat.push({ch:ch, mm:mm}); });
   });
   flat.sort(function(a,b){ return (b.mm.pin?1:0)-(a.mm.pin?1:0) || b.mm.ts-a.mm.ts; });
+  var pool = flat.filter(function(e){ return memFilter==="all" || e.ch.id===memFilter; }).length;
   var shown = 0;
   flat.forEach(function(e){
     if (memFilter!=="all" && e.ch.id!==memFilter) return;
@@ -6188,37 +6109,62 @@ function renderMemHub(){
     shown++;
     var el = document.createElement("div");
     el.className = "memcard" + (e.mm.pin?" pinned":"");
-    el.innerHTML = '<div class="t">'+esc(e.mm.text)+
-      '<span class="src">'+esc(e.ch.name)+' · '+esc(e.mm.src||"from chat")+' · '+
-      new Date(e.mm.ts).toLocaleDateString()+'</span></div>'+
-      '<button class="op msr">edit</button>'+
-      '<button class="op msr'+(e.mm.pin?' fill gold':'')+'">star</button><button class="op msr">delete</button>';
+    el.innerHTML = '<div class="t">' + (e.mm.pin ? '<span class="msr fill" style="font-size:13px;' +
+      'color:var(--acc-deep);vertical-align:-2px">star</span> ' : '') + esc(e.mm.text) +
+      '<span class="src">' + (only ? "" : esc(e.ch.name) + ' · ') + esc(e.mm.src||"from chat") +
+      ' · ' + new Date(e.mm.ts).toLocaleDateString() + (e.mm.pin ? ' · always sent' : '') +
+      '</span></div>' +
+      '<button class="op msr" data-op="edit">edit</button>' +
+      '<button class="op msr' + (e.mm.pin?' fill gold':'') + '" data-op="pin">star</button>' +
+      '<button class="op msr" data-op="del">delete</button>';
+    /* the text itself opens the editor too — a 15px pencil is a small
+       target, and reading a wrong memory is what makes you want to fix it */
     var body = el.querySelector(".t");
     body.style.cursor = "pointer";
     body.onclick = function(){ openMemEditor(e.ch.id, e.mm); };
-    var ops = el.querySelectorAll(".op");
-    ops[0].onclick = function(){ openMemEditor(e.ch.id, e.mm); };
-    ops[1].onclick = function(){ e.mm.pin = !e.mm.pin; save(); renderMemHub(); };
-    ops[2].onclick = function(){
+    el.querySelector('[data-op="edit"]').onclick = function(){ openMemEditor(e.ch.id, e.mm); };
+    el.querySelector('[data-op="pin"]').onclick = function(){ e.mm.pin = !e.mm.pin; save(); renderMemHub(); };
+    el.querySelector('[data-op="del"]').onclick = function(){
       S.mems[e.ch.id] = (S.mems[e.ch.id]||[]).filter(function(x){ return x !== e.mm; });
       save(); renderMemHub();
     };
     list.appendChild(el);
   });
-  if (!shown) list.innerHTML =
-    '<div class="empty">No memories yet. Characters remember things you tell them in chat — or add one below.</div>';
+  $("mem-sub").textContent = qw.length
+    ? shown + (shown === 1 ? " match" : " matches") + " of " + pool
+    : (only ? "what they remember about you" : "");
+  if (!shown) {
+    var e = document.createElement("div"); e.className = "empty";
+    e.innerHTML = qw.length
+      ? "Nothing here matches \u201c" + esc($("q-mem").value.trim()) + "\u201d."
+      : (only
+          ? "Nothing yet. Talk to " + esc(only.name) + " and anything worth keeping is written " +
+            "down here automatically \u2014 or write one yourself above.<br><br>Pinned memories " +
+            "are always sent; the rest are chosen by what the conversation is about." +
+            "<br><br>Everything stays on this device."
+          : "No memories yet. Characters write down what matters as you talk to them \u2014 " +
+            "or write one yourself above.");
+    list.appendChild(e);
+  }
 }
-function toggleAddMem(onoff){
-  var f = $("addform");
-  if (onoff) {
-    var sel = $("am-char"); sel.innerHTML = "";
-    S.chars.forEach(function(ch){
-      var o = document.createElement("option"); o.value = ch.id; o.textContent = ch.name;
-      sel.appendChild(o);
-    });
-    if (memFilter!=="all") sel.value = memFilter;
-    f.classList.add("on"); $("am-text").focus();
-  } else f.classList.remove("on");
+/* who is this memory for? Only asked when no character is filtered. */
+function openMemPick(){
+  var cands = S.chars || [];
+  if (!cands.length) { toast("Make a character first"); return; }
+  if (cands.length === 1) { openMemEditor(cands[0].id, null); return; }
+  var sh = $("asheet");
+  sh.innerHTML = '<div class="grip"></div>' +
+    '<div class="as-msg full">Who should remember this? A memory belongs to one character, ' +
+    'not to everyone.</div>' +
+    cands.map(function(ch){
+      var n = (S.mems[ch.id] || []).length;
+      return '<button class="as-btn" data-id="' + ch.id + '"><span class="msr">person</span>' +
+        esc(ch.name) + '<span class="hint">' + n + ' stored</span></button>';
+    }).join("");
+  sh.querySelectorAll("[data-id]").forEach(function(b){
+    b.onclick = function(){ closeSheet(); openMemEditor(b.getAttribute("data-id"), null); };
+  });
+  openSheet();
 }
 
 /* ================= new / edit character ================= */
@@ -6818,7 +6764,7 @@ $("prof-fav").onclick = function(){
 $("pf-msg").onclick = function(){ hide("v-prof"); openChat(profId); };
 $("pf-call").onclick = function(){ startCall(profId); };
 $("pf-edit").onclick = function(){ openCharForm(profId); };
-$("pf-mem").onclick = function(){ openMems(profId); };
+$("pf-mem").onclick = function(){ var id = profId; openMems(id, function(){ openProfile(id); }); };
 $("pf-gal").onclick = function(){ openGallery(profId); };
 $("pf-clear").onclick = function(){
   if (confirm("Clear this chat's history?")) {
@@ -6870,27 +6816,12 @@ $("chat-menu").onclick = openChatMenu;
 $("mode-pill").onclick = toggleChatMode;
 $("set-rel").onclick = function(){ renderRel(); show("v-rel"); };
 $("rel-back").onclick = function(){ hide("v-rel"); initSettings(); };
-$("mem-back").onclick = function(){ hide("v-mem"); renderMemHub(); };
-/* the input lives outside #mem-list, so repainting the list on every
+/* the input lives outside #memhub-list, so repainting the list on every
    keystroke does not cost the caret */
-$("q-memchar").addEventListener("input", function(){ if (memOpenId) openMems(memOpenId); });
-$("q-memchar-x").onclick = function(){
-  $("q-memchar").value = "";
-  if (memOpenId) openMems(memOpenId);
-  $("q-memchar").focus();
-};
+$("q-mem-x").onclick = function(){ $("q-mem").value = ""; renderMemHub(); $("q-mem").focus(); };
 $("new-back").onclick = function(){ hide("v-new"); };
 $("nc-create").onclick = saveChar;
 
-$("b-addmem").onclick = function(){ toggleAddMem(!$("addform").classList.contains("on")); };
-$("am-save").onclick = function(){
-  var txt = $("am-text").value.trim(); if (!txt) return;
-  var cid = $("am-char").value;
-  var ch = getChar(cid); if (!ch) return;
-  (S.mems[cid] = S.mems[cid] || []).push({text:txt, ts:Date.now(), src:"added by you"});
-  save(); $("am-text").value = ""; toggleAddMem(false); renderMemHub();
-  toast("Memory saved for " + ch.name);
-};
 
 $("call-end").onclick = endCall;
 $("call-mute").onclick = function(){
