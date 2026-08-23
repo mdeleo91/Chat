@@ -756,8 +756,9 @@
         <button class="btn ghost" id="nc-train" style="margin-top:8px;padding:9px 16px;font-size:13.5px">Train face LoRA</button></div>
       <input type="file" accept="image/*" id="nc-ref-file" style="display:none">
       <div class="field"><label>LORAS (FLUX ONLY)</label>
-        <div class="phint">Only for {{char}}'s photos — e.g. a likeness LoRA — added on top of the LoRAs in Settings. Needs the fal.ai key there.</div>
-        <div id="nc-loras-rows"></div></div>
+        <div class="phint">Only for {{char}}'s photos — e.g. a likeness LoRA — added on top of the LoRAs in Settings. Needs the fal.ai key there. Paste a Civitai model page link and the row fills itself.</div>
+        <div id="nc-loras-rows"></div>
+        <button class="btn ghost" id="nc-civ-favs" style="margin-top:8px;padding:9px 16px;font-size:13.5px">Browse Civitai favorites</button></div>
       <div class="field"><label>GREETING <span style="font-weight:400;text-transform:none">— optional, written by you</span></label>
         <textarea id="nc-greet" rows="4" placeholder="Their opening message. Third person works best; set the scene, include a line of their dialogue, end on something {{user}} can answer. Leave blank and one gets written from the profile."></textarea></div>
       <div class="field"><label>EXAMPLE CONVERSATION <span style="font-weight:400;text-transform:none">— optional</span></label>
@@ -1532,7 +1533,7 @@ function loraRowsHTML(list){
       'value="' + esc(l.name || "") + '">' +
       '<button class="icb lr-x" title="Remove LoRA"><span class="msr" style="font-size:16px">close</span></button></div>' +
       '<span class="lbl">URL</span>' +
-      '<input class="srvinput lr-path" placeholder=".safetensors URL" value="' + esc(l.path || "") + '">' +
+      '<input class="srvinput lr-path" placeholder=".safetensors URL — or paste a Civitai page link" value="' + esc(l.path || "") + '">' +
       '<div class="lr2"><div style="width:88px"><span class="lbl">STRENGTH 0–2</span>' +
       '<input class="srvinput lr-scale" inputmode="decimal" placeholder="1.0" value="' + (l.scale || "") + '"></div>' +
       '<div style="flex:1"><span class="lbl">WHEN — keywords, comma separated; empty = every photo; 18+ alone = every mature photo; 18+ with keywords = mature photos matching a keyword</span>' +
@@ -1549,7 +1550,27 @@ function wireLoraList(root, list, onChange){
     var row = e.target.closest ? e.target.closest(".lorarow") : null;
     if (!row) return;
     var l = list[+row.dataset.i]; if (!l) return;
-    if (e.target.classList.contains("lr-path")) l.path = e.target.value.trim();
+    if (e.target.classList.contains("lr-path")) {
+      l.path = e.target.value.trim();
+      /* any civitai link fills the row from the API: a model-page link fills
+         everything, a raw download link only the blanks (see civApply) */
+      var p = civParseUrl(l.path);
+      if (p) {
+        toast("Looking up on Civitai…");
+        civLookup(l, !!p.dl, function(err, model, version, wrongBase){
+          if (err) {
+            L("img", "civitai lookup failed: " + err, true);
+            toast("Civitai lookup failed — kept the URL as pasted");
+            return;
+          }
+          L("img", 'civitai: filled "' + (model.name || "") + '" — when: ' +
+            (l.when || "always") + (l.add ? " · triggers: " + l.add : ""), true);
+          toast(wrongBase ? "Filled, but its base is " + wrongBase + " — not FLUX"
+                          : "Filled from Civitai — glance over WHEN and strength");
+          onChange(true);
+        });
+      }
+    }
     else if (e.target.classList.contains("lr-name")) l.name = e.target.value.trim();
     else if (e.target.classList.contains("lr-scale")) l.scale = parseFloat(e.target.value) || null;
     else if (e.target.classList.contains("lr-when")) l.when = e.target.value;
@@ -1565,6 +1586,192 @@ function wireLoraList(root, list, onChange){
       onChange(true);
     }
   });
+}
+/* ================= civitai lookup =================
+   Adding a LoRA used to mean transcribing its model page by hand: copy the
+   download URL, retype the name and trigger words, guess the WHEN. All of
+   that lives in Civitai's public API, so a pasted model-page link now fills
+   its own row, and the favorites sheet browses the account's hearted LoRAs
+   for one-tap adding. The API token from Settings rides as ?token= — query
+   rather than header, so the browser skips the CORS preflight. */
+var CIV_API = "https://civitai.com/api/v1";
+function civGet(url, cb){
+  var tok = (fal().civitai || "").trim();
+  if (tok && url.indexOf("token=") < 0)
+    url += (url.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(tok);
+  fetch(url)
+    .then(function(r){
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(function(j){ cb(null, j); }, function(e){ cb(String(e && e.message || e)); });
+}
+/* the two link shapes that identify a model: the page URL (optionally pinned
+   to a version) and the raw download URL people already paste today */
+function civParseUrl(u){
+  u = (u || "").trim();
+  var m = u.match(/civitai\.(?:com|red)\/models\/(\d+)/i);
+  if (m) {
+    var v = u.match(/[?&]modelVersionId=(\d+)/i);
+    return {model: m[1], ver: v ? v[1] : null};
+  }
+  m = u.match(/civitai\.(?:com|red)\/api\/download\/models\/(\d+)/i);
+  return m ? {dl: m[1]} : null;
+}
+function civDlId(path){
+  var m = (path || "").match(/\/api\/download\/models\/(\d+)/i);
+  return m ? m[1] : null;
+}
+/* prefer the version the link pinned, else the newest FLUX one — the only
+   base either image engine runs */
+function civPickVersion(model, verId){
+  var vers = model.modelVersions || [];
+  if (verId) for (var i = 0; i < vers.length; i++)
+    if (String(vers[i].id) === String(verId)) return vers[i];
+  for (var j = 0; j < vers.length; j++)
+    if (/flux/i.test(vers[j].baseModel || "")) return vers[j];
+  return vers[0] || null;
+}
+/* WHEN, worked out from the model's own metadata. An nsfw model gates on
+   18+; a model tagged "style" should shape every photo (empty WHEN); and
+   anything else is a subject LoRA whose Civitai tags become the keywords
+   lorasFor matches against the photo description — so it only rides shots
+   that are actually about that subject. The noise list drops taxonomy words
+   that describe the LoRA rather than the photos it belongs on. */
+var CIV_TAG_NOISE = {"style":1,"styles":1,"concept":1,"lora":1,"flux":1,"flux.1":1,"flux1":1,
+  "base model":1,"nsfw":1,"sfw":1,"porn":1,"adult":1,"explicit":1,"sexy":1,"hentai":1,
+  "woman":1,"women":1,"man":1,"men":1,"girl":1,"girls":1,"guy":1,"female":1,"male":1,
+  "character":1,"celebrity":1,"real person":1,"photorealistic":1,"realistic":1,
+  "photography":1,"photo":1,"quality":1,"detail":1,"detailed":1,"aesthetic":1,
+  "beautiful":1,"cute":1,"model":1,"person":1,"people":1,"body":1,"anime":1,"cartoon":1};
+function civAutoWhen(model){
+  var tags = (model.tags || []).map(function(t){ return String(t).toLowerCase().trim(); });
+  var style = tags.indexOf("style") >= 0 || tags.indexOf("styles") >= 0;
+  var kws = style ? [] : tags.filter(function(t){
+    return t && !CIV_TAG_NOISE[t] && t.length >= 3 && t.length <= 24;
+  }).slice(0, 6);
+  return (model.nsfw ? ["18+"] : []).concat(kws).join(", ");
+}
+/* onlyEmpty: a raw download link may be a row the user already tuned, so
+   only blanks are filled; a pasted model-page link is the new gesture and
+   fills everything (strength always stays theirs) */
+function civApply(l, model, version, onlyEmpty){
+  l.path = "https://civitai.com/api/download/models/" + version.id;
+  if (!onlyEmpty || !(l.name || "").trim()) l.name = (model.name || "").slice(0, 80);
+  if (!onlyEmpty || !(l.add || "").trim()) l.add = (version.trainedWords || []).join(", ");
+  if (!onlyEmpty || !(l.when || "").trim()) l.when = civAutoWhen(model);
+}
+function civLookup(l, onlyEmpty, cb){
+  var p = civParseUrl(l.path);
+  if (!p) return cb("not a civitai link");
+  function finish(model, version){
+    if (!version) return cb("that model has no file versions");
+    civApply(l, model, version, onlyEmpty);
+    var base = version.baseModel || "";
+    cb(null, model, version, base && !/flux/i.test(base) ? base : null);
+  }
+  if (p.dl) {
+    /* the download id is a version id; the tags for WHEN live on the model */
+    civGet(CIV_API + "/model-versions/" + p.dl, function(err, v){
+      if (err) return cb(err);
+      civGet(CIV_API + "/models/" + v.modelId, function(err2, model){
+        if (err2) return cb(err2);
+        finish(model, civPickVersion(model, p.dl));
+      });
+    });
+  } else {
+    civGet(CIV_API + "/models/" + p.model, function(err, model){
+      if (err) return cb(err);
+      finish(model, civPickVersion(model, p.ver));
+    });
+  }
+}
+/* the favorites sheet — ♥ a LoRA on civitai.com, add it here in one tap.
+   list is whichever LoRA array the caller edits (Settings' globals or a
+   character's); onChange mirrors the wireLoraList contract. */
+function openCivFavs(list, onChange){
+  if (!(fal().civitai || "").trim()) {
+    toast("Add your Civitai API token under Image generation first");
+    return;
+  }
+  var sh = $("asheet");
+  sh.innerHTML = '<div class="grip"></div>' +
+    '<div class="as-msg full">Your Civitai favorites. Tap one to add it — the download link, ' +
+    'name, trigger words and WHEN fill in from its metadata (worth a glance after). ' +
+    '♥ a LoRA on civitai.com and it shows up here.</div>' +
+    '<div id="civ-list" style="max-height:52vh;overflow-y:auto;overscroll-behavior:contain"></div>' +
+    '<button class="btn ghost" id="civ-more" style="width:100%;margin-top:8px" hidden>Load more</button>';
+  var listEl = $("civ-list"), more = $("civ-more");
+  var models = [];
+  var nextUrl = CIV_API + "/models?favorites=true&types=LORA&nsfw=true&limit=20";
+  function added(version){
+    return list.some(function(l){ return civDlId(l.path) === String(version.id); });
+  }
+  function rowHTML(model, i){
+    var v = civPickVersion(model, null);
+    var flux = v && /flux/i.test(v.baseModel || "");
+    var img = ((v && v.images) || []).filter(function(im){
+      return (im.type || "image") === "image";
+    })[0];
+    var dl = (model.stats && model.stats.downloadCount) || 0;
+    var state = !flux ? ((v && v.baseModel) || "no file") : (added(v) ? "Added ✓" : "Add");
+    return '<button class="as-btn" data-i="' + i + '" style="gap:10px' +
+      (flux ? '' : ';opacity:.45') + '">' +
+      '<span style="width:44px;height:44px;border-radius:10px;background:var(--card2);' +
+      'overflow:hidden;flex-shrink:0">' +
+      (img ? '<img src="' + esc(img.url) + '" style="width:100%;height:100%;object-fit:cover">' : '') +
+      '</span><span style="flex:1;min-width:0"><span style="display:block;font-weight:600;' +
+      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(model.name || "?") +
+      '</span><span style="display:block;font-size:12px;color:var(--mist)">' +
+      esc((v && v.baseModel) || "") + (model.nsfw ? " · 18+" : "") + " · " + dl +
+      ' downloads</span></span><span class="hint">' + esc(state) + "</span></button>";
+  }
+  function page(){
+    if (!nextUrl) return;
+    more.disabled = true;
+    civGet(nextUrl, function(err, j){
+      more.disabled = false;
+      if (err) {
+        listEl.innerHTML += '<div class="ds" style="padding:10px 0">Couldn\'t load favorites — ' +
+          esc(err) + ". The token has to be valid (Civitai account settings → API Keys).</div>";
+        L("img", "civitai favorites failed: " + err, true);
+        return;
+      }
+      var items = (j && j.items) || [];
+      if (!models.length && !items.length)
+        listEl.innerHTML = '<div class="ds" style="padding:10px 0">No favorited LoRAs on this ' +
+          "account yet — ♥ some on civitai.com and reopen this.</div>";
+      items.forEach(function(mo){
+        listEl.insertAdjacentHTML("beforeend", rowHTML(mo, models.length));
+        models.push(mo);
+      });
+      nextUrl = (j && j.metadata && j.metadata.nextPage) || null;
+      more.hidden = !nextUrl;
+    });
+  }
+  listEl.onclick = function(e){
+    var b = e.target.closest ? e.target.closest("[data-i]") : null;
+    if (!b) return;
+    var model = models[+b.dataset.i]; if (!model) return;
+    var v = civPickVersion(model, null);
+    if (!v || !/flux/i.test(v.baseModel || "")) {
+      toast("No FLUX version — the image engines here only run FLUX LoRAs");
+      return;
+    }
+    if (added(v)) { toast("Already in the list"); return; }
+    var l = {name:"", path:"", scale:null, when:"", add:""};
+    civApply(l, model, v, false);
+    list.push(l);
+    onChange(true);
+    var hint = b.querySelector(".hint");
+    if (hint) hint.textContent = "Added ✓";
+    L("img", 'civitai: added "' + (model.name || "") + '" — when: ' + (l.when || "always") +
+      (l.add ? " · triggers: " + l.add : ""), true);
+    toast("Added — glance over WHEN and strength");
+  };
+  more.onclick = page;
+  page();
+  openSheet();
 }
 /* ================= face LoRA training (fal) =================
    Turns a character's reference photos into a likeness LoRA via fal's
@@ -1802,6 +2009,213 @@ function rpFilterLoras(lf){
     else dropped.push((lf.names[i] || want) + " → " + want);
   });
   return {loras: keep, dropped: dropped};
+}
+/* ================= filling the volume =================
+   The volume is plain network storage; nothing on the serverless side can
+   write to it, which is why every new LoRA has so far meant renting a pod
+   by hand and wget-ing files into a terminal. The same API key can do that
+   without the person: rent a throwaway CPU pod WITH the volume attached
+   whose only job is to curl the missing files into the loras folder and
+   then delete itself — a few cents, a few minutes. The management API
+   (rest.runpod.io) is a different host from the serverless one the app
+   already talks to; if the browser can't call it, the identical script is
+   one Copy button away from any pod terminal. */
+var RP_REST = "https://rest.runpod.io/v1";
+function rpRest(method, path, body){
+  return fetch(RP_REST + path, {
+    method: method,
+    headers: {"Content-Type": "application/json",
+              "Authorization": "Bearer " + rp().key.trim()},
+    body: body ? JSON.stringify(body) : undefined
+  }).then(function(r){
+    if (r.status === 404) return {gone: true};
+    return r.text().then(function(t){
+      if (!r.ok) throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 300) : ""));
+      try { return t ? JSON.parse(t) : null; } catch(e){ return null; }
+    });
+  });
+}
+/* the sh script both routes share. Finds the loras folder wherever this
+   volume keeps it (worker-comfyui layouts differ), skips files already
+   present — an interrupted run resumes — and downloads to .part first so a
+   half-finished file never sits under a loadable name. */
+function rpInstallScript(missing, selfDelete){
+  var s = 'D=$(find /workspace -maxdepth 4 -type d -name loras 2>/dev/null | head -n 1)\n' +
+          '[ -z "$D" ] && D=/workspace/models/loras\n' +
+          'mkdir -p "$D" && cd "$D" && echo "installing into $D"\n';
+  missing.forEach(function(m){
+    s += '[ -s "' + m.name + '" ] || { curl -fL --retry 3 --connect-timeout 30 -o "' +
+         m.name + '.part" "' + withCivitaiToken(m.url) + '" && mv "' + m.name + '.part" "' +
+         m.name + '"; } || echo "FAILED ' + m.name + '"\n';
+  });
+  s += "ls -la\n";
+  if (selfDelete)
+    s += 'curl -s -X DELETE -H "Authorization: Bearer $RUNPOD_API_KEY" ' +
+         '"https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID"\nsleep 600\n';
+  return s;
+}
+async function rpInstallLoras(out){
+  function line(t){
+    if (out) out.innerHTML += esc(t) + "<br>";
+    L("img", "lorainstall: " + t, true, 1200);
+  }
+  if (out) out.innerHTML = "";
+  if (!rpReady()) { line("Add the RunPod endpoint ID and API key above first."); return; }
+  var items = allLoras().filter(function(x){
+    return /^https?:\/\//i.test((x.l.path || "").trim());
+  });
+  if (!items.length) {
+    line("No LoRAs configured yet — add some under Image generation or on a character.");
+    return;
+  }
+  line("Asking the endpoint what the volume already holds…");
+  var have = await new Promise(function(res){
+    rpLoraProbe(function(names){ res(names); });
+  });
+  var missing = [];
+  items.forEach(function(x){
+    var name = rpLoraName(x.l.path.trim());
+    if (missing.some(function(m){ return m.name === name; })) return;
+    if (have && have.indexOf(name) >= 0) return;
+    missing.push({name: name, url: x.l.path.trim(),
+                  label: ((x.l.name || "").trim() || name) + " · " + x.where});
+  });
+  if (have && !missing.length) {
+    line("✓ The volume already has every configured LoRA (" + items.length + " checked).");
+    return;
+  }
+  if (!have)
+    line("Couldn't read the volume's file list (endpoint asleep or busy) — going by the " +
+         "full list instead; the script skips files that are already there.");
+  line((have ? "Missing " : "Configured ") + missing.length + ":");
+  missing.forEach(function(m){ line("  • " + m.label + " → " + m.name); });
+  var act = document.createElement("div");
+  act.className = "srvbtns"; act.style.marginTop = "8px";
+  act.innerHTML = '<button class="use" id="rp-inst-auto">Install (temp CPU pod)</button>' +
+                  '<button class="use" id="rp-inst-copy">Copy script</button>';
+  out.appendChild(act);
+  $("rp-inst-copy").onclick = function(){
+    var txt = "# Run in any RunPod pod/terminal with the ComfyUI network volume mounted " +
+              "at /workspace\n" + rpInstallScript(missing, false);
+    (navigator.clipboard ? navigator.clipboard.writeText(txt)
+                         : Promise.reject(new Error("no clipboard")))
+      .then(function(){ toast("Install script copied"); },
+            function(){
+              L("img", "clipboard blocked — install script:\n" + txt, true, 5000);
+              toast("Couldn't copy — the script is in Troubleshooting logs");
+            });
+  };
+  $("rp-inst-auto").onclick = function(){
+    act.remove();
+    rpAutoInstall(out, missing, line);
+  };
+}
+async function rpAutoInstall(out, missing, line){
+  async function deploy(vol){
+    line('Renting a small CPU pod with "' + (vol.name || vol.id) + '" attached…');
+    var pod;
+    try {
+      pod = await rpRest("POST", "/pods", {
+        name: "pocketai-lora-install",
+        imageName: "curlimages/curl:latest",
+        computeType: "CPU",
+        cloudType: "SECURE",
+        cpuFlavorIds: ["cpu3c"],
+        vcpuCount: 1,
+        containerDiskInGb: 5,
+        networkVolumeId: vol.id,
+        volumeMountPath: "/workspace",
+        dockerEntrypoint: ["/bin/sh", "-c", rpInstallScript(missing, true)],
+        env: {RUNPOD_API_KEY: rp().key.trim()}
+      });
+    } catch(e){
+      line("✗ Couldn't rent the pod: " + String(e && e.message || e));
+      line("The Copy script route still works from any pod terminal.");
+      return;
+    }
+    var pid = pod && (pod.id || pod.podId);
+    if (!pid) {
+      line("✗ Pod came back without an id — raw: " + JSON.stringify(pod).slice(0, 200));
+      return;
+    }
+    line("Pod " + pid + " is downloading " + missing.length + " file(s); it deletes itself " +
+         "when done. A few cents; big LoRAs take a few minutes.");
+    var cancel = document.createElement("button");
+    cancel.className = "use"; cancel.textContent = "Cancel & delete pod";
+    cancel.style.marginTop = "6px";
+    out.appendChild(cancel);
+    var stopped = false;
+    cancel.onclick = function(){
+      stopped = true; cancel.remove();
+      rpRest("DELETE", "/pods/" + pid).then(
+        function(){ line("Pod deleted."); },
+        function(e){
+          line("Couldn't delete pod " + pid + " — remove it in the RunPod console: " +
+               String(e && e.message || e));
+        });
+    };
+    var t0 = Date.now();
+    while (!stopped) {
+      await new Promise(function(r){ setTimeout(r, 10000); });
+      if (stopped) return;
+      var st = null;
+      try { st = await rpRest("GET", "/pods/" + pid); } catch(e){}
+      if (st && st.gone) break;
+      if (Date.now() - t0 > 12 * 60 * 1000) {
+        line("12 minutes — that's long. Deleting the pod; rerunning Install resumes where " +
+             "it left off (finished files are kept).");
+        try { await rpRest("DELETE", "/pods/" + pid); } catch(e){}
+        break;
+      }
+    }
+    if (stopped) return;
+    cancel.remove();
+    line("Pod gone — re-checking the volume…");
+    RPVOL = null;
+    rpLoraProbe(function(names){
+      if (!names) {
+        line("Couldn't re-read the file list — Test LoRAs (under Image generation) will " +
+             "show it once the endpoint wakes.");
+        return;
+      }
+      var ok = 0;
+      missing.forEach(function(m){
+        var hit = names.indexOf(m.name) >= 0;
+        if (hit) ok++;
+        line((hit ? "✓ " : "✗ still missing — ") + m.name);
+      });
+      if (ok === missing.length) line("All set — 18+ photos can use them now.");
+    });
+  }
+  line("Looking up your network volumes…");
+  var vols;
+  try { vols = await rpRest("GET", "/networkvolumes"); }
+  catch(e){
+    line("✗ The management API didn't answer from the browser: " + String(e && e.message || e));
+    line("Some setups block it (CORS) — use Copy script instead: paste it into a terminal " +
+         "of any pod that has the volume attached.");
+    return;
+  }
+  var arr = Array.isArray(vols) ? vols : ((vols && vols.networkVolumes) || []);
+  if (!arr.length) {
+    line("✗ No network volumes on this account — the ComfyUI endpoint needs one to hold " +
+         "its LoRA files.");
+    return;
+  }
+  if (arr.length === 1) return deploy(arr[0]);
+  line("This account has " + arr.length + " volumes — pick the one the ComfyUI endpoint uses:");
+  var sel = document.createElement("select");
+  sel.className = "srvinput";
+  arr.forEach(function(v, i){
+    var o = document.createElement("option");
+    o.value = i;
+    o.textContent = (v.name || v.id) + (v.dataCenterId ? " · " + v.dataCenterId : "");
+    sel.appendChild(o);
+  });
+  var go = document.createElement("button");
+  go.className = "use"; go.textContent = "Use this volume"; go.style.marginTop = "6px";
+  out.appendChild(sel); out.appendChild(go);
+  go.onclick = function(){ sel.remove(); go.remove(); deploy(arr[+sel.value]); };
 }
 function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame){
   desc = adultDesc(desc, ch);
@@ -3984,15 +4398,19 @@ function falSectionHTML(){
        'Civitai account settings → API Keys).</div>';
   h += '<input id="fal-civitai" class="srvinput" type="password" autocomplete="off" ' +
        'placeholder="Civitai API token (optional)" value="' + esc(f.civitai || "") + '">';
-  h += '<div class="ds" style="padding:8px 0 0">LoRAs — leave <b>when</b> empty for style LoRAs ' +
-       'that shape every photo; give subject LoRAs (golf, cooking…) keywords so they only load for ' +
-       'matching photos instead of bleeding into everything.</div>';
+  h += '<div class="ds" style="padding:8px 0 0">LoRAs — paste a Civitai <b>model page</b> link ' +
+       'into URL and the row fills itself: download link, name, trigger words, and <b>when</b> ' +
+       'worked out from the model\'s tags and 18+ flag. Leave <b>when</b> empty for style LoRAs ' +
+       'that shape every photo; keywords keep subject LoRAs (golf, cooking…) out of unrelated ' +
+       'photos.</div>';
   h += '<div id="fal-loras">' + loraRowsHTML(f.loras) + '</div>';
   h += '<div class="ds" style="padding:10px 0 4px">Global trigger words — appended to every FLUX ' +
        'prompt (for the always-on style LoRAs).</div>';
   h += '<input id="fal-trigger" class="srvinput" placeholder="e.g. amateur photo" ' +
        'value="' + esc(f.trigger || "") + '">';
-  h += '<div class="srvbtns" style="margin-top:10px"><button class="use" id="lora-test">Test LoRAs</button></div>';
+  h += '<div class="srvbtns" style="margin-top:10px">' +
+       '<button class="use" id="civ-favs">Civitai favorites</button>' +
+       '<button class="use" id="lora-test">Test LoRAs</button></div>';
   h += '<div id="lora-test-out" class="ds" style="padding-top:6px"></div>';
   return h;
 }
@@ -4010,6 +4428,13 @@ function rpSectionHTML(){
        'placeholder="RunPod endpoint ID" value="' + esc(r.ep || "") + '">';
   h += '<input id="rp-key" class="srvinput" type="password" autocomplete="off" style="margin-top:8px" ' +
        'placeholder="RunPod API key" value="' + esc(r.key || "") + '">';
+  h += '<div class="srvbtns" style="margin-top:8px">' +
+       '<button class="use" id="rp-lora-install">Install LoRAs to volume</button></div>';
+  h += '<div class="ds" style="padding-top:6px">Checks which configured LoRAs the volume is ' +
+       'missing, then either rents a tiny CPU pod for a few minutes to download them onto it ' +
+       '(a few cents, deletes itself), or copies the same script for pasting into a pod ' +
+       'terminal yourself.</div>';
+  h += '<div id="rp-install-out" class="ds" style="padding-top:6px"></div>';
   h += '<div class="ds" style="padding:8px 0 4px">Vision endpoint (optional) — a second RunPod ' +
        'endpoint (vLLM quick-deploy) that reads the photos you send during mature conversations, ' +
        'since Z.ai refuses explicit image input. SFW conversations keep using Z.ai\'s vision.</div>';
@@ -4042,6 +4467,17 @@ function wireFalUI(card){
     save();
     if (structural) renderModelUI();
   });
+  var cf = card.querySelector("#civ-favs");
+  if (cf) cf.onclick = function(){
+    openCivFavs(fal().loras, function(){ save(); renderModelUI(); });
+  };
+  var ri = card.querySelector("#rp-lora-install");
+  if (ri) ri.onclick = function(){
+    ri.disabled = true;
+    rpInstallLoras(card.querySelector("#rp-install-out"))
+      .then(function(){ ri.disabled = false; },
+            function(){ ri.disabled = false; });
+  };
   var tg = card.querySelector("#fal-trigger");
   if (tg) tg.onchange = function(){ fal().trigger = tg.value; save(); };
   var mt = card.querySelector("#fal-mat");
@@ -6229,6 +6665,9 @@ function renderCharLoras(){ $("nc-loras-rows").innerHTML = loraRowsHTML(editLora
 wireLoraList($("nc-loras-rows"), editLoras, function(structural){
   if (structural) renderCharLoras();
 });
+$("nc-civ-favs").onclick = function(){
+  openCivFavs(editLoras, function(){ renderCharLoras(); });
+};
 function updateTrainUI(ch){
   var b = $("nc-train"), s = $("nc-train-stat");
   if (!b) return;
