@@ -1418,9 +1418,11 @@ function lorasFor(ch, desc, isMature, picked, maxN, quiet){
    This checks both for every LoRA you have configured. */
 function allLoras(){
   var seen = {}, out = [];
-  fal().loras.forEach(function(l){ out.push({l: l, where: "Settings"}); });
+  /* list is the array the entry lives in, so a health-check fix can edit or
+     remove it at the source */
+  fal().loras.forEach(function(l){ out.push({l: l, where: "Settings", list: fal().loras}); });
   S.chars.forEach(function(ch){
-    chLoraList(ch).forEach(function(l){ out.push({l: l, where: ch.name}); });
+    chLoraList(ch).forEach(function(l){ out.push({l: l, where: ch.name, list: ch.loraList}); });
   });
   return out.filter(function(x){
     var p = (x.l.path || "").trim();
@@ -1459,69 +1461,172 @@ function rpLoraProbe(cb){
       }).filter(Boolean), null);
     }).catch(function(e){ cb(null, String(e && e.message || e).slice(0, 200)); });
 }
-async function loraTest(out){
-  function line(t){
-    if (out) out.innerHTML += esc(t) + "<br>";
-    L("img", "loratest: " + t, true, 1200);
-  }
-  if (out) out.innerHTML = "";
+/* one report card per LoRA instead of a wall of log lines: every configured
+   LoRA is checked against everything that silently breaks one — the URL
+   itself, what fal will fetch, whether the file sits on the RunPod volume,
+   and what Civitai knows about the model — and each problem with a
+   mechanical remedy gets a Fix button right next to it. */
+async function loraHealth(out){
+  if (!out) return;
   var items = allLoras();
-  if (!items.length) { line("No LoRAs configured yet."); return; }
-  line("Checking " + items.length + " LoRA" + (items.length > 1 ? "s" : "") + "…");
-
-  if (rpReady()) {
-    line("");
-    line("— Your GPU (RunPod): files on the network volume —");
-    await new Promise(function(res){
-      rpLoraProbe(function(names, err){
-        if (!names) {
-          line("? Couldn't list the volume — " + (err || "no answer"));
-          line("The probe asks ComfyUI to load a file that cannot exist so it replies with " +
-               "the list it does have. If your worker answers differently, check its Logs.");
-        } else {
-          line("Volume holds " + names.length + " LoRA file(s).");
-          items.forEach(function(x){
-            var want = rpLoraName(x.l.path);
-            line((names.indexOf(want) >= 0 ? "✓ " : "✗ ") + (x.l.name || want) +
-                 " → " + want + (names.indexOf(want) >= 0 ? "" : "  NOT on the volume"));
-          });
-          var missing = items.filter(function(x){ return names.indexOf(rpLoraName(x.l.path)) < 0; });
-          if (missing.length)
-            line("Download the missing files to the volume's loras folder under exactly the " +
-                 "names above — the name comes from the Civitai model id in the URL.");
-        }
-        res();
-      });
+  if (!items.length) { out.innerHTML = "No LoRAs configured yet."; return; }
+  out.innerHTML = "Checking " + items.length + " LoRA" + (items.length > 1 ? "s" : "") + "…";
+  var fixes = [];
+  function fixBtn(label, fn){
+    fixes.push(fn);
+    return '<button class="use" data-fx="' + (fixes.length - 1) +
+           '" style="padding:4px 10px;font-size:12px;flex-shrink:0">' + esc(label) + "</button>";
+  }
+  /* every fix ends here: persist, rebuild the rows the fix changed, and
+     re-run the whole check so the report never shows a stale verdict */
+  function afterFix(msg){
+    save(); toast(msg);
+    renderModelUI();
+    var o = $("lora-test-out");
+    if (o) loraHealth(o);
+  }
+  function removeLora(x){
+    var i = x.list.indexOf(x.l);
+    if (i >= 0) x.list.splice(i, 1);
+    afterFix("Removed");
+  }
+  function fillBlanks(x){
+    civLookup(x.l, true, function(err){
+      if (err) { toast("Civitai lookup failed — " + err); return; }
+      afterFix("Filled from Civitai");
     });
   }
-
-  if (falReady()) {
-    line("");
-    line("— fal: the URLs it will fetch —");
-    for (var i = 0; i < items.length; i++) {
-      var x = items[i], url = withCivitaiToken((x.l.path || "").trim());
-      var label = (x.l.name || url.split("/").pop().split("?")[0]) + " (" + x.where + ")";
+  function switchFlux(x){
+    civLookup(x.l, false, function(err, model, version, wrongBase){
+      if (err) { toast("Civitai lookup failed — " + err); return; }
+      if (wrongBase) { toast("No FLUX version of this model exists — consider removing it"); return; }
+      afterFix("Switched to the FLUX version");
+    });
+  }
+  function installOne(x, btn){
+    btn.disabled = true;
+    var div = document.createElement("div");
+    div.className = "ds"; div.style.paddingTop = "4px";
+    btn.parentNode.insertAdjacentElement("afterend", div);
+    rpInstallOffer(div, [{name: rpLoraName(x.l.path), url: x.l.path.trim(),
+      label: ((x.l.name || "").trim() || rpLoraName(x.l.path)) + " · " + x.where}]);
+  }
+  /* the volume listing is one probe for everybody */
+  var vol = null, volErr = null;
+  if (rpReady())
+    await new Promise(function(res){
+      rpLoraProbe(function(names, err){ vol = names; volErr = err; res(); });
+    });
+  async function checkItem(x){
+    var l = x.l, path = (l.path || "").trim();
+    var name = (l.name || "").trim() || rpLoraName(path);
+    var rows = [];
+    function add(icon, text, fixHtml){ rows.push({i: icon, t: text, f: fixHtml || ""}); }
+    var isUrl = /^https?:\/\//i.test(path);
+    if (!isUrl)
+      add("✗", "Not a link — fal can't fetch it", "");
+    if (falReady() && isUrl) {
       try {
-        var r = await fetch(url, {method: "GET", headers: {Range: "bytes=0-1023"}});
+        var r = await fetch(withCivitaiToken(path), {method: "GET", headers: {Range: "bytes=0-1023"}});
         var ct = (r.headers.get("content-type") || "").toLowerCase();
-        var len = r.headers.get("content-range") || r.headers.get("content-length") || "";
         if (r.body && r.body.cancel) try { r.body.cancel(); } catch (e) {}
-        if (!r.ok) line("✗ " + label + " — HTTP " + r.status);
+        if (r.status === 404)
+          add("✗", "The file is gone (HTTP 404) — the model was likely removed from Civitai",
+              fixBtn("Remove this LoRA", function(){ removeLora(x); }));
+        else if (!r.ok)
+          add("✗", "fal's fetch will fail — HTTP " + r.status +
+              (civDlId(path) ? ". A valid Civitai API token (field above) usually fixes this." : ""), "");
         else if (ct.indexOf("text/html") >= 0)
-          line("✗ " + label + " — got a web page, not a file. Civitai needs the API token " +
-               "(Settings → Civitai API token).");
-        else line("✓ " + label + (len ? " — " + len : ""));
+          add("✗", "Civitai answered with a login page, not the file — add or check the API token above", "");
+        else add("✓", "fal can fetch the file", "");
       } catch (e) {
-        line("? " + label + " — " + String(e && e.message || e).slice(0, 90) +
-             " (some hosts block browser fetches; that alone doesn't mean fal can't reach it)");
+        add("•", "Couldn't verify from the browser (" +
+            String(e && e.message || e).slice(0, 60) + ") — fal itself may still reach it", "");
       }
     }
+    if (rpReady() && isUrl) {
+      if (!vol)
+        add("•", "Volume unreadable — " + (volErr || "endpoint didn't answer").slice(0, 120), "");
+      else {
+        var want = rpLoraName(path);
+        if (vol.indexOf(want) >= 0) add("✓", "On the GPU volume as " + want, "");
+        else add("✗", "Not on the GPU volume (needs " + want + ") — 18+ photos drop it",
+                 fixBtn("Install", function(btn){ installOne(x, btn); }));
+      }
+    }
+    var dlId = civDlId(path);
+    if (dlId) {
+      var meta = await new Promise(function(res){
+        civGet(CIV_API + "/model-versions/" + dlId, function(err, v){ res(err ? null : v); });
+      });
+      if (meta) {
+        var base = meta.baseModel || "";
+        if (base && !/flux/i.test(base))
+          add("✗", "Base model is " + base + " — the image engines here only run FLUX",
+              fixBtn("Switch to FLUX version", function(){ switchFlux(x); }));
+        if ((meta.trainedWords || []).length && !(l.add || "").trim())
+          add("!", "Civitai lists trigger words but the row has none — it may barely fire",
+              fixBtn("Fill from Civitai", function(){ fillBlanks(x); }));
+        if (meta.model && meta.model.nsfw && (l.when || "").indexOf("18+") < 0)
+          add("!", "Civitai flags this model 18+ but WHEN doesn't gate it — it can ride SFW photos",
+              fixBtn("Gate to 18+", function(){
+                l.when = "18+" + ((l.when || "").trim() ? ", " + l.when.trim() : "");
+                afterFix("Gated to 18+");
+              }));
+      }
+    }
+    if (l.scale && (l.scale > 4 || l.scale < 0))
+      add("!", "Strength " + l.scale + " is out of range (fal rejects anything over 4)",
+          fixBtn("Reset to 1", function(){ l.scale = 1; afterFix("Strength reset to 1"); }));
+    return {x: x, name: name, rows: rows};
   }
-
-  if (!rpReady() && !falReady()) line("No image engine configured, so nothing loads LoRAs yet.");
-  line("");
-  line("A LoRA that passes here can still sit out a photo — that's the WHEN field, and the " +
-       "route line in the log says which ones fired and why.");
+  var results = [];
+  for (var i = 0; i < items.length; i++) results.push(await checkItem(items[i]));
+  var h = "";
+  results.forEach(function(res){
+    var bad = res.rows.some(function(r){ return r.i === "✗"; });
+    var warn = res.rows.some(function(r){ return r.i === "!"; });
+    h += '<div style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:8px">' +
+      '<div style="font-weight:700;color:var(--ink)">' + (bad ? "✗ " : warn ? "⚠ " : "✓ ") +
+      esc(res.name) + ' <span style="color:var(--mist);font-weight:400">· ' + esc(res.x.where) +
+      "</span></div>";
+    res.rows.forEach(function(r){
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:4px">' +
+           "<span>" + esc(r.i === "!" ? "⚠" : r.i) + " " + esc(r.t) + "</span>" + r.f + "</div>";
+    });
+    h += "</div>";
+  });
+  if (!rpReady() && !falReady())
+    h += '<div style="padding-top:6px">No image engine configured, so nothing loads LoRAs yet.</div>';
+  h += '<div style="padding-top:8px">A healthy LoRA can still sit out a photo — that\'s the ' +
+       "WHEN field, and the route line in the log says which ones fired and why.</div>";
+  out.innerHTML = h;
+  /* everything missing from the volume can also go in one pod instead of
+     one pod each */
+  if (vol) {
+    var missing = [];
+    items.forEach(function(x){
+      var p = (x.l.path || "").trim();
+      if (!/^https?:\/\//i.test(p)) return;
+      var want = rpLoraName(p);
+      if (vol.indexOf(want) >= 0) return;
+      if (missing.some(function(m){ return m.name === want; })) return;
+      missing.push({name: want, url: p, label: ((x.l.name || "").trim() || want) + " · " + x.where});
+    });
+    if (missing.length > 1) {
+      out.insertAdjacentHTML("beforeend", '<div style="padding-top:8px">Or install all ' +
+        missing.length + " missing files with one pod:</div>");
+      rpInstallOffer(out, missing);
+    }
+  }
+  out.onclick = function(e){
+    var b = e.target.closest ? e.target.closest("[data-fx]") : null;
+    if (!b) return;
+    b.disabled = true;
+    fixes[+b.dataset.fx](b);
+  };
+  var n = results.filter(function(r){ return r.rows.some(function(x2){ return x2.i === "✗"; }); }).length;
+  L("img", "lorahealth: " + items.length + " checked, " + n + " with problems", true, 1200);
 }
 /* structured editor rows for a LoRA list — used by Settings and the
    character form; wireLoraList attaches delegated handlers to a container */
@@ -2089,12 +2194,22 @@ async function rpInstallLoras(out){
          "full list instead; the script skips files that are already there.");
   line((have ? "Missing " : "Configured ") + missing.length + ":");
   missing.forEach(function(m){ line("  • " + m.label + " → " + m.name); });
+  rpInstallOffer(out, missing);
+}
+/* the two install routes for a set of missing files, appended to any
+   container — the settings flow and each LoRA-health Fix button share it,
+   so classes rather than ids: several offers can sit on one screen */
+function rpInstallOffer(out, missing){
+  function line(t){
+    if (out) out.innerHTML += esc(t) + "<br>";
+    L("img", "lorainstall: " + t, true, 1200);
+  }
   var act = document.createElement("div");
   act.className = "srvbtns"; act.style.marginTop = "8px";
-  act.innerHTML = '<button class="use" id="rp-inst-auto">Install (temp CPU pod)</button>' +
-                  '<button class="use" id="rp-inst-copy">Copy script</button>';
+  act.innerHTML = '<button class="use rp-inst-auto">Install (temp CPU pod)</button>' +
+                  '<button class="use rp-inst-copy">Copy script</button>';
   out.appendChild(act);
-  $("rp-inst-copy").onclick = function(){
+  act.querySelector(".rp-inst-copy").onclick = function(){
     var txt = "# Run in any RunPod pod/terminal with the ComfyUI network volume mounted " +
               "at /workspace\n" + rpInstallScript(missing, false);
     (navigator.clipboard ? navigator.clipboard.writeText(txt)
@@ -2105,7 +2220,7 @@ async function rpInstallLoras(out){
               toast("Couldn't copy — the script is in Troubleshooting logs");
             });
   };
-  $("rp-inst-auto").onclick = function(){
+  act.querySelector(".rp-inst-auto").onclick = function(){
     act.remove();
     rpAutoInstall(out, missing, line);
   };
@@ -2174,7 +2289,7 @@ async function rpAutoInstall(out, missing, line){
     RPVOL = null;
     rpLoraProbe(function(names){
       if (!names) {
-        line("Couldn't re-read the file list — Test LoRAs (under Image generation) will " +
+        line("Couldn't re-read the file list — LoRA health (under Image generation) will " +
              "show it once the endpoint wakes.");
         return;
       }
@@ -4410,7 +4525,7 @@ function falSectionHTML(){
        'value="' + esc(f.trigger || "") + '">';
   h += '<div class="srvbtns" style="margin-top:10px">' +
        '<button class="use" id="civ-favs">Civitai favorites</button>' +
-       '<button class="use" id="lora-test">Test LoRAs</button></div>';
+       '<button class="use" id="lora-test">LoRA health</button></div>';
   h += '<div id="lora-test-out" class="ds" style="padding-top:6px"></div>';
   return h;
 }
@@ -4752,7 +4867,7 @@ function renderModelUI(){
   var lt = card.querySelector("#lora-test");
   if (lt) lt.onclick = function(){
     lt.disabled = true;
-    loraTest(card.querySelector("#lora-test-out"))
+    loraHealth(card.querySelector("#lora-test-out"))
       .then(function(){ lt.disabled = false; }, function(){ lt.disabled = false; });
   };
   var at = card.querySelector("#adult-toggle");
