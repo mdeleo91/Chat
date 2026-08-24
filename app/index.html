@@ -750,10 +750,12 @@
       <div class="field"><label>PHOTO STYLE</label>
         <textarea id="nc-imgstyle" rows="3" placeholder="How the photos {{char}} sends should look. Leave blank for a natural phone-snap look. e.g. Grainy, badly framed, always a bit too close. Slightly overexposed film look."></textarea></div>
       <div class="field"><label>SELFIE REFERENCES</label>
-        <div class="phint">Up to 10 photos of the person {{char}}'s selfies should show — fictional/AI-generated characters only, never photos of a real person. Sent to the image API each time; other photos ignore them. Without references, selfies fall back to Photo style — describe appearance there instead.</div>
+        <div class="phint">Up to 20 photos of the person {{char}}'s selfies should show — fictional/AI-generated characters only, never photos of a real person. Sent to the image API each time; other photos ignore them. Without references, selfies fall back to Photo style — describe appearance there instead.</div>
         <div class="refrow" id="nc-refs"></div>
         <div class="phint" id="nc-train-stat" style="padding-top:8px"></div>
-        <button class="btn ghost" id="nc-train" style="margin-top:8px;padding:9px 16px;font-size:13.5px">Train face LoRA</button></div>
+        <button class="btn ghost" id="nc-train" style="margin-top:8px;padding:9px 16px;font-size:13.5px">Train face LoRA</button>
+        <button class="btn ghost" id="nc-refgen" style="margin-top:8px;margin-left:6px;padding:9px 16px;font-size:13.5px">Expand set with Grok</button>
+        <div class="phint" style="padding-top:6px">Expand takes the FIRST reference above as the base and has Grok Imagine (via the fal key) generate varied angles, lighting and framing of the same person — you keep the good ones. A varied set of 15–20 trains a much better face LoRA than a handful of similar shots.</div></div>
       <input type="file" accept="image/*" id="nc-ref-file" style="display:none">
       <div class="field"><label>LORAS (FLUX ONLY)</label>
         <div class="phint">Only for {{char}}'s photos — e.g. a likeness LoRA — added on top of the LoRAs in Settings. Needs the fal.ai key there. Paste a Civitai model page link and the row fills itself.</div>
@@ -1902,6 +1904,135 @@ function openCivFavs(list, onChange){
   more.onclick = page;
   page();
   openSheet();
+}
+/* ================= reference-set expansion (Grok Imagine) =================
+   One good base portrait is easy to make elsewhere; the varied 15–20 image
+   training set is the tedious part. Grok Imagine's edit model — hosted on
+   fal, so the existing key and browser path just work — takes the base
+   photo plus an instruction and returns the same person re-shot, so a
+   curated shot list of angles, lighting and framing turns one portrait
+   into a training set. The person picks which results survive: identity
+   drifts sometimes, and curation is the fix. */
+var GROK_EDIT_URL = "https://fal.run/xai/grok-imagine-image/edit";
+var REF_SHOTS = [
+  "Three-quarter view from the subject's left, soft window daylight on the face",
+  "Three-quarter view from the subject's right, warm indoor lamp light in the evening",
+  "Side profile view, neutral expression, plain wall behind",
+  "Shot slightly from above, subject looking up at the camera, overcast daylight",
+  "Shot slightly from below, subject looking past the camera, golden-hour sunlight",
+  "Waist-up shot standing by a window, arms relaxed, natural light",
+  "Full-body shot standing in a doorway in everyday clothes, ambient light",
+  "Laughing hard, head tilted back a little, bright daylight",
+  "Neutral relaxed face, flat overcast light, hair tucked behind one ear",
+  "Night snapshot with harsh direct phone flash, slightly startled expression",
+  "Dim moody evening light indoors, half the face in soft shadow",
+  "Candid mid-conversation look, eyes slightly off-camera, busy cafe behind"
+];
+var REF_SHOT_SUFFIX = ". Keep this exact same person — identical face, hair and build. " +
+  "Photorealistic candid phone-photo look, no beautification, no makeup changes.";
+function grokEditRef(base, shot, cb){
+  function attempt(body, mayRetry){
+    fetch(GROK_EDIT_URL, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "Authorization": "Key " + fal().key.trim()},
+      body: JSON.stringify(body)
+    }).then(function(r){
+      if (!r.ok) return r.text().then(function(t){
+        /* param-name insurance: fal edit endpoints take image_urls or
+           image_url depending on the model — flip once on a validation error */
+        if (mayRetry && r.status === 422) {
+          attempt({prompt: body.prompt, image_url: base, format: "jpeg"}, false);
+          return null;
+        }
+        throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 200) : ""));
+      });
+      return r.json();
+    }).then(function(j){
+      if (j === null) return;                      // handed off to the retry
+      var d = (j.images && j.images[0]) || (j.data && j.data[0]) || {};
+      if (!d.url && !d.b64_json) throw new Error("no image in the response");
+      shrinkImage(d.b64_json ? "data:image/jpeg;base64," + d.b64_json : d.url, cb);
+    }).catch(function(e){
+      L("img", "grok ref shot failed: " + String(e && e.message || e).slice(0, 200), true);
+      cb(null);
+    });
+  }
+  attempt({prompt: shot + REF_SHOT_SUFFIX, image_urls: [base], format: "jpeg"}, true);
+}
+function openRefBuilder(){
+  if (!falReady()) { toast("Add your fal.ai key in Settings first"); return; }
+  if (!editRefs.length) { toast("Add one base photo first — the best portrait you have"); return; }
+  var room = 20 - editRefs.length;
+  if (room < 1) { toast("The reference set is full — remove some first"); return; }
+  var base = editRefs[0];
+  var shots = REF_SHOTS.slice(0, Math.min(REF_SHOTS.length, room));
+  var sh = $("asheet");
+  sh.innerHTML = '<div class="grip"></div>' +
+    '<div class="as-msg full">Grok Imagine re-shoots the first reference ' + shots.length +
+    " ways — angles, lighting, framing. Tap a result to keep or drop it (kept ones are " +
+    "outlined); identity drifts sometimes, so drop anything that stops looking like them. " +
+    "About $" + (Math.ceil(shots.length * 2.2) / 100).toFixed(2) + " on the fal account.</div>" +
+    '<div id="rg-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;' +
+    'max-height:46vh;overflow-y:auto;overscroll-behavior:contain"></div>' +
+    '<div id="rg-stat" class="ds" style="padding:8px 0 4px">Starting…</div>' +
+    '<button class="btn" id="rg-add" style="width:100%" disabled>Waiting…</button>';
+  openSheet();
+  var grid = $("rg-grid"), made = [], kept = [];
+  var done = 0, launched = 0, active = 0, CONC = 3;
+  function alive(){
+    return $("asheet").classList.contains("on") && document.body.contains(grid);
+  }
+  function refresh(){
+    var st = $("rg-stat"), btn = $("rg-add");
+    if (!st || !btn || !alive()) return;
+    var k = kept.filter(Boolean).length;
+    st.textContent = done < shots.length
+      ? "Generating " + done + "/" + shots.length + "…"
+      : "Done — " + made.filter(Boolean).length + " of " + shots.length + " came back.";
+    btn.disabled = !k;
+    btn.textContent = k ? "Add " + k + " to references"
+                        : (done < shots.length ? "Waiting…" : "Nothing kept");
+  }
+  function cell(i, url){
+    var d = document.createElement("div");
+    d.style.cssText = "position:relative;border-radius:10px;overflow:hidden;cursor:pointer;" +
+      "border:3px solid var(--acc)";
+    d.innerHTML = '<img src="' + url + '" style="width:100%;aspect-ratio:3/4;object-fit:cover;display:block">';
+    d.onclick = function(){
+      kept[i] = !kept[i];
+      d.style.borderColor = kept[i] ? "var(--acc)" : "transparent";
+      refresh();
+    };
+    grid.appendChild(d);
+  }
+  function pump(){
+    if (!alive()) return;                          // sheet closed — stop launching
+    while (active < CONC && launched < shots.length) {
+      (function(i){
+        launched++; active++;
+        grokEditRef(base, shots[i], function(url){
+          active--; done++;
+          if (url && alive()) {
+            var idx = made.length;
+            made.push(url); kept.push(true);
+            cell(idx, url);
+          }
+          refresh(); pump();
+        });
+      })(launched);
+    }
+  }
+  $("rg-add").onclick = function(){
+    var add = [];
+    made.forEach(function(u, i){ if (u && kept[i]) add.push(u); });
+    add.slice(0, 20 - editRefs.length).forEach(function(u){ editRefs.push(u); });
+    renderRefRow();
+    closeSheet();
+    toast(add.length + " added — retrain the face LoRA to bake them in");
+    L("img", "grok expansion: kept " + add.length + " of " + made.filter(Boolean).length +
+      " generated references", true);
+  };
+  refresh(); pump();
 }
 /* ================= face LoRA training (fal) =================
    Turns a character's reference photos into a likeness LoRA via fal's
@@ -6893,13 +7024,14 @@ $("nc-train").onclick = function(){
     toast(err ? "Couldn't start training — see Troubleshooting logs" : "Training started — check back in a few minutes");
   });
 };
+$("nc-refgen").onclick = openRefBuilder;
 function renderRefRow(){
   var row = $("nc-refs"), h = "";
   editRefs.forEach(function(u, i){
     h += '<div class="refthumb"><img src="' + u + '">' +
          '<button class="rx" data-i="' + i + '"><span class="msr" style="font-size:13px">close</span></button></div>';
   });
-  if (editRefs.length < 10)
+  if (editRefs.length < 20)
     h += '<button class="refadd" title="Add reference photo"><span class="msr">add</span></button>';
   row.innerHTML = h;
 }
@@ -7460,7 +7592,7 @@ $("nc-refs").addEventListener("click", function(e){
 });
 $("nc-ref-file").onchange = function(){
   var f = this.files && this.files[0]; this.value = "";
-  if (!f || editRefs.length >= 10) return;
+  if (!f || editRefs.length >= 20) return;
   readChatPhoto(f, function(dataUrl){ editRefs.push(dataUrl); renderRefRow(); });
 };
 $("nc-photo").onclick = function(){ $("nc-file").click(); };
