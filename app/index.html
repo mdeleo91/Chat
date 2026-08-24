@@ -1151,8 +1151,13 @@ function glm(){
 }
 /* each model family has its own allowed size grid; both of these are the
    portrait "phone shaped" option */
-function imgSize(model){
-  return /glm-image/.test(model) ? "1056x1568" : "864x1152";
+/* every engine used to be hard-wired portrait; the director now picks the
+   orientation per shot and each engine maps it to its own sizes */
+function imgSize(model, aspect){
+  var big = /glm-image/.test(model);
+  if (aspect === "landscape") return big ? "1568x1056" : "1152x864";
+  if (aspect === "square") return big ? "1280x1280" : "1024x1024";
+  return big ? "1056x1568" : "864x1152";
 }
 /* Without direction the image models paint editorial photography — shallow
    depth of field, perfect light, graded color. Telling them what NOT to do
@@ -2085,11 +2090,13 @@ function rpLoraName(path){
   var seg = path.split("/").pop().split("?")[0];
   return /\.safetensors$/i.test(seg) ? seg : seg + ".safetensors";
 }
-/* ComfyUI graph (API format): flux1-dev-fp8 checkpoint, LoRA chain, portrait */
-function buildFluxWorkflow(prompt, loras){
+/* ComfyUI graph (API format): flux1-dev-fp8 checkpoint, LoRA chain */
+function buildFluxWorkflow(prompt, loras, aspect){
   var wf = {
     "1": {class_type: "CheckpointLoaderSimple", inputs: {ckpt_name: "flux1-dev-fp8.safetensors"}}
   };
+  var W = aspect === "landscape" ? 1216 : aspect === "square" ? 1024 : 832;
+  var H = aspect === "landscape" ? 832 : aspect === "square" ? 1024 : 1216;
   var modelRef = ["1", 0], clipRef = ["1", 1], id = 10;
   loras.forEach(function(l){
     wf[String(id)] = {class_type: "LoraLoader", inputs: {
@@ -2101,7 +2108,7 @@ function buildFluxWorkflow(prompt, loras){
   });
   wf["3"] = {class_type: "CLIPTextEncode", inputs: {text: prompt, clip: clipRef}};
   wf["4"] = {class_type: "CLIPTextEncode", inputs: {text: "", clip: clipRef}};
-  wf["5"] = {class_type: "EmptySD3LatentImage", inputs: {width: 832, height: 1216, batch_size: 1}};
+  wf["5"] = {class_type: "EmptySD3LatentImage", inputs: {width: W, height: H, batch_size: 1}};
   wf["6"] = {class_type: "KSampler", inputs: {
     model: modelRef, positive: ["3", 0], negative: ["4", 0], latent_image: ["5", 0],
     seed: Math.floor(Math.random() * 1e9), steps: 24, cfg: 1,
@@ -2352,7 +2359,7 @@ async function rpAutoInstall(out, missing, line){
   out.appendChild(sel); out.appendChild(go);
   go.onclick = function(){ sel.remove(); go.remove(); deploy(arr[+sel.value]); };
 }
-function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame, cast){
+function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame, cast, aspect){
   desc = adultDesc(desc, ch);
   /* no hard API limit here, but past ~4 stacked LoRAs FLUX output turns
      mushy — same priority trim as fal, one slot looser */
@@ -2378,7 +2385,7 @@ function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame, cast)
     fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
       method: "POST",
       headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
-      body: JSON.stringify({input: {workflow: buildFluxWorkflow(prompt, loras)}})
+      body: JSON.stringify({input: {workflow: buildFluxWorkflow(prompt, loras, aspect)}})
     }).then(function(r){
       if (!r.ok) return r.text().then(function(t){
         throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 300) : ""));
@@ -2483,7 +2490,7 @@ function rpPoll(id, tries, isSelfie, cid, nLoras, cb, onFail, netMisses){
     });
 }
 
-function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked, inFrame, cast){
+function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked, inFrame, cast, aspect){
   /* Kontext is an edit model that preserves its input photo — including its
      clothing; it was trained to resist undressing people. 18+ selfies
      therefore go text-to-image, where content LoRAs work at full strength;
@@ -2524,8 +2531,10 @@ function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked, inFrame, cas
      the pro-tier tolerance knob rides along on marked photos too */
   if (isMature) body.safety_tolerance = 5;
   var url = refs.length ? FAL_I2I_URL : FAL_T2I_URL;
+  /* Kontext output follows its input photo's shape; only t2i gets a size */
   if (refs.length) body.image_url = refs[0];
-  else body.image_size = "portrait_4_3";
+  else body.image_size = aspect === "landscape" ? "landscape_4_3"
+                       : aspect === "square" ? "square_hd" : "portrait_4_3";
   L("img", "flux prompt (" + body.prompt.length + " chars, checker " +
     (body.enable_safety_checker ? "on" : "off") + ") ↓\n" + body.prompt, true, 12000);
   imgResponse(fetch(url, {
@@ -2538,14 +2547,14 @@ function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked, inFrame, cas
     cb, onFail);
 }
 /* generate the picture a character decided to send; cb(dataUrlOrNull) */
-function glmImage(desc, ch, isSelfie, cb, inFrame){
+function glmImage(desc, ch, isSelfie, cb, inFrame, aspect){
   var prompt = imgPrompt(ch, desc, isSelfie, inFrame);
   L("img", "glm prompt (" + prompt.length + " chars) ↓\n" + prompt, true, 12000);
   imgResponse(fetch(GLM_IMG_URL, {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Bearer " + glm().key.trim()},
     body: JSON.stringify({model: glm().imodel, prompt: prompt,
-      size: imgSize(glm().imodel)})
+      size: imgSize(glm().imodel, aspect)})
   }), "generation (" + glm().imodel + ")", cb);
 }
 /* a selfie, generated from the character's reference photos so the same
@@ -2555,12 +2564,12 @@ function glmImage(desc, ch, isSelfie, cb, inFrame){
    or a rejected request => plain text-to-image fallback, and the API's
    error body lands in the troubleshooting log. */
 var GLM_REF_MODEL = "glm-image";
-function glmSelfie(desc, ch, cb, inFrame){
+function glmSelfie(desc, ch, cb, inFrame, aspect){
   var refs = (ch && ch.refimgs || []).slice(0, 3);
   if (refs.length)
     L("img", "note: Z.ai has ignored reference images in testing — add a fal.ai key " +
       "in Settings for selfies that actually match the references", true);
-  if (!refs.length) { glmImage(desc, ch, true, cb, inFrame); return; }
+  if (!refs.length) { glmImage(desc, ch, true, cb, inFrame, aspect); return; }
   var prompt = "A new photo of the same person as the reference image" +
     (refs.length > 1 ? "s" : "") + ". " + imgPrompt(ch, desc, true, inFrame);
   L("img", "glm selfie prompt (" + prompt.length + " chars, " + refs.length +
@@ -2572,10 +2581,10 @@ function glmSelfie(desc, ch, cb, inFrame){
       model: GLM_REF_MODEL,
       prompt: prompt,
       image_url: refs,
-      size: imgSize(GLM_REF_MODEL)
+      size: imgSize(GLM_REF_MODEL, aspect)
     })
   }), "selfie (" + GLM_REF_MODEL + ")", cb,
-    function(){ glmImage(desc, ch, true, cb, inFrame); });
+    function(){ glmImage(desc, ch, true, cb, inFrame, aspect); });
 }
 /* The API hands back a hosted URL that expires — storing it is how a chat
    ends up with broken image bubbles later. Download the pixels immediately
@@ -4206,7 +4215,11 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
         ". In the scene, name every person who is visible, by name.\n\n"
       : "") +
     "Reply with ONLY a JSON object, no other text: {\"scene\": string, \"loras\": [names], " +
-    "\"subject\": boolean}.\n" +
+    "\"subject\": boolean, \"aspect\": \"portrait\"|\"landscape\"|\"square\"}.\n" +
+    "aspect: the orientation this shot would really be taken in — portrait for selfies and " +
+    "standing figures, landscape for wide scenes, rooms, or people side by side (the phone " +
+    "held sideways), square for overhead flat-lays and tight detail shots. Not everything is " +
+    "portrait.\n" +
     "subject: true if " + ch.name + " is visible anywhere in the picture — face, body, any part of " +
     "her, first-person views of her own body included. false only for pictures of places, objects, " +
     "food, or other people with her out of shot.\n" +
@@ -4233,12 +4246,14 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
       var scene = String(j.scene || "").trim();
       var picked = Array.isArray(j.loras) ? j.loras.map(String) : null;
       var subject = typeof j.subject === "boolean" ? j.subject : null;
+      var aspect = ["portrait", "landscape", "square"].indexOf(j.aspect) >= 0 ? j.aspect : null;
       if (scene.length >= 20) {
         L("img", "director rewrote it as: “" + scene + "” · picked=" +
           (picked && picked.length ? picked.join(", ") : "(keyword match only)") +
           " · " + ch.name + (subject === null ? " in shot: unstated"
-                                              : (subject ? " is in shot" : " is not in shot")), true, 1500);
-        cb(scene, picked, subject);
+                                              : (subject ? " is in shot" : " is not in shot")) +
+          " · aspect=" + (aspect || "unstated (portrait)"), true, 1500);
+        cb(scene, picked, subject, aspect);
         return;
       }
     } catch (e) {}
@@ -4301,14 +4316,14 @@ function deliverPhoto(convo, ch, desc, isSelfie, isMature){
   setStage(convo.id, "framing the shot");
   /* learn the face once, plan the shot, then paint */
   ensureLook(ch, function(){
-    directPhoto(convo, ch, desc, isSelfie, isMature, function(finalDesc, picked, inFrame){
+    directPhoto(convo, ch, desc, isSelfie, isMature, function(finalDesc, picked, inFrame, aspect){
       if (CANCELREQ[convo.id]) { endGen(convo.id); return; }
       setStage(convo.id, "painting the photo");
-      deliverPhotoNow(convo, ch, desc, finalDesc, picked, isSelfie, isMature, inFrame);
+      deliverPhotoNow(convo, ch, desc, finalDesc, picked, isSelfie, isMature, inFrame, aspect);
     });
   });
 }
-function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature, inFrame){
+function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature, inFrame, aspect){
   var onDone = function(url){
     endGen(convo.id);
     var ty2 = $("ty"); if (ty2) ty2.classList.remove("on");
@@ -4347,15 +4362,16 @@ function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature, 
               : " (plain photos never use refs)") +
     " · loras=" + (llist || "none") +
     ((fal().trigger || "").trim() ? " · trigger set" : "") +
+    " · aspect=" + (aspect || "portrait") +
     " · “" + desc.slice(0, 60) + "”", true);
   var viaGlm = function(){
-    if (isSelfie) glmSelfie(desc, ch, onDone, inFrame);
-    else glmImage(desc, ch, false, onDone, inFrame);
+    if (isSelfie) glmSelfie(desc, ch, onDone, inFrame, aspect);
+    else glmImage(desc, ch, false, onDone, inFrame, aspect);
   };
   var viaFal = falReady()
-    ? function(){ falImage(desc, ch, isSelfie, isMature, onDone, glmReady() ? viaGlm : null, picked, inFrame, cast); }
+    ? function(){ falImage(desc, ch, isSelfie, isMature, onDone, glmReady() ? viaGlm : null, picked, inFrame, cast, aspect); }
     : null;
-  if (isMature && rpReady()) runpodImage(desc, ch, isSelfie, convo.id, onDone, viaFal || (glmReady() ? viaGlm : null), picked, inFrame, cast);
+  if (isMature && rpReady()) runpodImage(desc, ch, isSelfie, convo.id, onDone, viaFal || (glmReady() ? viaGlm : null), picked, inFrame, cast, aspect);
   else if (viaFal) viaFal();
   else viaGlm();
 }
