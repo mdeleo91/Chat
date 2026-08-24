@@ -1327,13 +1327,24 @@ function chLoraList(ch){
    description mentions one, so subject LoRAs can't bleed into other shots. */
 /* quiet: the route-log call recomputes what the engine call is about to
    compute anyway, and without this its cap and damping notes print twice */
-function lorasFor(ch, desc, isMature, picked, maxN, quiet){
+function lorasFor(ch, desc, isMature, picked, maxN, quiet, cast){
   var t = (desc || "").toLowerCase();
   var pick = (picked || []).map(function(n){ return String(n).trim().toLowerCase(); })
     .filter(Boolean);
-  var globals = fal().loras, items = [];
-  globals.concat(chLoraList(ch)).forEach(function(l, idx){
-    var path = (l.path || "").trim();
+  var pool = [];
+  fal().loras.forEach(function(l){ pool.push({l: l, own: null}); });
+  chLoraList(ch).forEach(function(l){ pool.push({l: l, own: ch}); });
+  /* group photos: the other members' cards join the pool too — a photo of
+     "me and Harper" needs Harper's likeness LoRA, which used to not even be
+     a candidate. A cast entry only fires when its owner is actually in the
+     shot: named in the description, or picked by the director. */
+  (cast || []).forEach(function(oc){
+    if (!oc || !ch || oc.id === ch.id) return;
+    chLoraList(oc).forEach(function(l){ pool.push({l: l, own: oc, cast: true}); });
+  });
+  var items = [];
+  pool.forEach(function(e){
+    var l = e.l, path = (l.path || "").trim();
     if (!path) return;
     var nm = ((l.name || "").trim() || path.split("/").pop().split("?")[0]).toLowerCase();
     var kws = (l.when || "").split(",")
@@ -1350,24 +1361,29 @@ function lorasFor(ch, desc, isMature, picked, maxN, quiet){
     /* the photo director may add a LoRA by name — union with the keyword
        baseline, except an 18+-gated LoRA can never ride a SFW picture */
     var pickOk = pick.indexOf(nm) >= 0 && (isMature || !matureGate);
+    if (e.cast) {
+      var named = t.indexOf((e.own.name || "").split(/\s+/)[0].toLowerCase()) >= 0;
+      kwOk = kwOk && named;
+    }
     if (!kwOk && !pickOk) return;
     /* why it made the cut. An empty WHEN means "every photo" — correct for a
        style LoRA, a trap for a subject one, whose trigger words then ride a
        picture that has nothing to do with it. The log named the LoRA but
        never the reason, so "always" was indistinguishable from a real match. */
-    var why = !kws.length ? "always"
+    var why = e.cast ? (kwOk ? "cast" : "picked")
+      : !kws.length ? "always"
       : (kwOk ? (matureGate ? (rest.length ? "18+&kw" : "18+") : "kw") : "picked");
     /* fal rejects scale > 4 outright (422, photo lost to the fallback) —
        clamp here so a "8" typo for "0.8" degrades instead of failing */
     var sc = l.scale ? Math.min(4, Math.max(0, l.scale)) : null;
     items.push({
-      /* priority under an engine cap: the character's own LoRAs (identity)
+      /* priority under an engine cap: the characters' own LoRAs (identity)
          survive first, then the director's contextual picks, then keyword
          hits, then always-on styles */
-      rank: idx >= globals.length ? 0 : (pickOk && pick.length ? 1 : (kws.length ? 2 : 3)),
-      /* the character's own cards, and anything the face trainer produced,
+      rank: e.own ? 0 : (pickOk && pick.length ? 1 : (kws.length ? 2 : 3)),
+      /* a character's own cards, and anything the face trainer produced,
          are what make her her — they are damped by different rules */
-      identity: idx >= globals.length || !!l.face,
+      identity: !!e.own || !!l.face,
       lora: sc ? {path: withCivitaiToken(path), scale: sc} : {path: withCivitaiToken(path)},
       add: (l.add || "").trim(),
       why: why,
@@ -1752,7 +1768,11 @@ var CIV_TAG_NOISE = {"style":1,"styles":1,"concept":1,"lora":1,"flux":1,"flux.1"
 function civAutoWhen(model){
   var tags = (model.tags || []).map(function(t){ return String(t).toLowerCase().trim(); });
   var style = tags.indexOf("style") >= 0 || tags.indexOf("styles") >= 0;
-  var kws = style ? [] : tags.filter(function(t){
+  /* a likeness LoRA (character/celebrity tag) paints a person, not a topic —
+     subject keywords would just make it sit out photos of its own person, so
+     it gets no keywords and rides every photo (gated only by 18+ if flagged) */
+  var likeness = tags.indexOf("character") >= 0 || tags.indexOf("celebrity") >= 0 || !!model.poi;
+  var kws = (style || likeness) ? [] : tags.filter(function(t){
     return t && !CIV_TAG_NOISE[t] && t.length >= 3 && t.length <= 24;
   }).slice(0, 6);
   return (model.nsfw ? ["18+"] : []).concat(kws).join(", ");
@@ -2332,11 +2352,11 @@ async function rpAutoInstall(out, missing, line){
   out.appendChild(sel); out.appendChild(go);
   go.onclick = function(){ sel.remove(); go.remove(); deploy(arr[+sel.value]); };
 }
-function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame){
+function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame, cast){
   desc = adultDesc(desc, ch);
   /* no hard API limit here, but past ~4 stacked LoRAs FLUX output turns
      mushy — same priority trim as fal, one slot looser */
-  var lf = lorasFor(ch, desc, true, picked, 4);
+  var lf = lorasFor(ch, desc, true, picked, 4, false, cast);
   var trig = [(fal().trigger || "").trim()].concat(lf.adds)
     .concat([(fal().mat || "").trim()]).filter(Boolean).join("\n");
   var prompt = imgPrompt(ch, desc, isSelfie, inFrame) + (trig ? "\n" + trig : "");
@@ -2463,14 +2483,14 @@ function rpPoll(id, tries, isSelfie, cid, nLoras, cb, onFail, netMisses){
     });
 }
 
-function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked, inFrame){
+function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked, inFrame, cast){
   /* Kontext is an edit model that preserves its input photo — including its
      clothing; it was trained to resist undressing people. 18+ selfies
      therefore go text-to-image, where content LoRAs work at full strength;
      identity there comes from a likeness LoRA in the character's cards. */
   var refs = isSelfie && !isMature ? (ch && ch.refimgs || []) : [];
   if (isMature) desc = adultDesc(desc, ch);
-  var lf = lorasFor(ch, desc, isMature, picked, 3), loras = lf.loras;   // fal 422s above 3
+  var lf = lorasFor(ch, desc, isMature, picked, 3, false, cast), loras = lf.loras;   // fal 422s above 3
   /* Kontext keeps a face best when addressed as an edit of "this person",
      and when style LoRAs are damped so they can't out-vote the identity */
   /* ...but not the identity ones. Damping everything was damping the very
@@ -4129,12 +4149,29 @@ async function runGeneration(convo, ch, nudge, done){
    camera (so pictures stop defaulting to square-to-camera standing), plus
    which LoRAs by name actually fit this moment. Any failure falls back to
    the raw description and keyword matching; the photo never gets lost here. */
+/* the other group members whose card LoRAs are candidates for this photo */
+function photoCast(convo, ch){
+  if (!convo || !convo.grp) return [];
+  return (convo.members || []).map(getChar).filter(function(c){
+    return c && c.id !== ch.id && chLoraList(c).length;
+  });
+}
 function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
   if (!glmReady()) { cb(desc, null, null); return; }
-  var catalog = fal().loras.concat(chLoraList(ch)).map(function(l){
-    return {name: (l.name || "").trim() || (l.path || "").split("/").pop().split("?")[0],
-            when: (l.when || "").trim() || "always"};
-  }).filter(function(c){ return c.name; });
+  /* in a group, everyone's card LoRAs are candidates — the director decides
+     whose are in the shot, and lorasFor gates a cast member's on their name
+     appearing in the scene, so the scene must name who is visible */
+  var castChars = photoCast(convo, ch);
+  var catalog = [];
+  function catAdd(l, owner){
+    var name = (l.name || "").trim() || (l.path || "").split("/").pop().split("?")[0];
+    if (name) catalog.push({name: name, when: (l.when || "").trim() || "always", owner: owner});
+  }
+  fal().loras.forEach(function(l){ catAdd(l, ""); });
+  chLoraList(ch).forEach(function(l){ catAdd(l, ch.name); });
+  castChars.forEach(function(oc){
+    chLoraList(oc).forEach(function(l){ catAdd(l, oc.name); });
+  });
   var tail = (S.msgs[convo.id] || []).slice(-8).map(function(m){
     var who = m.who === "me" ? "User"
       : (m.who === "scene" ? "[scene]" : ((getChar(m.by) || ch).name));
@@ -4155,7 +4192,18 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
     "one also fits.\n\n" +
     (catalog.length
       ? "Available LoRAs — pick only the ones that genuinely fit this picture:\n" +
-        catalog.map(function(c){ return "- " + c.name + " (meant for: " + c.when + ")"; }).join("\n") + "\n\n"
+        catalog.map(function(c){
+          return "- " + c.name + (c.owner ? " (" + c.owner + "'s card" : " (shared") +
+                 ", meant for: " + c.when + ")";
+        }).join("\n") + "\n" +
+        "A LoRA on someone's card paints that person. ALWAYS pick every card LoRA whose owner " +
+        "is visible in the picture — that is what keeps their face and body right — and never " +
+        "pick one whose owner is out of shot.\n\n"
+      : "") +
+    (castChars.length
+      ? "This is a group chat; also possibly in the picture: " +
+        castChars.map(function(c){ return c.name; }).join(", ") +
+        ". In the scene, name every person who is visible, by name.\n\n"
       : "") +
     "Reply with ONLY a JSON object, no other text: {\"scene\": string, \"loras\": [names], " +
     "\"subject\": boolean}.\n" +
@@ -4284,8 +4332,9 @@ function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature, 
   var refs = (ch && ch.refimgs || []).length;
   if (isMature && isSelfie && refs && falReady()) refs = 0;   // 18+ selfies skip Kontext
   var damping = isSelfie && refs && falReady();
+  var cast = photoCast(convo, ch);
   var lfLog = falReady() || rpReady()
-    ? lorasFor(ch, desc, isMature, picked, isMature && rpReady() ? 4 : 3, true)
+    ? lorasFor(ch, desc, isMature, picked, isMature && rpReady() ? 4 : 3, true, cast)
     : {loras: [], names: [], whys: [], ids: []};
   var llist = lfLog.loras.map(function(l, i){
     var d = damping && !(lfLog.ids || [])[i] ? 0.7 : 1;
@@ -4304,9 +4353,9 @@ function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature, 
     else glmImage(desc, ch, false, onDone, inFrame);
   };
   var viaFal = falReady()
-    ? function(){ falImage(desc, ch, isSelfie, isMature, onDone, glmReady() ? viaGlm : null, picked, inFrame); }
+    ? function(){ falImage(desc, ch, isSelfie, isMature, onDone, glmReady() ? viaGlm : null, picked, inFrame, cast); }
     : null;
-  if (isMature && rpReady()) runpodImage(desc, ch, isSelfie, convo.id, onDone, viaFal || (glmReady() ? viaGlm : null), picked, inFrame);
+  if (isMature && rpReady()) runpodImage(desc, ch, isSelfie, convo.id, onDone, viaFal || (glmReady() ? viaGlm : null), picked, inFrame, cast);
   else if (viaFal) viaFal();
   else viaGlm();
 }
