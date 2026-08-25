@@ -2314,7 +2314,7 @@ function rpInstallScript(missing, selfDelete){
   s += "ls -la\n";
   if (selfDelete)
     s += 'curl -s -X DELETE -H "Authorization: Bearer $RUNPOD_API_KEY" ' +
-         '"https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID"\nsleep 600\n';
+         '"https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID"\nsleep 60\n';
   return s;
 }
 async function rpInstallLoras(out){
@@ -2427,13 +2427,29 @@ async function rpAutoInstall(out, missing, line){
                String(e && e.message || e));
         });
     };
-    var t0 = Date.now();
+    var t0 = Date.now(), ticks = 0;
     while (!stopped) {
       await new Promise(function(r){ setTimeout(r, 10000); });
+      ticks++;
       if (stopped) return;
       var st = null;
       try { st = await rpRest("GET", "/pods/" + pid); } catch(e){}
       if (st && st.gone) break;
+      /* the pod's self-delete can fail quietly, and then the wait is pure
+         theatre — the file finished minutes ago. Every ~minute, ask the
+         ComfyUI endpoint whether everything has landed; when it has, delete
+         the pod from here instead of waiting out the clock. */
+      if (rpReady() && ticks % 6 === 0) {
+        var names = await new Promise(function(res){
+          RPVOL = null;
+          rpLoraProbe(function(n){ res(n); });
+        });
+        if (names && missing.every(function(m){ return names.indexOf(m.name) >= 0; })) {
+          line("All files are on the volume — deleting the pod.");
+          try { await rpRest("DELETE", "/pods/" + pid); } catch(e){}
+          break;
+        }
+      }
       if (Date.now() - t0 > 12 * 60 * 1000) {
         line("12 minutes — that's long. Deleting the pod; rerunning Install resumes where " +
              "it left off (finished files are kept).");
@@ -3130,7 +3146,7 @@ async function remoteGenerate(messages, onDelta, cid){
       var ne = new Error(who + " returned no job id");
       ne.viaRp = true; ne.fallbackSync = true; throw ne;
     }
-    var jobId = sj.id, netMisses = 0;
+    var jobId = sj.id, netMisses = 0, stuck = 0, resubs = 0;
     L("gen", "vision job " + jobId + " submitted (" + LASTREQ.kb +
       "KB) — polling; a slow boot no longer abandons it", true);
     for (;;) {
@@ -3222,9 +3238,46 @@ async function remoteGenerate(messages, onDelta, cid){
           "check Max Workers, GPU types and credits (Settings → Test vision endpoint)");
         qe2.viaRp = true; throw qe2;
       }
+      /* the lost-job signature: workers sit idle or ready, nothing is
+         initializing or running, the queue and in-progress counts are both
+         zero — yet our job never completed. That is a job that died with a
+         crash-looping worker and was never requeued; RunPod will let it sit
+         there forever while a warm GPU idles next to it. Waiting longer can
+         never fix it — a fresh submission gets picked up immediately. */
+      var idleOnly = aliveW > 0 && !(hw.initializing || 0) && !(hw.running || 0);
+      var jobsLive = (((h && h.jobs && h.jobs.inQueue) || 0) +
+                      ((h && h.jobs && h.jobs.inProgress) || 0)) > 0;
+      if (h && idleOnly && !jobsLive) stuck++; else stuck = 0;
+      if (stuck >= 2) {
+        rpCancelJob(jobId);
+        if (resubs >= 1) {
+          var le = new Error(who + " keeps losing the job: workers sit idle while the queue " +
+            "stays empty, twice over. The worker that claims it is likely crash-looping — " +
+            "check the endpoint's worker logs on RunPod, and Purge queued jobs in Settings.");
+          le.viaRp = true; throw le;
+        }
+        resubs++; stuck = 0;
+        L("gen", "vision job " + jobId + " looks lost — workers idle, queue empty, nothing " +
+          "in progress. Resubmitting it once instead of waiting.", true);
+        var r2 = await fetch(rpVisionUrl("/run"), {method: "POST", headers: rpJobHeaders(), body: body});
+        var sj2 = null;
+        if (r2.ok) { try { sj2 = await r2.json(); } catch (e3) {} }
+        if (!sj2 || !sj2.id) {
+          var re2 = new Error(who + " wouldn't accept the resubmitted job" +
+            (r2.ok ? "" : " (HTTP " + r2.status + ")"));
+          re2.viaRp = true; throw re2;
+        }
+        jobId = sj2.id;
+        budget += RP_EXTEND_MS;
+        L("gen", "vision job resubmitted as " + jobId + " — an idle worker should take it " +
+          "within seconds", true);
+        continue;
+      }
       budget += RP_EXTEND_MS;
       L("gen", "still waiting on vision job " + jobId + " (initializing=" + (hw.initializing || 0) +
-        ", running=" + (hw.running || 0) + ", queued=" + ((h && h.jobs && h.jobs.inQueue) || 0) +
+        ", running=" + (hw.running || 0) + ", ready=" + ((hw.ready || 0) + (hw.idle || 0)) +
+        ", queued=" + ((h && h.jobs && h.jobs.inQueue) || 0) +
+        ", inProgress=" + ((h && h.jobs && h.jobs.inProgress) || 0) +
         ") — extending to " + Math.round(budget / 60000) + " min; the job keeps its place", true);
     }
   }
