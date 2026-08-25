@@ -812,6 +812,34 @@
     </div>
   </div>
 
+  <!-- photo lab: hand-drive the image stack — exact prompt, hand-picked LoRAs -->
+  <div class="view right" id="v-lab">
+    <div class="subhead">
+      <button class="back" id="lab-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
+      <div class="cwrap"><div class="cname">Photo Lab</div>
+        <div class="cstat">test prompts, LoRAs and faces by hand</div></div>
+      <button class="back" id="lab-go" style="font-size:15px;font-weight:800">Paint</button>
+    </div>
+    <div class="rows">
+      <div class="field"><label>PROMPT</label>
+        <div class="phint">Goes to the engine exactly as written — no director, no rewriting. Describe the shot, subject, pose, light.</div>
+        <textarea id="lab-prompt" rows="5" placeholder="e.g. Waist-up shot by a window, warm evening light, a woman laughing with her eyes closed"></textarea></div>
+      <div class="field"><label>CHARACTER (OPTIONAL)</label>
+        <div class="phint">Appends their appearance anchor to the prompt and lets you save results into their gallery.</div>
+        <select id="lab-char" class="srvinput"></select>
+        <label class="phint" style="display:flex;align-items:center;gap:8px;padding-top:6px;cursor:pointer">
+          <input type="checkbox" id="lab-anchor" checked> append their appearance anchor</label></div>
+      <div class="field"><label>ENGINE</label><div id="lab-engine"></div></div>
+      <div class="field"><label>ASPECT</label><div id="lab-aspect"></div></div>
+      <div class="field" id="lab-mature-wrap" hidden><label>CONTENT</label><div id="lab-mature"></div></div>
+      <div class="field"><label>LORAS — checked ones ride at the strength shown; WHEN is ignored here</label>
+        <div id="lab-loras"></div></div>
+      <div id="lab-stat" class="ds" style="padding-top:4px"></div>
+      <div id="lab-out"></div>
+      <div style="height:24px"></div>
+    </div>
+  </div>
+
   <!-- ============ VOICE CALL ============ -->
   <div class="view right" id="v-call">
     <div class="callhead">Voice Call · on-device</div>
@@ -1195,7 +1223,7 @@ function faceOutOfFrame(desc){
   return /\b(pov|point of view|first[- ]?person|face hidden|face out of frame|headless|cropped at the (?:neck|chin)|looking down at (?:her|his|their)(?: own)? (?:lap|body|chest|breasts|thighs|stomach|legs))\b/i
     .test(desc || "");
 }
-function imgPrompt(ch, desc, isSelfie, inFrame){
+function imgPrompt(ch, desc, isSelfie, inFrame, cast){
   var style = ch && ch.imgstyle ? fill(ch.imgstyle, ch) : IMG_STYLE_DEFAULT;
   var look = ch && (ch.look || "").trim();
   /* the anchor used to ride selfies only, so every [photo:] she appeared in —
@@ -1203,8 +1231,24 @@ function imgPrompt(ch, desc, isSelfie, inFrame){
      all. That is why she drifted worst on the tame ones. The director now
      reports whether she is in shot; a selfie always is. */
   var shows = isSelfie || (inFrame === undefined || inFrame === null ? false : !!inFrame);
-  var subj = shows && !faceOutOfFrame(desc) && look
-    ? "\n\nThe person shown is the same in every photo: " + look : "";
+  /* group shots: every cast member named in the scene gets their own written
+     anchor. The second face used to ride on its LoRA alone — and the
+     singular "the person shown" actively fought a two-person composition. */
+  var t2 = (desc || "").toLowerCase();
+  var others = (cast || []).filter(function(oc){
+    return oc && oc !== ch && (oc.look || "").trim() &&
+      t2.indexOf((oc.name || "").split(/\s+/)[0].toLowerCase()) >= 0;
+  });
+  var listed = [];
+  if (shows && !faceOutOfFrame(desc) && look)
+    listed.push(others.length ? ch.name.split(/\s+/)[0] + " — " + look : look);
+  others.forEach(function(oc){
+    listed.push(oc.name.split(/\s+/)[0] + " — " + oc.look.trim());
+  });
+  var subj = !listed.length ? "" :
+    listed.length === 1
+      ? "\n\nThe person shown is the same in every photo: " + listed[0]
+      : "\n\nEach person shown looks the same in every photo. " + listed.join(". ") + ".";
   /* the scene leads, identity follows. Opening the prompt with a face
      description is asking for a face-forward portrait — which is how a
      first-person shot of her own feet came back framed like a mirror selfie.
@@ -1423,6 +1467,23 @@ function lorasFor(ch, desc, isMature, picked, maxN, quiet, cast){
         items.slice(maxN).map(function(i){ return i.name + "(" + i.why + ")"; }).join(", ") +
         " — director picks outrank keyword matches, and equal ranks fall back to list order", true);
     items = items.slice(0, maxN);
+  }
+  /* two likeness LoRAs on one image bleed into each other — every LoRA is
+     global, so both push on both faces and the two converge. Damping each
+     identity when more than one rides trades a sliver of likeness for much
+     less blending; the per-person anchors in imgPrompt pull each face back
+     toward its own person. */
+  var idents = items.filter(function(i){ return i.identity; });
+  if (idents.length > 1) {
+    var blended = [];
+    idents.forEach(function(i){
+      var ds = Math.round(((i.lora.scale || 1) * 0.75) * 100) / 100;
+      i.lora = {path: i.lora.path, scale: ds};
+      blended.push(i.name + "→" + ds);
+    });
+    if (!quiet)
+      L("img", idents.length + " identity LoRAs on one photo — damped to reduce face blend: " +
+        blended.join(", "), true);
   }
   return {
     loras: items.map(function(i){ return i.lora; }),
@@ -2513,7 +2574,7 @@ function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame, cast,
   var lf = lorasFor(ch, desc, true, picked, 4, false, cast);
   var trig = [(fal().trigger || "").trim()].concat(lf.adds)
     .concat([(fal().mat || "").trim()]).filter(Boolean).join("\n");
-  var prompt = imgPrompt(ch, desc, isSelfie, inFrame) + (trig ? "\n" + trig : "");
+  var prompt = imgPrompt(ch, desc, isSelfie, inFrame, cast) + (trig ? "\n" + trig : "");
   /* tame output with a green route-log is a prompt problem, so log the whole
      string that reaches the GPU — not the description alone. The description
      is only the middle of it: imgPrompt puts the appearance anchor in front
@@ -2665,7 +2726,7 @@ function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked, inFrame, cas
     prompt: (refs.length
       ? "This is a photo of a person. Create a new photo of exactly this same person — identical " +
         "face, hair and build, unmistakably them — now: "
-      : "") + imgPrompt(ch, desc, isSelfie, inFrame) + (trig ? "\n" + trig : ""),
+      : "") + imgPrompt(ch, desc, isSelfie, inFrame, cast) + (trig ? "\n" + trig : ""),
     loras: loras,
     output_format: "jpeg",
     sync_mode: true,
@@ -2694,8 +2755,8 @@ function falImage(desc, ch, isSelfie, isMature, cb, onFail, picked, inFrame, cas
     cb, onFail);
 }
 /* generate the picture a character decided to send; cb(dataUrlOrNull) */
-function glmImage(desc, ch, isSelfie, cb, inFrame, aspect){
-  var prompt = imgPrompt(ch, desc, isSelfie, inFrame);
+function glmImage(desc, ch, isSelfie, cb, inFrame, aspect, cast){
+  var prompt = imgPrompt(ch, desc, isSelfie, inFrame, cast);
   L("img", "glm prompt (" + prompt.length + " chars) ↓\n" + prompt, true, 12000);
   imgResponse(fetch(GLM_IMG_URL, {
     method: "POST",
@@ -2711,14 +2772,14 @@ function glmImage(desc, ch, isSelfie, cb, inFrame, aspect){
    or a rejected request => plain text-to-image fallback, and the API's
    error body lands in the troubleshooting log. */
 var GLM_REF_MODEL = "glm-image";
-function glmSelfie(desc, ch, cb, inFrame, aspect){
+function glmSelfie(desc, ch, cb, inFrame, aspect, cast){
   var refs = (ch && ch.refimgs || []).slice(0, 3);
   if (refs.length)
     L("img", "note: Z.ai has ignored reference images in testing — add a fal.ai key " +
       "in Settings for selfies that actually match the references", true);
-  if (!refs.length) { glmImage(desc, ch, true, cb, inFrame, aspect); return; }
+  if (!refs.length) { glmImage(desc, ch, true, cb, inFrame, aspect, cast); return; }
   var prompt = "A new photo of the same person as the reference image" +
-    (refs.length > 1 ? "s" : "") + ". " + imgPrompt(ch, desc, true, inFrame);
+    (refs.length > 1 ? "s" : "") + ". " + imgPrompt(ch, desc, true, inFrame, cast);
   L("img", "glm selfie prompt (" + prompt.length + " chars, " + refs.length +
     " ref" + (refs.length > 1 ? "s" : "") + ") ↓\n" + prompt, true, 12000);
   imgResponse(fetch(GLM_IMG_URL, {
@@ -2731,7 +2792,7 @@ function glmSelfie(desc, ch, cb, inFrame, aspect){
       size: imgSize(GLM_REF_MODEL, aspect)
     })
   }), "selfie (" + GLM_REF_MODEL + ")", cb,
-    function(){ glmImage(desc, ch, true, cb, inFrame, aspect); });
+    function(){ glmImage(desc, ch, true, cb, inFrame, aspect, cast); });
 }
 /* The API hands back a hosted URL that expires — storing it is how a chat
    ends up with broken image bubbles later. Download the pixels immediately
@@ -4673,8 +4734,8 @@ function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature, 
     " · aspect=" + (aspect || "portrait") +
     " · “" + desc.slice(0, 60) + "”", true);
   var viaGlm = function(){
-    if (isSelfie) glmSelfie(desc, ch, onDone, inFrame, aspect);
-    else glmImage(desc, ch, false, onDone, inFrame, aspect);
+    if (isSelfie) glmSelfie(desc, ch, onDone, inFrame, aspect, cast);
+    else glmImage(desc, ch, false, onDone, inFrame, aspect, cast);
   };
   var viaFal = falReady()
     ? function(){ falImage(desc, ch, isSelfie, isMature, onDone, glmReady() ? viaGlm : null, picked, inFrame, cast, aspect); }
@@ -4898,7 +4959,8 @@ function falSectionHTML(){
        'value="' + esc(f.trigger || "") + '">';
   h += '<div class="srvbtns" style="margin-top:10px">' +
        '<button class="use" id="civ-favs">Civitai favorites</button>' +
-       '<button class="use" id="lora-test">LoRA health</button></div>';
+       '<button class="use" id="lora-test">LoRA health</button>' +
+       '<button class="use" id="open-lab">Photo lab</button></div>';
   h += '<div id="lora-test-out" class="ds" style="padding-top:6px"></div>';
   return h;
 }
@@ -4959,6 +5021,8 @@ function wireFalUI(card){
   if (cf) cf.onclick = function(){
     openCivFavs(fal().loras, function(){ save(); renderModelUI(); });
   };
+  var lab = card.querySelector("#open-lab");
+  if (lab) lab.onclick = openLab;
   var ri = card.querySelector("#rp-lora-install");
   if (ri) ri.onclick = function(){
     ri.disabled = true;
@@ -7344,6 +7408,195 @@ function saveMe(){
 
 /* ================= voice call ================= */
 var callTimer = null, callChar = null;
+/* ================= photo lab =================
+   A workbench for the image stack: type the exact prompt, hand-pick which
+   LoRAs ride and at what strength — WHEN gating and the photo director are
+   bypassed on purpose — choose the engine and aspect, and paint. For
+   testing a new LoRA or a freshly trained face without holding a
+   conversation hostage to it. Nothing here writes back to the LoRA cards. */
+var LAB = {engine: "", aspect: "portrait", mature: false, sel: {}, busy: false};
+function labLoraKey(x){ return x.where + "|" + (x.l.path || ""); }
+function labChips(el, options, cur, onPick){
+  el.innerHTML = "";
+  options.forEach(function(o){
+    var b = document.createElement("button");
+    b.className = "btn ghost";
+    b.style.cssText = "padding:8px 14px;font-size:13px;margin:0 6px 6px 0" +
+      (o.v === cur ? ";background:var(--acc);color:#fff;border-color:var(--acc)" : "");
+    b.textContent = o.label;
+    b.disabled = !!o.dis;
+    b.onclick = function(){ onPick(o.v); };
+    el.appendChild(b);
+  });
+}
+function renderLabLoras(){
+  var box = $("lab-loras"), items = allLoras();
+  if (!items.length) {
+    box.innerHTML = '<div class="phint">No LoRAs configured yet — add some under Settings → Image generation or on a character.</div>';
+    return;
+  }
+  var h = "";
+  items.forEach(function(x, i){
+    var k = labLoraKey(x);
+    if (!LAB.sel[k]) LAB.sel[k] = {on: false, scale: x.l.scale || 1};
+    var s = LAB.sel[k];
+    h += '<div class="lorarow" data-i="' + i + '"><div class="lr1" style="align-items:center">' +
+      '<input type="checkbox" class="lab-on" style="width:20px;height:20px"' + (s.on ? " checked" : "") + ">" +
+      '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+      esc((x.l.name || "").trim() || rpLoraName(x.l.path)) +
+      ' <span style="color:var(--mist);font-size:12px">· ' + esc(x.where) +
+      (x.l.when ? " · when: " + esc(x.l.when) : "") + "</span></span>" +
+      '<input class="srvinput lab-sc" inputmode="decimal" style="width:64px;flex-shrink:0" value="' + s.scale + '">' +
+      "</div></div>";
+  });
+  box.innerHTML = h;
+  box.onchange = function(e){
+    var row = e.target.closest ? e.target.closest(".lorarow") : null;
+    if (!row) return;
+    var x = allLoras()[+row.dataset.i]; if (!x) return;
+    var s = LAB.sel[labLoraKey(x)];
+    if (e.target.classList.contains("lab-on")) s.on = e.target.checked;
+    else if (e.target.classList.contains("lab-sc")) s.scale = parseFloat(e.target.value) || 1;
+  };
+}
+function renderLab(){
+  labChips($("lab-engine"), [
+    {v: "fal", label: "FLUX (fal)", dis: !falReady()},
+    {v: "rp", label: "Your GPU", dis: !rpReady()},
+    {v: "glm", label: "GLM", dis: !glmReady()}
+  ], LAB.engine, function(v){ LAB.engine = v; renderLab(); });
+  labChips($("lab-aspect"), [
+    {v: "portrait", label: "Portrait"}, {v: "landscape", label: "Landscape"}, {v: "square", label: "Square"}
+  ], LAB.aspect, function(v){ LAB.aspect = v; renderLab(); });
+  var mw = $("lab-mature-wrap");
+  mw.hidden = !S.adult;
+  if (S.adult)
+    labChips($("lab-mature"), [{v: false, label: "SFW"}, {v: true, label: "18+"}],
+      LAB.mature, function(v){ LAB.mature = v; renderLab(); });
+  renderLabLoras();
+}
+function openLab(){
+  var sel = $("lab-char");
+  sel.innerHTML = '<option value="">None</option>' + S.chars.map(function(c){
+    return '<option value="' + esc(c.id) + '">' + esc(c.name) + "</option>";
+  }).join("");
+  if (!LAB.engine || (LAB.engine === "fal" && !falReady()) ||
+      (LAB.engine === "rp" && !rpReady()) || (LAB.engine === "glm" && !glmReady()))
+    LAB.engine = falReady() ? "fal" : (rpReady() ? "rp" : (glmReady() ? "glm" : ""));
+  renderLab();
+  show("v-lab");
+}
+/* lean RunPod round-trip for the lab — same workflow builder as chats, no
+   chat-side stage/health machinery attached */
+function labRunpod(prompt, loras, aspect, cb){
+  function fail(msg){ L("img", "lab runpod failed: " + msg.slice(0, 300), true); cb(null); }
+  function result(j, tries){
+    var out = j.output || {}, img = (out.images && out.images[0]) || {};
+    var b64 = img.data || img.image || out.message;
+    if (b64) {
+      shrinkImage("data:image/png;base64," + String(b64).replace(/^data:image\/\w+;base64,/, ""), cb);
+      return;
+    }
+    if ((j.status === "IN_QUEUE" || j.status === "IN_PROGRESS") && j.id) {
+      if (tries <= 0) { fail("timed out waiting on job " + j.id); return; }
+      $("lab-stat").textContent = j.status === "IN_QUEUE"
+        ? "Queued for a GPU…" : "GPU is painting…";
+      setTimeout(function(){
+        fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/status/" + j.id,
+          {headers: {"Authorization": "Bearer " + rp().key.trim()}})
+          .then(function(r){ return r.json(); })
+          .then(function(j2){ result(j2, tries - 1); })
+          .catch(function(){ result(j, tries - 1); });
+      }, 4000);
+      return;
+    }
+    fail(j.error ? String(j.error) : "status " + (j.status || "?") + " with no image");
+  }
+  fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
+    body: JSON.stringify({input: {workflow: buildFluxWorkflow(prompt, loras, aspect)}})
+  }).then(function(r){ return r.json(); })
+    .then(function(j){ result(j, 75); })
+    .catch(function(e){ fail(String(e && e.message || e)); });
+}
+function labShowResult(url, ch){
+  var out = $("lab-out");
+  var wrap = document.createElement("div");
+  wrap.style.cssText = "margin-top:10px";
+  var img = document.createElement("img");
+  img.src = url;
+  img.style.cssText = "width:100%;border-radius:14px;display:block";
+  wrap.appendChild(img);
+  if (ch) {
+    var b = document.createElement("button");
+    b.className = "btn ghost";
+    b.style.cssText = "margin-top:6px;padding:8px 14px;font-size:13px";
+    b.textContent = "Save to " + ch.name + "'s gallery";
+    b.onclick = function(){
+      var arr = (S.gal = S.gal || {})[ch.id] = galOf(ch.id).slice();
+      arr.push({id: picId(), src: url, ts: Date.now()});
+      S.gal[ch.id] = arr;
+      if (save()) { toast("Saved to the gallery"); b.disabled = true; }
+      else { arr.pop(); S.gal[ch.id] = arr; toast("Couldn't save — storage is full"); }
+    };
+    wrap.appendChild(b);
+  }
+  out.insertBefore(wrap, out.firstChild);
+}
+function labGo(){
+  if (LAB.busy) return;
+  if (!LAB.engine) { toast("Add an image engine key in Settings first"); return; }
+  var prompt = $("lab-prompt").value.trim();
+  if (!prompt) { toast("Write a prompt first"); $("lab-prompt").focus(); return; }
+  var ch = $("lab-char").value ? getChar($("lab-char").value) : null;
+  if (ch && $("lab-anchor").checked && (ch.look || "").trim())
+    prompt += "\n\nThe person shown is the same in every photo: " + ch.look.trim();
+  var loras = [];
+  allLoras().forEach(function(x){
+    var s = LAB.sel[labLoraKey(x)];
+    if (s && s.on && /^https?:\/\//i.test((x.l.path || "").trim()))
+      loras.push({path: withCivitaiToken(x.l.path.trim()),
+                  scale: Math.min(4, Math.max(0, s.scale || 1))});
+  });
+  var mature = LAB.mature && !!S.adult;
+  if (LAB.engine === "glm" && loras.length)
+    toast("Heads up: GLM has no LoRA support — they won't apply on this engine");
+  LAB.busy = true;
+  $("lab-go").disabled = true;
+  $("lab-stat").textContent = "Painting…";
+  L("img", "lab: engine=" + LAB.engine + " aspect=" + LAB.aspect + (mature ? " 18+" : "") +
+    " loras=" + (loras.length || "none") + " ↓\n" + prompt, true, 5000);
+  var done = function(url){
+    LAB.busy = false;
+    $("lab-go").disabled = false;
+    $("lab-stat").textContent = url ? "" : "Failed — the reason is in Troubleshooting logs.";
+    if (url) labShowResult(url, ch);
+  };
+  if (LAB.engine === "fal") {
+    var body = {prompt: prompt, loras: loras, output_format: "jpeg", sync_mode: true,
+      enable_safety_checker: !mature,
+      image_size: LAB.aspect === "landscape" ? "landscape_4_3"
+                : LAB.aspect === "square" ? "square_hd" : "portrait_4_3"};
+    if (mature) body.safety_tolerance = 5;
+    imgResponse(fetch(FAL_T2I_URL, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "Authorization": "Key " + fal().key.trim()},
+      body: JSON.stringify(body)
+    }), "lab (flux, " + loras.length + " lora" + (loras.length === 1 ? "" : "s") + ")", done);
+  } else if (LAB.engine === "rp") {
+    labRunpod(prompt, loras, LAB.aspect, done);
+  } else {
+    imgResponse(fetch(GLM_IMG_URL, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "Authorization": "Bearer " + glm().key.trim()},
+      body: JSON.stringify({model: glm().imodel, prompt: prompt,
+        size: imgSize(glm().imodel, LAB.aspect)})
+    }), "lab (" + glm().imodel + ")", done);
+  }
+}
+$("lab-back").onclick = function(){ hide("v-lab"); };
+$("lab-go").onclick = labGo;
 function startCall(id){
   var ch = getChar(id); if (!ch) return;
   callChar = ch;
