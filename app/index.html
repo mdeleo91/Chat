@@ -2851,31 +2851,108 @@ function seenBlocked(d){
   return /SUBJECT-NOT-CLEARLY-ADULT/i.test(d) ||
     /\b(child|minor|underage|under[- ]?18|prepubescent|toddler|infant)\b/i.test(d);
 }
-/* a small job on the vision endpoint, submitted and polled like the reply */
+/* a small job on the vision endpoint, submitted and polled like the reply.
+   This used to be a flat 45×3s poll that swallowed every failure — the
+   log's "couldn't read your photo" with no reason attached was this
+   function giving up 2¼ minutes into a cold boot. It now says why it
+   fails, extends while a worker is actually booting, fails fast when
+   RunPod can't start one at all, and resubmits once when the job shows
+   the lost-job signature (idle workers, empty queue, going nowhere) —
+   the same rules the reply path learned. */
 function rpQuickJob(messages, maxTok, cb){
-  fetch(rpVisionUrl("/run"), {
-    method: "POST", headers: rpJobHeaders(),
-    body: JSON.stringify({input: {openai_route: "/v1/chat/completions",
-      openai_input: {model: rp().vmodel, messages: messages, stream: false,
-        max_tokens: maxTok, temperature: 0.2}}})
-  }).then(function(r){ return r.ok ? r.json() : null; })
-    .then(function(j){
-      if (!j || !j.id) { cb(null); return; }
-      var tries = 45;
-      (function poll(){
-        if (tries-- <= 0) { rpCancelJob(j.id); cb(null); return; }
-        setTimeout(function(){
-          fetch(rpVisionUrl("/status/" + j.id), {headers: rpJobHeaders()})
-            .then(function(r){ return r.json(); })
-            .then(function(st){
-              if (st.status === "COMPLETED") { cb(rpJobText(st.output)); return; }
-              if (st.status === "FAILED" || st.status === "CANCELLED" ||
-                  st.status === "TIMED_OUT") { cb(null); return; }
-              poll();
-            }).catch(function(){ poll(); });
-        }, 3000);
-      })();
-    }).catch(function(){ cb(null); });
+  var body = JSON.stringify({input: {openai_route: "/v1/chat/completions",
+    openai_input: {model: rp().vmodel, messages: messages, stream: false,
+      max_tokens: maxTok, temperature: 0.2}}});
+  function submit(then){
+    fetch(rpVisionUrl("/run"), {method: "POST", headers: rpJobHeaders(), body: body})
+      .then(function(r){
+        if (!r.ok) return r.text().then(function(t){
+          L("vision", "photo-read job rejected: HTTP " + r.status +
+            (t ? " — " + t.slice(0, 160) : ""), true);
+          then(null);
+        });
+        return r.json().then(function(j){ then(j && j.id ? j.id : null); });
+      })
+      .catch(function(e){
+        L("vision", "photo-read submit failed: " + String(e && e.message || e).slice(0, 120), true);
+        then(null);
+      });
+  }
+  submit(function(id){
+    if (!id) { cb(null); return; }
+    var t0 = Date.now(), budget = 180000, resub = false, stuck = 0, misses = 0;
+    function giveUp(why){
+      L("vision", "photo read gave up — " + why, true);
+      rpCancelJob(id); cb(null);
+    }
+    (function poll(){
+      setTimeout(function(){
+        fetch(rpVisionUrl("/status/" + id), {headers: rpJobHeaders()})
+          .then(function(r){ return r.json(); })
+          .then(async function(st){
+            misses = 0;
+            if (st.status === "COMPLETED") { cb(rpJobText(st.output)); return; }
+            if (st.status === "FAILED" || st.status === "CANCELLED" || st.status === "TIMED_OUT") {
+              L("vision", "photo-read job " + st.status + " — " +
+                String((st.error && (st.error.message || st.error)) || "no detail").slice(0, 200), true);
+              cb(null); return;
+            }
+            if (Date.now() - t0 < budget) { poll(); return; }
+            /* deadline: consult endpoint health before giving up */
+            var h = await rpHealthBrief();
+            var hw = (h && h.workers) || {};
+            var boot = (hw.initializing || 0) + (hw.running || 0);
+            var idle = (hw.ready || 0) + (hw.idle || 0);
+            var live = (((h && h.jobs && h.jobs.inQueue) || 0) +
+                        ((h && h.jobs && h.jobs.inProgress) || 0)) > 0;
+            if (h && !boot && !idle) {
+              giveUp("no workers at all (throttled=" + (hw.throttled || 0) +
+                "): RunPod can't start a GPU — check Max Workers, GPU types and credits");
+              return;
+            }
+            if (h && !boot && idle && !live) {
+              stuck++;
+              if (stuck >= 2) {
+                if (resub) {
+                  giveUp("the resubmitted job was lost the same way — workers idle, queue " +
+                    "empty, twice over. Likely a crash-looping worker: check its logs on RunPod");
+                  return;
+                }
+                resub = true; stuck = 0;
+                L("vision", "photo-read job " + id + " looks lost (workers idle, queue empty, " +
+                  "nothing in progress) — resubmitting once", true);
+                rpCancelJob(id);
+                submit(function(id2){
+                  if (!id2) { cb(null); return; }
+                  id = id2; t0 = Date.now(); budget = 120000;
+                  L("vision", "photo-read resubmitted as " + id2 +
+                    " — an idle worker should take it within seconds", true);
+                  poll();
+                });
+                return;
+              }
+            } else stuck = 0;
+            if (budget >= 600000) {
+              giveUp("still nothing after " + Math.round(budget / 60000) + " min (initializing=" +
+                (hw.initializing || 0) + ", running=" + (hw.running || 0) + ", ready=" + idle + ")");
+              return;
+            }
+            budget += 60000;
+            L("vision", "photo read waiting on a " + (boot ? "booting" : "quiet") + " worker " +
+              "(initializing=" + (hw.initializing || 0) + ", running=" + (hw.running || 0) +
+              ", ready=" + idle + ", queued=" + ((h && h.jobs && h.jobs.inQueue) || 0) +
+              ") — extending to " + Math.round(budget / 60000) + " min", true);
+            poll();
+          })
+          .catch(function(){
+            /* the job is safe server-side; a blinking connection isn't fatal —
+               but a dead one for a full minute is */
+            if (++misses > 20) { giveUp("couldn't reach RunPod for a minute"); return; }
+            poll();
+          });
+      }, 3000);
+    })();
+  });
 }
 function describePhoto(dataUrl, cb){
   var msgs = [{role: "user", content: [
