@@ -2269,6 +2269,7 @@ function rp(){
   if (!S.rp) S.rp = {key:"", ep:"", vep:"", vmodel:""};
   if (S.rp.vep === undefined) S.rp.vep = "";
   if (!S.rp.vmodel) S.rp.vmodel = "Qwen/Qwen2.5-VL-7B-Instruct";
+  if (S.rp.all === undefined) S.rp.all = false;
   return S.rp;
 }
 function rpReady(){ return !!((rp().key || "").trim() && (rp().ep || "").trim()); }
@@ -2567,13 +2568,17 @@ async function rpAutoInstall(out, missing, line){
   out.appendChild(sel); out.appendChild(go);
   go.onclick = function(){ sel.remove(); go.remove(); deploy(arr[+sel.value]); };
 }
-function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame, cast, aspect){
-  desc = adultDesc(desc, ch);
+function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame, cast, aspect, isMature){
+  /* this path used to be 18+-only, so mature was assumed throughout; with
+     "all photos on my GPU" it also paints SFW shots, where the adult-age
+     assertion, the 18+-gated LoRAs and the mature add-on must all sit out */
+  var mat = isMature !== false;
+  if (mat) desc = adultDesc(desc, ch);
   /* no hard API limit here, but past ~4 stacked LoRAs FLUX output turns
      mushy — same priority trim as fal, one slot looser */
-  var lf = lorasFor(ch, desc, true, picked, 4, false, cast);
+  var lf = lorasFor(ch, desc, mat, picked, 4, false, cast);
   var trig = [(fal().trigger || "").trim()].concat(lf.adds)
-    .concat([(fal().mat || "").trim()]).filter(Boolean).join("\n");
+    .concat(mat ? [(fal().mat || "").trim()] : []).filter(Boolean).join("\n");
   var prompt = imgPrompt(ch, desc, isSelfie, inFrame, cast) + (trig ? "\n" + trig : "");
   /* tame output with a green route-log is a prompt problem, so log the whole
      string that reaches the GPU — not the description alone. The description
@@ -4717,8 +4722,9 @@ function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature, 
   if (isMature && isSelfie && refs && falReady()) refs = 0;   // 18+ selfies skip Kontext
   var damping = isSelfie && refs && falReady();
   var cast = photoCast(convo, ch);
+  var wantRp = rpReady() && (isMature || rp().all);
   var lfLog = falReady() || rpReady()
-    ? lorasFor(ch, desc, isMature, picked, isMature && rpReady() ? 4 : 3, true, cast)
+    ? lorasFor(ch, desc, isMature, picked, wantRp ? 4 : 3, true, cast)
     : {loras: [], names: [], whys: [], ids: []};
   var llist = lfLog.loras.map(function(l, i){
     var d = damping && !(lfLog.ids || [])[i] ? 0.7 : 1;
@@ -4726,7 +4732,7 @@ function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature, 
       "(" + ((lfLog.whys || [])[i] || "?") + ((lfLog.ids || [])[i] ? ",identity" : "") + ")";
   }).join(",");
   L("img", "route: " + (isSelfie ? "selfie" : "photo") + (isMature ? " 18+" : "") +
-    " · engine=" + (isMature && rpReady() ? "runpod" : (falReady() ? "flux" : "glm")) + " · refs=" + refs +
+    " · engine=" + (wantRp ? "runpod" + (isMature ? "" : " (all-photos)") : (falReady() ? "flux" : "glm")) + " · refs=" + refs +
     (isSelfie ? (isMature && falReady() ? " (18+ selfies go t2i — Kontext won't undress; use a likeness LoRA for the face)" : "")
               : " (plain photos never use refs)") +
     " · loras=" + (llist || "none") +
@@ -4740,7 +4746,7 @@ function deliverPhotoNow(convo, ch, origDesc, desc, picked, isSelfie, isMature, 
   var viaFal = falReady()
     ? function(){ falImage(desc, ch, isSelfie, isMature, onDone, glmReady() ? viaGlm : null, picked, inFrame, cast, aspect); }
     : null;
-  if (isMature && rpReady()) runpodImage(desc, ch, isSelfie, convo.id, onDone, viaFal || (glmReady() ? viaGlm : null), picked, inFrame, cast, aspect);
+  if (wantRp) runpodImage(desc, ch, isSelfie, convo.id, onDone, viaFal || (glmReady() ? viaGlm : null), picked, inFrame, cast, aspect, isMature);
   else if (viaFal) viaFal();
   else viaGlm();
 }
@@ -4978,6 +4984,12 @@ function rpSectionHTML(){
        'placeholder="RunPod endpoint ID" value="' + esc(r.ep || "") + '">';
   h += '<input id="rp-key" class="srvinput" type="password" autocomplete="off" style="margin-top:8px" ' +
        'placeholder="RunPod API key" value="' + esc(r.key || "") + '">';
+  h += '<label class="ds" style="display:flex;align-items:flex-start;gap:8px;padding:10px 0 0;cursor:pointer">' +
+       '<input type="checkbox" id="rp-all" style="margin-top:2px"' + (r.all ? " checked" : "") + '>' +
+       '<span>Paint EVERY photo on this GPU, not just 18+ — for when the fal path never quite ' +
+       'matches the character. Selfie reference photos don\'t apply here; identity comes from ' +
+       'the face LoRA on the volume and the appearance anchor. fal stays as the fallback if ' +
+       'the GPU fails.</span></label>';
   h += '<div class="srvbtns" style="margin-top:8px">' +
        '<button class="use" id="rp-lora-install">Install LoRAs to volume</button></div>';
   h += '<div class="ds" style="padding-top:6px">Checks which configured LoRAs the volume is ' +
@@ -5034,6 +5046,8 @@ function wireFalUI(card){
   if (tg) tg.onchange = function(){ fal().trigger = tg.value; save(); };
   var mt = card.querySelector("#fal-mat");
   if (mt) mt.onchange = function(){ fal().mat = mt.value; save(); };
+  var rpa = card.querySelector("#rp-all");
+  if (rpa) rpa.onchange = function(){ rp().all = rpa.checked; save(); };
   var rpe = card.querySelector("#rp-ep");
   if (rpe) rpe.oninput = function(){ rp().ep = rpe.value; save(); };
   var rpk = card.querySelector("#rp-key");
@@ -7482,7 +7496,8 @@ function openLab(){
   }).join("");
   if (!LAB.engine || (LAB.engine === "fal" && !falReady()) ||
       (LAB.engine === "rp" && !rpReady()) || (LAB.engine === "glm" && !glmReady()))
-    LAB.engine = falReady() ? "fal" : (rpReady() ? "rp" : (glmReady() ? "glm" : ""));
+    LAB.engine = (rp().all && rpReady()) ? "rp"
+               : falReady() ? "fal" : (rpReady() ? "rp" : (glmReady() ? "glm" : ""));
   renderLab();
   show("v-lab");
 }
