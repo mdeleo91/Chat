@@ -3730,8 +3730,14 @@ function sysPrompt(ch, convo){
       "objects, food, other people; if asked for a picture of a place or thing, send the place or " +
       "thing, without you in it. At most one per message; don't also describe sending it in your text.\n" +
       (convo && chatMode(convo.id) === "person"
-        ? "Since you are together in person, a picture is something you hold up, show them on your " +
-          "phone, or take right there in front of them — describe it as that, not as something sent.\n"
+        ? "Since you are together in person, pictures work differently: the tag paints what the " +
+          "user SEES with their own eyes at this moment — you and the scene from where they stand, " +
+          "you seen from the outside as they see you. Always use [photo: …], never [selfie: …], " +
+          "and describe the view: who and what is in front of them, pose, expression, dress or " +
+          "undress, the room, the light. When the user asks to see something, do NOT answer the " +
+          "request in your prose — no sending, no photos, no cameras or phones in the story, no " +
+          "acknowledging a picture was asked for. Keep the scene moving naturally (they simply " +
+          "look) and put what their eyes take in into the tag.\n"
         : "") +
       (matureActive()
         ? "When the conversation has turned intimate and the picture itself is meant to be risqué or " +
@@ -3752,7 +3758,8 @@ function sysPrompt(ch, convo){
       "together rather than blocking them apart — a beat of action, a line of speech, a reaction. " +
       "Present tense, " + chatLen(convo.id).scene + ", always from " + ch.name +
       "'s side of the scene; never write " +
-      "the user's words or actions for them. Never mention being a language model.\n";
+      "the user's words or actions for them. No emojis and no emoticons anywhere — this is " +
+      "prose, not a text message. Never mention being a language model.\n";
   else
     p += "This is a text conversation. You are on your phone, the user is on theirs — " +
       "you cannot see each other. Write only what you would actually type into the message " +
@@ -4312,6 +4319,7 @@ async function runGeneration(convo, ch, nudge, done){
       /* mid-stream an action is still half-typed, so the unterminated tail
          goes too — otherwise it appears, then vanishes when it closes */
       shown = stripActions(shown.replace(/\*[^*\n]*$/, ""));
+    else shown = stripEmojis(shown);
     shown = shown.trim();
     if (!shown) return;              // still inside a think block — keep typing dots
     ensureLive();
@@ -4343,6 +4351,10 @@ async function runGeneration(convo, ch, nudge, done){
        end-of-message rather than printing it */
     if (!photoDesc)
       txt = txt.replace(/\[(photo|selfie)(\s*18\+)?\s*:\s*([^\]]{3,2000})$/i, grabTag).trim();
+    /* in person there are no selfies — every picture is the user's own view
+       of the scene, so the selfie machinery (front-camera framing, Kontext
+       edits of a phone-in-hand shot) must not touch it */
+    if (photoDesc && isSelfie && chatMode(convo.id) === "person") isSelfie = false;
     /* models over-tag selfies ("your classroom" → selfie), and the identity
        prefix then paints the person instead of the scene. If the description
        contains no self-reference at all, it isn't a selfie — demote it. */
@@ -4370,6 +4382,12 @@ async function runGeneration(convo, ch, nudge, done){
           txt = typed;
         } else L("gen", ch.name + "'s whole reply was narration in a texting chat — " +
           "left as-is rather than sending an empty message", true);
+      }
+    } else if (txt) {
+      var prose = stripEmojis(txt);
+      if (prose !== txt && prose) {
+        L("gen", ch.name + " used emojis in an in-person scene — cut", true);
+        txt = prose;
       }
     }
     if (!txt && !photoDesc) throw new Error("the model returned an empty reply");
@@ -4447,10 +4465,15 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
       : (m.who === "scene" ? "[scene]" : ((getChar(m.by) || ch).name));
     return who + ": " + (m.text || (m.img ? "[sent a photo]" : ""));
   }).join("\n").slice(-1600);
+  var person = convo && chatMode(convo.id) === "person";
   var ask = "You are the photo director for an AI-generated picture in a roleplay chat.\n\n" +
     "Recent conversation (most recent last):\n" + tail + "\n\n" +
-    ch.name + " is about to send a " + (isSelfie ? "selfie" : "photo") +
-    (isMature ? " (an explicit adult picture is intended and permitted; the subject is an adult)" : "") +
+    (person
+      ? "This is an IN-PERSON scene — " + ch.name + " and the user are physically together in " +
+        "the same room. The picture must show what the user sees with their own eyes at this " +
+        "exact moment"
+      : ch.name + " is about to send a " + (isSelfie ? "selfie" : "photo")) +
+    (isMature ? " (an explicit adult picture is intended and permitted; everyone shown is an adult)" : "") +
     ".\nDraft description: \"" + desc + "\"\n\n" +
     /* the draft is the character's idea of the shot; a request in the
        conversation is the user's, and the user's wins. Without this the
@@ -4484,16 +4507,28 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
     "subject: true if " + ch.name + " is visible anywhere in the picture — face, body, any part of " +
     "her, first-person views of her own body included. false only for pictures of places, objects, " +
     "food, or other people with her out of shot.\n" +
-    "scene: rewrite the draft as one vivid image prompt. START with the shot type and camera " +
-    "in its own short clause — the image model weights the opening words most, and a camera " +
-    "buried mid-sentence gets ignored (e.g. \"First-person POV, phone held low looking down " +
-    "her own body:\" or \"Mirror selfie shot into a bathroom mirror, full body:\" or " +
-    "\"Close overhead shot looking straight down:\"). Then keep every subject and action " +
-    "detail from the draft and make the pose concrete and natural to this exact moment: what " +
-    "the body and hands are doing, where the eyes look, lighting and setting drawn from the " +
-    "conversation. When the camera is a first-person view, say plainly that her head and face " +
-    "are out of frame. Avoid a centered, straight-on, face-filling selfie unless the moment " +
-    "truly calls for it. Under 90 words.";
+    (person
+      ? "scene: rewrite the draft as one vivid image prompt of the user's own view. START with " +
+        "the viewpoint in its own short clause, written as a camera standing where the user " +
+        "stands (e.g. \"Seen from where the user stands, eye level, a step away:\" or " +
+        "\"Looking down the length of the bed:\" or \"Across the kitchen table, close:\") — " +
+        "do NOT use the words POV, first-person or point of view. " + ch.name + " is seen from " +
+        "the outside, exactly as the user sees her in this moment: face and body visible unless " +
+        "the draft says otherwise, never holding a phone, no camera or mirror in the scene " +
+        "unless the draft has one. The user stays out of frame except, at most, their own " +
+        "hands where natural. Keep every subject and action detail from the draft, pose " +
+        "concrete and natural to this exact moment, lighting and setting drawn from the " +
+        "conversation. Under 90 words."
+      : "scene: rewrite the draft as one vivid image prompt. START with the shot type and camera " +
+        "in its own short clause — the image model weights the opening words most, and a camera " +
+        "buried mid-sentence gets ignored (e.g. \"First-person POV, phone held low looking down " +
+        "her own body:\" or \"Mirror selfie shot into a bathroom mirror, full body:\" or " +
+        "\"Close overhead shot looking straight down:\"). Then keep every subject and action " +
+        "detail from the draft and make the pose concrete and natural to this exact moment: what " +
+        "the body and hands are doing, where the eyes look, lighting and setting drawn from the " +
+        "conversation. When the camera is a first-person view, say plainly that her head and face " +
+        "are out of frame. Avoid a centered, straight-on, face-filling selfie unless the moment " +
+        "truly calls for it. Under 90 words.");
   completeOnce(REMOTE, [{role: "user", content: ask}], 400, function(err, text){
     if (err || !text) {
       /* a silent director is undiagnosable — say why it sat out */
@@ -4546,6 +4581,18 @@ function stripActions(t){
     /* a cut line leaves a hole behind it; nobody texts in paragraphs anyway */
     .replace(/\n\s*\n+/g, "\n")
     .trim();
+}
+/* ---- in person means prose ----
+   Emojis read fine in a text bubble and ridiculous mid-narration. Asking
+   doesn't settle it — the history is full of texting turns to copy — so in
+   person mode they're cut rather than requested away, same policy as
+   stripActions in the other direction. */
+var EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}\u{20E3}]/gu;
+function stripEmojis(t){
+  return String(t).replace(EMOJI_RE, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+([.,!?;:])/g, "$1")
+    .replace(/^[ \t]+|[ \t]+$/gm, "");
 }
 function stripOtherVoices(txt, convo, ch){
   if (!convo || !convo.grp || !txt) return txt;
