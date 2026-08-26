@@ -1393,7 +1393,7 @@ function lorasFor(ch, desc, isMature, picked, maxN, quiet, cast){
     if (!oc || !ch || oc.id === ch.id) return;
     chLoraList(oc).forEach(function(l){ pool.push({l: l, own: oc, cast: true}); });
   });
-  var items = [];
+  var items = [], stoodDown = [];
   pool.forEach(function(e){
     var l = e.l, path = (l.path || "").trim();
     if (!path) return;
@@ -1417,6 +1417,17 @@ function lorasFor(ch, desc, isMature, picked, maxN, quiet, cast){
       kwOk = kwOk && named;
     }
     if (!kwOk && !pickOk) return;
+    /* when the director spoke (a picks list came back), it chose one LoRA
+       per concept on purpose — a keyword-matched subject LoRA it did NOT
+       pick is usually a near-duplicate of one it did (Feet and Showing Feet
+       riding alongside a picked Footjob, in a real log). Keywords stay as
+       the baseline only when there are no picks; identity cards and
+       always-on styles are never stood down. */
+    var identity = !!e.own || !!l.face;
+    if (pick.length && !pickOk && !identity && kws.length) {
+      stoodDown.push((l.name || "").trim() || nm);
+      return;
+    }
     /* why it made the cut. An empty WHEN means "every photo" — correct for a
        style LoRA, a trap for a subject one, whose trigger words then ride a
        picture that has nothing to do with it. The log named the LoRA but
@@ -1434,13 +1445,16 @@ function lorasFor(ch, desc, isMature, picked, maxN, quiet, cast){
       rank: e.own ? 0 : (pickOk && pick.length ? 1 : (kws.length ? 2 : 3)),
       /* a character's own cards, and anything the face trainer produced,
          are what make her her — they are damped by different rules */
-      identity: !!e.own || !!l.face,
+      identity: identity,
       lora: sc ? {path: withCivitaiToken(path), scale: sc} : {path: withCivitaiToken(path)},
       add: (l.add || "").trim(),
       why: why,
       name: (l.name || "").trim() || path.split("/").pop().split("?")[0]
     });
   });
+  if (stoodDown.length && !quiet)
+    L("img", "director's picks stand — keyword-matched " + stoodDown.join(", ") +
+      " stood down (near-duplicates of a picked concept)", true);
   items.sort(function(a, b){ return a.rank - b.rank; });
   /* a likeness LoRA carries its training data's composition too — mostly
      face-forward portraits — so at full strength it quietly out-votes an
