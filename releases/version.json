@@ -1,6 +1,6 @@
 {
-  "versionCode": 128,
-  "versionName": "0.54.1",
+  "versionCode": 129,
+  "versionName": "0.55.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Small quality-of-life fix from a real session: when a Photo Lab paint on the fal engine fails and a RunPod endpoint is configured, the failure message now says the likely cause and the way out in place — a locked or out-of-credit fal account (the TOP_UP error) means switching the ENGINE chip to Your GPU, which is where the LoRAs live and where 18+ chat photos run anyway — instead of leaving that translation to a trip through the Troubleshooting logs."
+  "notes": "The anatomy-melting stack gets a cap. A real route line showed how the crazy images happen: three concept LoRAs trained on the same subject — Feet, Footjob and Showing Feet — all fired on one shot, because overlapping WHEN keywords all matched the same description and the photo director had been told to pick everything that fits. 2.4 combined strength of the same idea is how toes duplicate and limbs merge. Two fixes: the director is now told that when several LoRAs cover the same concept it must pick only the single best one — stacking near-duplicates deforms the image — and mechanically, whenever the non-identity LoRAs on a photo total more than 1.6 strength between them, each is scaled down proportionally so the stack lands at 1.6, logged with before-and-after numbers. Identity LoRAs are untouched by the cap — faces keep their full grip — and a lone subject LoRA keeps exactly the strength on its card."
 }

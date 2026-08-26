@@ -1485,6 +1485,25 @@ function lorasFor(ch, desc, isMature, picked, maxN, quiet, cast){
       L("img", idents.length + " identity LoRAs on one photo — damped to reduce face blend: " +
         blended.join(", "), true);
   }
+  /* same medicine for the subject stack: overlapping keywords routinely let
+     three concept LoRAs trained on the same subject ride one shot (Feet +
+     Footjob + Showing Feet was a real log line), and 2.4 combined strength
+     of the same idea is how anatomy melts. Cap the non-identity total at
+     1.6 and scale each down proportionally. */
+  var subs = items.filter(function(i){ return !i.identity; });
+  var subSum = subs.reduce(function(a, i){ return a + (i.lora.scale || 1); }, 0);
+  if (subSum > 1.6) {
+    var f = 1.6 / subSum, capped = [];
+    subs.forEach(function(i){
+      var ss = Math.round(((i.lora.scale || 1) * f) * 100) / 100;
+      i.lora = {path: i.lora.path, scale: ss};
+      capped.push(i.name + "→" + ss);
+    });
+    if (!quiet)
+      L("img", subs.length + " subject/style LoRAs totalling " +
+        Math.round(subSum * 100) / 100 + " — capped at 1.6 to keep anatomy sane: " +
+        capped.join(", "), true);
+  }
   return {
     loras: items.map(function(i){ return i.lora; }),
     adds:  items.map(function(i){ return i.add; }).filter(Boolean),
@@ -4557,7 +4576,9 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
         }).join("\n") + "\n" +
         "A LoRA on someone's card paints that person. ALWAYS pick every card LoRA whose owner " +
         "is visible in the picture — that is what keeps their face and body right — and never " +
-        "pick one whose owner is out of shot.\n\n"
+        "pick one whose owner is out of shot. When several LoRAs cover the same concept (e.g. " +
+        "multiple feet or nude ones), pick ONLY the single best fit — stacking near-duplicates " +
+        "deforms the image.\n\n"
       : "") +
     (castChars.length
       ? "This is a group chat; also possibly in the picture: " +
