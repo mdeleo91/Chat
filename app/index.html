@@ -7582,10 +7582,15 @@ function labGo(){
   $("lab-stat").textContent = "Painting…";
   L("img", "lab: engine=" + LAB.engine + " aspect=" + LAB.aspect + (mature ? " 18+" : "") +
     " loras=" + (loras.length || "none") + " ↓\n" + prompt, true, 5000);
+  var eng = LAB.engine;
   var done = function(url){
     LAB.busy = false;
     $("lab-go").disabled = false;
-    $("lab-stat").textContent = url ? "" : "Failed — the reason is in Troubleshooting logs.";
+    $("lab-stat").textContent = url ? ""
+      : "Failed — the reason is in Troubleshooting logs." +
+        (eng === "fal" && rpReady()
+          ? " If fal is locked or out of credit (TOP_UP), switch ENGINE to Your GPU above."
+          : "");
     if (url) labShowResult(url, ch);
   };
   if (LAB.engine === "fal") {

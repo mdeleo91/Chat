@@ -1,6 +1,6 @@
 {
-  "versionCode": 127,
-  "versionName": "0.54.0",
+  "versionCode": 128,
+  "versionName": "0.54.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Every photo can now run on your own GPU. The RunPod path was 18+-only, which split each character's identity across two pipelines: mature photos got the full LoRA stack on the volume, while ordinary ones went to fal — where SFW selfies lean on Kontext following a reference photo rather than the trained face, and the look never quite matched. A new toggle under Your own GPU — 'Paint EVERY photo on this GPU, not just 18+' — routes all of a chat's pictures through the same RunPod stack, so one identity, one set of LoRAs, one look. The mature-only assumptions were unpicked for it: on SFW shots the 18+-gated LoRAs sit out, the mature add-on text stays home, and the adult-age assertion isn't appended; 18+ photos behave exactly as before. fal remains the automatic fallback whenever the GPU fails, the route log labels the new case as runpod (all-photos), and the Photo Lab defaults its engine to your GPU while the toggle is on."
+  "notes": "Small quality-of-life fix from a real session: when a Photo Lab paint on the fal engine fails and a RunPod endpoint is configured, the failure message now says the likely cause and the way out in place — a locked or out-of-credit fal account (the TOP_UP error) means switching the ENGINE chip to Your GPU, which is where the LoRAs live and where 18+ chat photos run anyway — instead of leaving that translation to a trip through the Troubleshooting logs."
 }
