@@ -4592,7 +4592,9 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
         "is visible in the picture — that is what keeps their face and body right — and never " +
         "pick one whose owner is out of shot. When several LoRAs cover the same concept (e.g. " +
         "multiple feet or nude ones), pick ONLY the single best fit — stacking near-duplicates " +
-        "deforms the image.\n\n"
+        "deforms the image. A camera or viewpoint LoRA (POV, mirror shot, angle) is its own " +
+        "concept, separate from the subject: when the shot's framing matches one, pick it " +
+        "alongside the subject pick.\n\n"
       : "") +
     (castChars.length
       ? "This is a group chat; also possibly in the picture: " +

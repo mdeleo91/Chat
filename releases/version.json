@@ -1,6 +1,6 @@
 {
-  "versionCode": 130,
-  "versionName": "0.56.0",
+  "versionCode": 131,
+  "versionName": "0.56.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "The director's word is now final on subject LoRAs. Last build taught the director to pick one LoRA per concept and capped the stack's total strength — and the very next route line showed the remaining hole: the director dutifully picked only Footjob, but Feet and Showing Feet climbed aboard anyway through their overlapping WHEN keywords, because keyword matches were unioned with picks. Three half-strength near-duplicates is still worse than one clean full-strength LoRA. Now, when the director returns a picks list, keyword-matched subject LoRAs it did not pick stand down — logged by name — so the picked concept rides at its full card strength. Keywords remain the complete baseline whenever the director fails or stays silent, and identity cards and always-on style LoRAs are never stood down. The strength cap from last build stays as the backstop for whatever still stacks."
+  "notes": "One refinement to the director's dedupe rule, straight from the next route line: a camera or viewpoint LoRA — POV, mirror shot, a particular angle — is its own concept, not a duplicate of the subject. The one-per-concept rule had the director picking only the subject LoRA, which stood the user's POV-composition LoRA down along with the genuine near-duplicates, on exactly the unusual-camera shots where composition help matters most. The director is now told to pick a framing LoRA alongside the subject pick whenever the shot's viewpoint matches one."
 }
