@@ -1566,6 +1566,40 @@ function allLoras(){
    lora_name with the list of names it does have. Asking for one that cannot
    exist is therefore a free directory listing of the volume — no GPU time,
    no image generated. */
+/* Both probes work by submitting a graph ComfyUI must refuse and reading the
+   refusal. On a cold endpoint /runsync gives up before the worker has booted
+   and answers IN_PROGRESS instead — no refusal to read, which surfaced as
+   "couldn't read the model list" with a job id in it. Poll it out. */
+function rpProbeRun(wf, cb){
+  function terminal(t){
+    var j = null; try { j = JSON.parse(t); } catch (e) {}
+    return !(j && (j.status === "IN_PROGRESS" || j.status === "IN_QUEUE") && j.id) ? null : j.id;
+  }
+  function poll(id, tries){
+    if (tries <= 0) { cb('{"status":"TIMED_OUT"}'); return; }
+    setTimeout(function(){
+      fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/status/" + id,
+        {headers: {"Authorization": "Bearer " + rp().key.trim()}})
+        .then(function(r){ return r.text(); })
+        .then(function(t){
+          if (terminal(t)) { poll(id, tries - 1); return; }
+          cb(t);
+        })
+        .catch(function(){ poll(id, tries - 1); });
+    }, 3000);
+  }
+  fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
+    body: JSON.stringify({input: {workflow: wf}})
+  }).then(function(r){ return r.text(); })
+    .then(function(t){
+      var id = terminal(t);
+      if (id) { L("img", "probe queued as " + id + " — the worker is booting, waiting", true); poll(id, 60); }
+      else cb(t);
+    })
+    .catch(function(e){ cb(String(e && e.message || e).slice(0, 200)); });
+}
 function rpLoraProbe(cb){
   var wf = {
     "1": {class_type:"CheckpointLoaderSimple", inputs:{ckpt_name:"flux1-dev-fp8.safetensors"}},
@@ -1579,19 +1613,14 @@ function rpLoraProbe(cb){
     "7": {class_type:"VAEDecode", inputs:{samples:["6",0], vae:["1",2]}},
     "8": {class_type:"SaveImage", inputs:{images:["7",0], filename_prefix:"probe"}}
   };
-  fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
-    method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
-    body: JSON.stringify({input: {workflow: wf}})
-  }).then(function(r){ return r.text(); })
-    .then(function(t){
-      /* the names live inside a "not in [...]" clause somewhere in the error */
-      var m = t.match(/not in\s*\(?\[([^\]]*)\]/);
-      if (!m) { cb(null, t.slice(0, 300)); return; }
-      cb(m[1].split(",").map(function(x){
-        return x.replace(/^[\s'"]+|[\s'"]+$/g, "");
-      }).filter(Boolean), null);
-    }).catch(function(e){ cb(null, String(e && e.message || e).slice(0, 200)); });
+  rpProbeRun(wf, function(t){
+    /* the names live inside a "not in [...]" clause somewhere in the error */
+    var m = t.match(/not in\s*\(?\[([^\]]*)\]/);
+    if (!m) { cb(null, t.slice(0, 300)); return; }
+    cb(m[1].split(",").map(function(x){
+      return x.replace(/^[\s'"]+|[\s'"]+$/g, "");
+    }).filter(Boolean), null);
+  });
 }
 /* one report card per LoRA instead of a wall of log lines: every configured
    LoRA is checked against everything that silently breaks one — the URL
@@ -2472,23 +2501,18 @@ function rpKontextProbe(cb){
     "3": {class_type: "ReferenceLatent", inputs: {conditioning: ["2", 0], latent: ["1", 0]}},
     "4": {class_type: "SaveImage", inputs: {images: ["3", 0], filename_prefix: "probe"}}
   };
-  fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
-    method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
-    body: JSON.stringify({input: {workflow: wf}})
-  }).then(function(r){ return r.text(); })
-    .then(function(t){
-      var nodeMissing = /ReferenceLatent|FluxGuidance/.test(t) &&
-        /does not exist|not found|unknown|invalid node/i.test(t);
-      var m = t.match(/not in\s*\(?\[([^\]]*)\]/);
-      cb({
-        names: m ? m[1].split(",").map(function(x){
-          return x.replace(/^[\s'"]+|[\s'"]+$/g, "");
-        }).filter(Boolean) : null,
-        nodeMissing: nodeMissing,
-        raw: t.slice(0, 300)
-      });
-    }).catch(function(e){ cb({names: null, raw: String(e && e.message || e).slice(0, 200)}); });
+  rpProbeRun(wf, function(t){
+    var nodeMissing = /ReferenceLatent|FluxGuidance/.test(t) &&
+      /does not exist|not found|unknown|invalid node/i.test(t);
+    var m = t.match(/not in\s*\(?\[([^\]]*)\]/);
+    cb({
+      names: m ? m[1].split(",").map(function(x){
+        return x.replace(/^[\s'"]+|[\s'"]+$/g, "");
+      }).filter(Boolean) : null,
+      nodeMissing: nodeMissing,
+      raw: t.slice(0, 300)
+    });
+  });
 }
 /* what is actually on the volume. ComfyUI validates the whole graph before
    running it and refuses an unknown lora_name outright, so one file that
@@ -2570,7 +2594,8 @@ async function kontextCheck(out){
   }
   if (out) out.innerHTML = "";
   if (!rpReady()) { line("Add the RunPod endpoint ID and API key above first."); return; }
-  line("Asking the endpoint what it has…");
+  line("Asking the endpoint what it has — if it is asleep this waits for it to boot, " +
+       "which can take a couple of minutes…");
   var r = await new Promise(function(res){ rpKontextProbe(res); });
   if (r.nodeMissing) {
     line("✗ This worker's ComfyUI is too old for Kontext — it doesn't know the " +
@@ -5207,7 +5232,7 @@ function rpSectionHTML(){
   h += '<div class="srvbtns" style="margin-top:8px">' +
        '<button class="use" id="rp-lora-install">Install LoRAs to volume</button>' +
        '<button class="use" id="rp-kontext-check">Check Kontext</button>' +
-       '<button class="use" id="rp-kontext-install">Install Kontext (~17GB)</button></div>';
+       '<button class="use" id="rp-kontext-install">Install Kontext</button></div>';
   h += '<div class="ds" style="padding-top:6px">Kontext is the subject-swap model: shown a pose ' +
        'picture and a picture of your character, it repaints the pose with your character in it — ' +
        'the Photo Lab uses it when both references are set. It needs its own model files on the ' +
