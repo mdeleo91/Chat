@@ -2415,16 +2415,19 @@ var KONTEXT_CLIP1 = "clip_l.safetensors";
 var KONTEXT_CLIP2 = "t5xxl_fp8_e4m3fn_scaled.safetensors";
 var KONTEXT_VAE = "ae.safetensors";
 var KONTEXT_HF = "https://huggingface.co/Comfy-Org/flux1-kontext-dev_ComfyUI/resolve/main/split_files/";
+/* deliberately smallest first: the installer can only see inside
+   diffusion_models, so downloading the 11.9GB model last makes its arrival
+   proof that everything before it already landed */
 function kontextFiles(){
   return [
-    {folder: "diffusion_models", name: KONTEXT_UNET,
-     url: KONTEXT_HF + "diffusion_models/" + KONTEXT_UNET, gb: 11.9},
     {folder: "text_encoders", name: KONTEXT_CLIP1,
      url: KONTEXT_HF + "text_encoders/" + KONTEXT_CLIP1, gb: 0.25},
+    {folder: "vae", name: KONTEXT_VAE,
+     url: KONTEXT_HF + "vae/" + KONTEXT_VAE, gb: 0.33},
     {folder: "text_encoders", name: KONTEXT_CLIP2,
      url: KONTEXT_HF + "text_encoders/" + KONTEXT_CLIP2, gb: 5.2},
-    {folder: "vae", name: KONTEXT_VAE,
-     url: KONTEXT_HF + "vae/" + KONTEXT_VAE, gb: 0.33}
+    {folder: "diffusion_models", name: KONTEXT_UNET,
+     url: KONTEXT_HF + "diffusion_models/" + KONTEXT_UNET, gb: 11.9}
   ];
 }
 /* the reference pair is stitched into one canvas here rather than by the
@@ -2602,6 +2605,25 @@ function rpInstallScript(missing, selfDelete){
          '"https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID"\nsleep 60\n';
   return s;
 }
+/* is every expected file on the volume? loras and diffusion_models can each
+   be listed by making ComfyUI refuse a name that cannot exist; text_encoders
+   and vae have no such probe, which is why the download order above puts a
+   diffusion_models file last. */
+function rpVolumeHas(missing, cb){
+  var loras = missing.filter(function(m){ return (m.folder || "loras") === "loras"; });
+  var diff = missing.filter(function(m){ return m.folder === "diffusion_models"; });
+  if (!loras.length && !diff.length) { cb(false); return; }
+  var pending = (loras.length ? 1 : 0) + (diff.length ? 1 : 0), ok = true;
+  function step(){ if (--pending <= 0) cb(ok); }
+  function all(list, names){
+    return !!names && list.every(function(m){ return names.indexOf(m.name) >= 0; });
+  }
+  if (loras.length) {
+    RPVOL = null;
+    rpLoraProbe(function(n){ if (!all(loras, n)) ok = false; step(); });
+  }
+  if (diff.length) rpKontextProbe(function(r){ if (!all(diff, r.names)) ok = false; step(); });
+}
 async function kontextCheck(out){
   function line(t){
     if (out) out.innerHTML += esc(t) + "<br>";
@@ -2739,6 +2761,9 @@ async function rpAutoInstall(out, missing, line){
                String(e && e.message || e));
         });
     };
+    /* 100MB of LoRA and 17GB of Kontext are not the same wait */
+    var totalGb = missing.reduce(function(a, m){ return a + (m.gb || 0.2); }, 0);
+    var deadlineMs = Math.min(45, Math.max(12, Math.round(12 + totalGb * 2))) * 60000;
     var t0 = Date.now(), ticks = 0;
     while (!stopped) {
       await new Promise(function(r){ setTimeout(r, 10000); });
@@ -2752,19 +2777,16 @@ async function rpAutoInstall(out, missing, line){
          ComfyUI endpoint whether everything has landed; when it has, delete
          the pod from here instead of waiting out the clock. */
       if (rpReady() && ticks % 6 === 0) {
-        var names = await new Promise(function(res){
-          RPVOL = null;
-          rpLoraProbe(function(n){ res(n); });
-        });
-        if (names && missing.every(function(m){ return names.indexOf(m.name) >= 0; })) {
-          line("All files are on the volume — deleting the pod.");
+        var landed = await new Promise(function(res){ rpVolumeHas(missing, res); });
+        if (landed) {
+          line("Everything is on the volume — deleting the pod.");
           try { await rpRest("DELETE", "/pods/" + pid); } catch(e){}
           break;
         }
       }
-      if (Date.now() - t0 > 12 * 60 * 1000) {
-        line("12 minutes — that's long. Deleting the pod; rerunning Install resumes where " +
-             "it left off (finished files are kept).");
+      if (Date.now() - t0 > deadlineMs) {
+        line(Math.round(deadlineMs / 60000) + " minutes — that's long. Deleting the pod; " +
+             "rerunning Install resumes where it left off (finished files are kept).");
         try { await rpRest("DELETE", "/pods/" + pid); } catch(e){}
         break;
       }

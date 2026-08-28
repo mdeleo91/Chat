@@ -1,6 +1,6 @@
 {
-  "versionCode": 137,
-  "versionName": "0.58.2",
+  "versionCode": 138,
+  "versionName": "0.58.3",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Check Kontext asks a question the worker can actually answer. The probe works by handing ComfyUI a graph whose only fault is a model filename that cannot exist, so the refusal lists every file that does — but ComfyUI checks that a graph is wired correctly before it checks any of the values in it, and the probe's own wiring was wrong: it fed conditioning into an image input. The worker rejected the wiring and never reached the question. The probe is now a complete, valid graph — borrowing CLIP and VAE from the checkpoint already on the volume — so the refusal comes back with the model list in it, and a worker too old to know the Kontext nodes still announces itself the same way. A type mismatch is no longer misread as a missing node either."
+  "notes": "The volume installer grows up for a 17GB job. It was built for LoRA files of a hundred megabytes: it gave every download twelve minutes before calling the pod stuck, and it confirmed arrival by listing the loras folder — which would never contain a Kontext model, so a Kontext install could never be seen finishing. The deadline now scales with what is actually being downloaded, up to forty-five minutes for the full Kontext set, and the arrival check looks in the folder each file is going to: loras and diffusion_models can both be listed by asking ComfyUI to refuse a name that cannot exist. Since text encoders and the VAE have no such probe, the Kontext files are now downloaded smallest first, so the big model arriving is proof that everything before it already landed. Re-running Install is still safe at any point — finished files are skipped."
 }
