@@ -2746,7 +2746,9 @@ async function rpAutoInstall(out, missing, line){
       return;
     }
     line("Pod " + pid + " is downloading " + missing.length + " file(s); it deletes itself " +
-         "when done. A few cents; big LoRAs take a few minutes.");
+         "when done. A few cents. Around " +
+         Math.max(1, Math.round(missing.reduce(function(a, m){ return a + (m.gb || 0.2); }, 0))) +
+         "GB, so give it a few minutes — this line updates when it finishes.");
     var cancel = document.createElement("button");
     cancel.className = "use"; cancel.textContent = "Cancel & delete pod";
     cancel.style.marginTop = "6px";
@@ -2764,14 +2766,23 @@ async function rpAutoInstall(out, missing, line){
     /* 100MB of LoRA and 17GB of Kontext are not the same wait */
     var totalGb = missing.reduce(function(a, m){ return a + (m.gb || 0.2); }, 0);
     var deadlineMs = Math.min(45, Math.max(12, Math.round(12 + totalGb * 2))) * 60000;
-    var t0 = Date.now(), ticks = 0;
+    var t0 = Date.now(), ticks = 0, goneSeen = 0;
     while (!stopped) {
       await new Promise(function(r){ setTimeout(r, 10000); });
       ticks++;
       if (stopped) return;
       var st = null;
       try { st = await rpRest("GET", "/pods/" + pid); } catch(e){}
-      if (st && st.gone) break;
+      /* RunPod 404s a pod for the first few seconds while it is still being
+         provisioned, and taking that at face value declared an 18GB download
+         finished about ten seconds after it started. A pod is only gone once
+         it has answered as gone twice in a row AND had time to exist. */
+      if (st && st.gone) {
+        goneSeen++;
+        if (goneSeen >= 2 && Date.now() - t0 > 45000) break;
+        if (goneSeen === 1) L("img", "lorainstall: pod not answering yet — " +
+          "still provisioning, not treating that as finished", true);
+      } else goneSeen = 0;
       /* the pod's self-delete can fail quietly, and then the wait is pure
          theatre — the file finished minutes ago. Every ~minute, ask the
          ComfyUI endpoint whether everything has landed; when it has, delete
@@ -2794,21 +2805,17 @@ async function rpAutoInstall(out, missing, line){
     if (stopped) return;
     cancel.remove();
     line("Pod gone — re-checking the volume…");
-    RPVOL = null;
-    rpLoraProbe(function(names){
-      if (!names) {
-        line("Couldn't re-read the file list — LoRA health (under Image generation) will " +
-             "show it once the endpoint wakes.");
-        return;
-      }
-      var ok = 0;
-      missing.forEach(function(m){
-        var hit = names.indexOf(m.name) >= 0;
-        if (hit) ok++;
-        line((hit ? "✓ " : "✗ still missing — ") + m.name);
-      });
-      if (ok === missing.length) line("All set — 18+ photos can use them now.");
-    });
+    var landed = await new Promise(function(res){ rpVolumeHas(missing, res); });
+    if (landed) {
+      line("✓ Everything landed. Kontext files are ready to use; run Check Kontext to " +
+           "confirm, or LoRA health for LoRA files.");
+    } else {
+      /* the probe can only see loras and diffusion_models, so a "no" here may
+         just mean the file it can see is the one that hasn't arrived */
+      line("Not everything is there yet. If the pod was still downloading, give it a " +
+           "few minutes and tap Install again — finished files are skipped, so it " +
+           "resumes rather than starting over.");
+    }
   }
   line("Looking up your network volumes…");
   var vols;
