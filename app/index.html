@@ -2594,10 +2594,13 @@ function rpInstallScript(missing, selfDelete){
     /* entries carry their own model folder — loras for LoRA files, and
        diffusion_models / text_encoders / vae for the Kontext set */
     var f = m.folder || "loras", t = '"$M/' + f + '/' + m.name + '"';
+    /* -C - resumes a .part left behind by an interrupted run, so re-running
+       Install after a timeout continues the big file instead of refetching
+       twelve gigabytes from the top */
     s += 'mkdir -p "$M/' + f + '"\n' +
-         '[ -s ' + t + ' ] || { curl -fL --retry 3 --connect-timeout 30 -o ' + t + '.part "' +
-         withCivitaiToken(m.url) + '" && mv ' + t + '.part ' + t + '; } || echo "FAILED ' +
-         m.name + '"\n';
+         '[ -s ' + t + ' ] || { curl -fL -C - --retry 3 --retry-connrefused ' +
+         '--connect-timeout 30 -o ' + t + '.part "' + withCivitaiToken(m.url) +
+         '" && mv ' + t + '.part ' + t + '; } || echo "FAILED ' + m.name + '"\n';
   });
   s += 'du -sh "$M"/* 2>/dev/null\n';
   if (selfDelete)
@@ -5342,7 +5345,10 @@ function wireFalUI(card){
       "GB) onto the volume. Files already there are skipped, so this is safe to " +
       "re-run. The big one takes a while.<br>";
     rpInstallOffer(out, files.map(function(f){
-      return {name: f.name, url: f.url, folder: f.folder, label: f.name + " → " + f.folder};
+      /* gb has to survive this hop: the watcher sizes its deadline from it,
+         and without it an 18GB download was given a 14-minute clock */
+      return {name: f.name, url: f.url, folder: f.folder, gb: f.gb,
+              label: f.name + " → " + f.folder};
     }));
   };
   var ri = card.querySelector("#rp-lora-install");
