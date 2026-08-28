@@ -832,6 +832,12 @@
       <div class="field"><label>POSE REFERENCE (OPTIONAL) — YOUR GPU ONLY</label>
         <div class="phint">Repaint an existing picture with your character in it: the reference's pose, framing and lighting are kept while the prompt and the LoRAs decide who it is. Runs entirely on your own GPU, so nothing about it is moderated. The output follows the reference's shape, so ASPECT is ignored.</div>
         <div class="refrow" id="lab-pose"></div>
+        <div id="lab-cref-wrap" hidden style="padding-top:12px">
+          <span class="lbl">CHARACTER REFERENCE — ADD ONE TO SWAP INSTEAD OF REPAINT</span>
+          <div class="phint">With a second picture here the GPU switches to Kontext, the subject-swap model: it is shown both pictures and told to keep the pose picture's composition while making the person the one in this picture. No denoise to tune — it edits rather than renoises. Picking a character above fills this from their first selfie reference. Needs the Kontext models on your volume (Settings → Your own GPU → Check Kontext).</div>
+          <div class="refrow" id="lab-cref"></div>
+        </div>
+        <input type="file" accept="image/*" id="lab-cref-file" style="display:none">
         <div id="lab-dn-wrap" hidden style="padding-top:10px">
           <span class="lbl">HOW MUCH TO REPAINT · <span id="lab-dn-val">0.6</span></span>
           <input type="range" id="lab-dn" min="0.35" max="0.95" step="0.05" value="0.6" style="width:100%">
@@ -2368,6 +2374,122 @@ function buildFluxWorkflow(prompt, loras, aspect, pose){
   wf["8"] = {class_type: "SaveImage", inputs: {images: ["7", 0], filename_prefix: "out"}};
   return wf;
 }
+/* ================= FLUX Kontext (subject swap) =================
+   img2img can only renoise what a latent already holds. Kontext is an
+   instruction-following edit model: shown two people side by side it can be
+   told "replace the one on the left with the one on the right, keep the
+   pose", which is the trick that works so well elsewhere — and run on the
+   user's own GPU there is nothing moderating it. Everything below is a core
+   ComfyUI node; the cost is ~17GB of model files on the network volume. */
+var KONTEXT_UNET = "flux1-dev-kontext_fp8_scaled.safetensors";
+var KONTEXT_CLIP1 = "clip_l.safetensors";
+var KONTEXT_CLIP2 = "t5xxl_fp8_e4m3fn_scaled.safetensors";
+var KONTEXT_VAE = "ae.safetensors";
+var KONTEXT_HF = "https://huggingface.co/Comfy-Org/flux1-kontext-dev_ComfyUI/resolve/main/split_files/";
+function kontextFiles(){
+  return [
+    {folder: "diffusion_models", name: KONTEXT_UNET,
+     url: KONTEXT_HF + "diffusion_models/" + KONTEXT_UNET, gb: 11.9},
+    {folder: "text_encoders", name: KONTEXT_CLIP1,
+     url: KONTEXT_HF + "text_encoders/" + KONTEXT_CLIP1, gb: 0.25},
+    {folder: "text_encoders", name: KONTEXT_CLIP2,
+     url: KONTEXT_HF + "text_encoders/" + KONTEXT_CLIP2, gb: 5.2},
+    {folder: "vae", name: KONTEXT_VAE,
+     url: KONTEXT_HF + "vae/" + KONTEXT_VAE, gb: 0.33}
+  ];
+}
+/* the reference pair is stitched into one canvas here rather than by the
+   ImageStitch node, so the geometry is known exactly: the left half is the
+   pose, the right half the character, and the output frame is the pose's
+   own shape regardless of how wide the pair ends up. */
+function labStitchPair(poseSrc, charSrc, cb){
+  var a = new Image(), b = new Image(), left = 2;
+  function ready(){
+    if (--left) return;
+    if (!a.naturalWidth || !b.naturalWidth) { cb(null); return; }
+    var H = 1024;
+    var aw = Math.round(a.naturalWidth * (H / a.naturalHeight));
+    var bw = Math.round(b.naturalWidth * (H / b.naturalHeight));
+    /* a very wide pose would push the pair past what Kontext reads well */
+    var scale = Math.min(1, 2048 / (aw + bw));
+    aw = Math.round(aw * scale / 16) * 16;
+    bw = Math.round(bw * scale / 16) * 16;
+    var h = Math.round(H * scale / 16) * 16;
+    var cv = document.createElement("canvas");
+    cv.width = aw + bw; cv.height = h;
+    var g = cv.getContext("2d");
+    g.fillStyle = "#000"; g.fillRect(0, 0, cv.width, cv.height);
+    g.drawImage(a, 0, 0, aw, h);
+    g.drawImage(b, aw, 0, bw, h);
+    try { cb(cv.toDataURL("image/jpeg", 0.86), cv.width, cv.height); }
+    catch (e) { cb(null); }
+  }
+  a.onload = b.onload = ready;
+  a.onerror = b.onerror = function(){ left = 1; ready(); };
+  a.src = poseSrc; b.src = charSrc;
+}
+/* the instruction that does the work — deliberately close to the wording
+   that works by hand elsewhere, with the user's own prompt appended */
+function kontextInstruction(extra){
+  var t = "Replace the person on the left with the person on the right. Keep the " +
+    "left image's pose, body position, framing, camera angle, lighting and background " +
+    "exactly as they are — change only who the person is, so the face, hair and body " +
+    "belong to the person on the right. Output the left image's scene alone, with the " +
+    "new person in it, and do not include the reference person or any side-by-side layout.";
+  return (extra || "").trim() ? t + "\n\n" + extra.trim() : t;
+}
+function buildKontextWorkflow(prompt, imgName, outW, outH){
+  return {
+    "1": {class_type: "UNETLoader", inputs: {unet_name: KONTEXT_UNET, weight_dtype: "default"}},
+    "2": {class_type: "DualCLIPLoader", inputs: {clip_name1: KONTEXT_CLIP1,
+          clip_name2: KONTEXT_CLIP2, type: "flux"}},
+    "3": {class_type: "VAELoader", inputs: {vae_name: KONTEXT_VAE}},
+    "4": {class_type: "LoadImage", inputs: {image: imgName}},
+    "5": {class_type: "VAEEncode", inputs: {pixels: ["4", 0], vae: ["3", 0]}},
+    "6": {class_type: "CLIPTextEncode", inputs: {text: prompt, clip: ["2", 0]}},
+    /* the stitched pair rides as reference conditioning, so the sampler's own
+       canvas can be the pose's shape and the pair never appears in the output */
+    "7": {class_type: "ReferenceLatent", inputs: {conditioning: ["6", 0], latent: ["5", 0]}},
+    "8": {class_type: "FluxGuidance", inputs: {conditioning: ["7", 0], guidance: 2.5}},
+    "9": {class_type: "ConditioningZeroOut", inputs: {conditioning: ["6", 0]}},
+    "10": {class_type: "EmptySD3LatentImage", inputs: {width: outW, height: outH, batch_size: 1}},
+    "11": {class_type: "KSampler", inputs: {model: ["1", 0], positive: ["8", 0],
+           negative: ["9", 0], latent_image: ["10", 0],
+           seed: Math.floor(Math.random() * 1e9), steps: 20, cfg: 1,
+           sampler_name: "euler", scheduler: "simple", denoise: 1}},
+    "12": {class_type: "VAEDecode", inputs: {samples: ["11", 0], vae: ["3", 0]}},
+    "13": {class_type: "SaveImage", inputs: {images: ["12", 0], filename_prefix: "swap"}}
+  };
+}
+/* same free-directory-listing trick as the LoRA probe, pointed at the
+   diffusion_models folder — and it reports an unknown node type too, which
+   is how a worker too old for Kontext announces itself */
+function rpKontextProbe(cb){
+  var wf = {
+    "1": {class_type: "UNETLoader", inputs: {unet_name: "__pocketai_probe__.safetensors",
+          weight_dtype: "default"}},
+    "2": {class_type: "CLIPTextEncode", inputs: {text: "probe", clip: ["1", 0]}},
+    "3": {class_type: "ReferenceLatent", inputs: {conditioning: ["2", 0], latent: ["1", 0]}},
+    "4": {class_type: "SaveImage", inputs: {images: ["3", 0], filename_prefix: "probe"}}
+  };
+  fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
+    body: JSON.stringify({input: {workflow: wf}})
+  }).then(function(r){ return r.text(); })
+    .then(function(t){
+      var nodeMissing = /ReferenceLatent|FluxGuidance/.test(t) &&
+        /does not exist|not found|unknown|invalid node/i.test(t);
+      var m = t.match(/not in\s*\(?\[([^\]]*)\]/);
+      cb({
+        names: m ? m[1].split(",").map(function(x){
+          return x.replace(/^[\s'"]+|[\s'"]+$/g, "");
+        }).filter(Boolean) : null,
+        nodeMissing: nodeMissing,
+        raw: t.slice(0, 300)
+      });
+    }).catch(function(e){ cb({names: null, raw: String(e && e.message || e).slice(0, 200)}); });
+}
 /* what is actually on the volume. ComfyUI validates the whole graph before
    running it and refuses an unknown lora_name outright, so one file that
    isn't there loses the entire picture — which is how a face LoRA trained on
@@ -2424,17 +2546,48 @@ function rpRest(method, path, body){
 function rpInstallScript(missing, selfDelete){
   var s = 'D=$(find /workspace -maxdepth 4 -type d -name loras 2>/dev/null | head -n 1)\n' +
           '[ -z "$D" ] && D=/workspace/models/loras\n' +
-          'mkdir -p "$D" && cd "$D" && echo "installing into $D"\n';
+          'M=$(dirname "$D")\n' +
+          'echo "models root: $M"\n';
   missing.forEach(function(m){
-    s += '[ -s "' + m.name + '" ] || { curl -fL --retry 3 --connect-timeout 30 -o "' +
-         m.name + '.part" "' + withCivitaiToken(m.url) + '" && mv "' + m.name + '.part" "' +
-         m.name + '"; } || echo "FAILED ' + m.name + '"\n';
+    /* entries carry their own model folder — loras for LoRA files, and
+       diffusion_models / text_encoders / vae for the Kontext set */
+    var f = m.folder || "loras", t = '"$M/' + f + '/' + m.name + '"';
+    s += 'mkdir -p "$M/' + f + '"\n' +
+         '[ -s ' + t + ' ] || { curl -fL --retry 3 --connect-timeout 30 -o ' + t + '.part "' +
+         withCivitaiToken(m.url) + '" && mv ' + t + '.part ' + t + '; } || echo "FAILED ' +
+         m.name + '"\n';
   });
-  s += "ls -la\n";
+  s += 'du -sh "$M"/* 2>/dev/null\n';
   if (selfDelete)
     s += 'curl -s -X DELETE -H "Authorization: Bearer $RUNPOD_API_KEY" ' +
          '"https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID"\nsleep 60\n';
   return s;
+}
+async function kontextCheck(out){
+  function line(t){
+    if (out) out.innerHTML += esc(t) + "<br>";
+    L("img", "kontext: " + t, true, 1200);
+  }
+  if (out) out.innerHTML = "";
+  if (!rpReady()) { line("Add the RunPod endpoint ID and API key above first."); return; }
+  line("Asking the endpoint what it has…");
+  var r = await new Promise(function(res){ rpKontextProbe(res); });
+  if (r.nodeMissing) {
+    line("✗ This worker's ComfyUI is too old for Kontext — it doesn't know the " +
+         "ReferenceLatent node. Redeploy the endpoint on a newer worker-comfyui image.");
+    return;
+  }
+  if (!r.names) {
+    line("? Couldn't read the model list — " + (r.raw || "no answer") +
+         ". If the endpoint was asleep, try once more.");
+    return;
+  }
+  line("Nodes look fine (ReferenceLatent is known).");
+  line("diffusion_models holds " + r.names.length + " file(s).");
+  var have = r.names.indexOf(KONTEXT_UNET) >= 0;
+  line((have ? "✓ " : "✗ ") + KONTEXT_UNET + (have ? " is on the volume" : " is NOT on the volume"));
+  if (!have) line("Tap Install Kontext to download it and its text encoders and VAE (~17GB).");
+  else line("Set a pose reference AND a character reference in the Photo Lab to use it.");
 }
 async function rpInstallLoras(out){
   function line(t){
@@ -5052,7 +5205,14 @@ function rpSectionHTML(){
        'the face LoRA on the volume and the appearance anchor. fal stays as the fallback if ' +
        'the GPU fails.</span></label>';
   h += '<div class="srvbtns" style="margin-top:8px">' +
-       '<button class="use" id="rp-lora-install">Install LoRAs to volume</button></div>';
+       '<button class="use" id="rp-lora-install">Install LoRAs to volume</button>' +
+       '<button class="use" id="rp-kontext-check">Check Kontext</button>' +
+       '<button class="use" id="rp-kontext-install">Install Kontext (~17GB)</button></div>';
+  h += '<div class="ds" style="padding-top:6px">Kontext is the subject-swap model: shown a pose ' +
+       'picture and a picture of your character, it repaints the pose with your character in it — ' +
+       'the Photo Lab uses it when both references are set. It needs its own model files on the ' +
+       'volume (about 17GB, one time). Check first, then install.</div>';
+  h += '<div id="rp-kontext-out" class="ds" style="padding-top:6px"></div>';
   h += '<div class="ds" style="padding-top:6px">Checks which configured LoRAs the volume is ' +
        'missing, then either rents a tiny CPU pod for a few minutes to download them onto it ' +
        '(a few cents, deletes itself), or copies the same script for pasting into a pod ' +
@@ -5096,6 +5256,26 @@ function wireFalUI(card){
   };
   var lab = card.querySelector("#open-lab");
   if (lab) lab.onclick = openLab;
+  var kc = card.querySelector("#rp-kontext-check");
+  if (kc) kc.onclick = function(){
+    kc.disabled = true;
+    kontextCheck(card.querySelector("#rp-kontext-out"))
+      .then(function(){ kc.disabled = false; }, function(){ kc.disabled = false; });
+  };
+  var ki = card.querySelector("#rp-kontext-install");
+  if (ki) ki.onclick = function(){
+    var out = card.querySelector("#rp-kontext-out");
+    out.innerHTML = "";
+    if (!rpReady()) { out.textContent = "Add the RunPod endpoint ID and API key above first."; return; }
+    var files = kontextFiles();
+    out.innerHTML = "Downloading " + files.length + " files (~" +
+      Math.round(files.reduce(function(a, f){ return a + f.gb; }, 0)) +
+      "GB) onto the volume. Files already there are skipped, so this is safe to " +
+      "re-run. The big one takes a while.<br>";
+    rpInstallOffer(out, files.map(function(f){
+      return {name: f.name, url: f.url, folder: f.folder, label: f.name + " → " + f.folder};
+    }));
+  };
   var ri = card.querySelector("#rp-lora-install");
   if (ri) ri.onclick = function(){
     ri.disabled = true;
@@ -7490,7 +7670,8 @@ var callTimer = null, callChar = null;
    testing a new LoRA or a freshly trained face without holding a
    conversation hostage to it. Nothing here writes back to the LoRA cards. */
 var LAB = {engine: "", aspect: "portrait", mature: false, sel: {}, busy: false,
-           pose: null, denoise: 0.6};
+           pose: null, cref: null, denoise: 0.6};
+function labSwapMode(){ return !!(LAB.pose && LAB.cref); }
 /* The reference rides to the GPU inside the job's JSON body, and a fat
    body is what a phone drops mid-request. Detail here barely matters —
    the picture is squashed to a latent and the output is a megapixel of
@@ -7530,7 +7711,15 @@ function renderLabPose(){
       '<button class="rx" data-x="1"><span class="msr" style="font-size:13px">close</span></button></div>' +
       '<div class="phint" style="align-self:center">' + LAB.pose.w + "×" + LAB.pose.h + "</div>"
     : '<button class="refadd" title="Choose a pose reference"><span class="msr">add</span></button>';
-  $("lab-dn-wrap").hidden = !LAB.pose;
+  var cw = $("lab-cref-wrap");
+  cw.hidden = !LAB.pose;
+  $("lab-cref").innerHTML = LAB.cref
+    ? '<div class="refthumb"><img src="' + LAB.cref + '">' +
+      '<button class="rx" data-x="1"><span class="msr" style="font-size:13px">close</span></button></div>' +
+      '<div class="phint" style="align-self:center">Kontext swap mode</div>'
+    : '<button class="refadd" title="Choose a character reference"><span class="msr">add</span></button>';
+  /* denoise is an img2img dial; Kontext has no use for it */
+  $("lab-dn-wrap").hidden = !LAB.pose || labSwapMode();
 }
 function labLoraKey(x){ return x.where + "|" + (x.l.path || ""); }
 function labChips(el, options, cur, onPick){
@@ -7607,7 +7796,7 @@ function openLab(){
 }
 /* lean RunPod round-trip for the lab — same workflow builder as chats, no
    chat-side stage/health machinery attached */
-function labRunpod(prompt, loras, aspect, cb, pose){
+function labRunpod(prompt, loras, aspect, cb, pose, kontext){
   function fail(msg){ L("img", "lab runpod failed: " + msg.slice(0, 300), true); cb(null); }
   function result(j, tries){
     var out = j.output || {}, img = (out.images && out.images[0]) || {};
@@ -7633,11 +7822,12 @@ function labRunpod(prompt, loras, aspect, cb, pose){
   }
   /* worker-comfyui writes each entry of input.images into ComfyUI's input
      folder under its name, which is what the LoadImage node above asks for */
-  var body = JSON.stringify({input: {
-    workflow: buildFluxWorkflow(prompt, loras, aspect, pose),
-    images: pose ? [{name: pose.name,
-                     image: String(pose.src).replace(/^data:image\/\w+;base64,/, "")}] : undefined
-  }});
+  function bare(u){ return String(u).replace(/^data:image\/\w+;base64,/, ""); }
+  var body = JSON.stringify({input: kontext
+    ? {workflow: buildKontextWorkflow(kontext.prompt, kontext.name, kontext.outW, kontext.outH),
+       images: [{name: kontext.name, image: bare(kontext.src)}]}
+    : {workflow: buildFluxWorkflow(prompt, loras, aspect, pose),
+       images: pose ? [{name: pose.name, image: bare(pose.src)}] : undefined}});
   var kb = Math.round(body.length / 1024);
   L("img", "lab job " + kb + "KB" + (pose ? " (includes the pose reference)" : ""), true);
   /* /run rather than /runsync: the submit returns in milliseconds and the
@@ -7725,15 +7915,22 @@ function labGo(){
     toast("Heads up: GLM has no LoRA support — they won't apply on this engine");
   /* a trigger word in the prompt does nothing on its own — the run looks
      like an identity test and isn't one */
-  if (!loras.length && ch && chLoraList(ch).length)
+  if (!loras.length && ch && chLoraList(ch).length && !labSwapMode())
     toast("No LoRAs ticked — " + ch.name + "'s face LoRA is in the list below");
+  /* Kontext takes identity from the reference picture, so the LoRA chain
+     isn't part of its graph at all — say so rather than let ticked boxes imply
+     they are doing something */
+  if (labSwapMode() && loras.length)
+    toast("Swap mode takes the face from the reference picture — LoRAs sit this one out");
   LAB.busy = true;
   $("lab-go").disabled = true;
   $("lab-stat").textContent = "Painting…";
   L("img", "lab: engine=" + LAB.engine +
-    (LAB.pose ? " pose-ref " + LAB.pose.w + "×" + LAB.pose.h + " denoise=" + LAB.denoise
-              : " aspect=" + LAB.aspect) +
-    (mature ? " 18+" : "") + " loras=" + (loras.length || "none") + " ↓\n" + prompt, true, 5000);
+    (labSwapMode() ? " KONTEXT SWAP out " + LAB.pose.w + "×" + LAB.pose.h
+      : LAB.pose ? " pose-ref " + LAB.pose.w + "×" + LAB.pose.h + " denoise=" + LAB.denoise
+                 : " aspect=" + LAB.aspect) +
+    (mature ? " 18+" : "") + " loras=" + (labSwapMode() ? "n/a" : (loras.length || "none")) +
+    " ↓\n" + prompt, true, 5000);
   var eng = LAB.engine;
   var done = function(url){
     LAB.busy = false;
@@ -7757,9 +7954,23 @@ function labGo(){
       body: JSON.stringify(body)
     }), "lab (flux, " + loras.length + " lora" + (loras.length === 1 ? "" : "s") + ")", done);
   } else if (LAB.engine === "rp") {
-    labRunpod(prompt, loras, LAB.aspect, done,
-      LAB.pose ? {src: LAB.pose.src, name: LAB.pose.name, w: LAB.pose.w, h: LAB.pose.h,
-                  denoise: LAB.denoise} : null);
+    if (labSwapMode()) {
+      $("lab-stat").textContent = "Building the reference pair…";
+      labStitchPair(LAB.pose.src, LAB.cref, function(pair, pw, ph){
+        if (!pair) { toast("Couldn't build the reference pair"); done(null); return; }
+        var instr = kontextInstruction($("lab-prompt").value.trim());
+        L("img", "kontext pair " + pw + "×" + ph + " (pose left, character right) ↓\n" +
+          instr, true, 4000);
+        $("lab-stat").textContent = "Painting…";
+        labRunpod(prompt, loras, LAB.aspect, done, null,
+          {src: pair, name: "pair_" + Date.now() + ".png",
+           outW: LAB.pose.w, outH: LAB.pose.h, prompt: instr});
+      });
+    } else {
+      labRunpod(prompt, loras, LAB.aspect, done,
+        LAB.pose ? {src: LAB.pose.src, name: LAB.pose.name, w: LAB.pose.w, h: LAB.pose.h,
+                    denoise: LAB.denoise} : null);
+    }
   } else {
     imgResponse(fetch(GLM_IMG_URL, {
       method: "POST",
@@ -7790,6 +8001,30 @@ $("lab-pose-file").onchange = function(){
       });
     });
   });
+};
+$("lab-cref").onclick = function(e){
+  if (e.target.closest && e.target.closest("[data-x]")) { LAB.cref = null; renderLabPose(); return; }
+  if (e.target.closest && e.target.closest(".refadd")) $("lab-cref-file").click();
+};
+$("lab-cref-file").onchange = function(){
+  var f = this.files && this.files[0];
+  this.value = "";
+  if (!f) return;
+  readChatPhoto(f, function(src){
+    labShrinkPose(src, function(small){
+      if (!small) { toast("Couldn't read that image"); return; }
+      LAB.cref = small; renderLabPose();
+    });
+  });
+};
+/* choosing a character offers their own face as the swap source */
+$("lab-char").onchange = function(){
+  var ch = this.value ? getChar(this.value) : null;
+  if (ch && LAB.pose && !LAB.cref && (ch.refimgs || []).length) {
+    labShrinkPose(ch.refimgs[0], function(small){
+      if (small) { LAB.cref = small; renderLabPose(); toast("Using " + ch.name + "'s first reference"); }
+    });
+  }
 };
 $("lab-dn").oninput = function(){
   LAB.denoise = parseFloat(this.value) || 0.6;
