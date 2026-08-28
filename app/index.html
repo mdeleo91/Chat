@@ -7606,19 +7606,37 @@ function labRunpod(prompt, loras, aspect, cb, pose){
     }
     fail(j.error ? String(j.error) : "status " + (j.status || "?") + " with no image");
   }
-  fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
+  /* worker-comfyui writes each entry of input.images into ComfyUI's input
+     folder under its name, which is what the LoadImage node above asks for */
+  var body = JSON.stringify({input: {
+    workflow: buildFluxWorkflow(prompt, loras, aspect, pose),
+    images: pose ? [{name: pose.name,
+                     image: String(pose.src).replace(/^data:image\/\w+;base64,/, "")}] : undefined
+  }});
+  var kb = Math.round(body.length / 1024);
+  L("img", "lab job " + kb + "KB" + (pose ? " (includes the pose reference)" : ""), true);
+  /* /run rather than /runsync: the submit returns in milliseconds and the
+     poll below does the waiting. /runsync holds one connection open for the
+     whole generation, which a phone carrying a few hundred KB of reference
+     image drops often enough to matter ("Failed to fetch" at 12s). */
+  fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/run", {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
-    /* worker-comfyui writes each entry of input.images into ComfyUI's input
-       folder under its name, which is what the LoadImage node above asks for */
-    body: JSON.stringify({input: {
-      workflow: buildFluxWorkflow(prompt, loras, aspect, pose),
-      images: pose ? [{name: pose.name,
-                       image: String(pose.src).replace(/^data:image\/\w+;base64,/, "")}] : undefined
-    }})
-  }).then(function(r){ return r.json(); })
-    .then(function(j){ result(j, 75); })
-    .catch(function(e){ fail(String(e && e.message || e)); });
+    body: body
+  }).then(function(r){
+    if (!r.ok) return r.text().then(function(t){
+      throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 200) : ""));
+    });
+    return r.json();
+  }).then(function(j){ result(j, 90); })
+    .catch(function(e){
+      var m = String(e && e.message || e);
+      /* a TypeError here never reached the API — no status, no body */
+      fail(/fetch|network|load failed/i.test(m)
+        ? m + " — the request never reached RunPod (" + kb + "KB sent). " +
+          "Usually a dropped mobile connection; a smaller pose reference or wifi fixes it."
+        : m);
+    });
 }
 function labShowResult(url, ch){
   var out = $("lab-out");
@@ -7668,6 +7686,10 @@ function labGo(){
   }
   if (LAB.engine === "glm" && loras.length)
     toast("Heads up: GLM has no LoRA support — they won't apply on this engine");
+  /* a trigger word in the prompt does nothing on its own — the run looks
+     like an identity test and isn't one */
+  if (!loras.length && ch && chLoraList(ch).length)
+    toast("No LoRAs ticked — " + ch.name + "'s face LoRA is in the list below");
   LAB.busy = true;
   $("lab-go").disabled = true;
   $("lab-stat").textContent = "Painting…";
