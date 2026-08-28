@@ -2494,16 +2494,31 @@ function buildKontextWorkflow(prompt, imgName, outW, outH){
    diffusion_models folder — and it reports an unknown node type too, which
    is how a worker too old for Kontext announces itself */
 function rpKontextProbe(cb){
+  /* ComfyUI type-checks a graph before it value-checks it, so a probe has to
+     be structurally perfect to get as far as "that file isn't on the volume".
+     This one is a complete, valid graph — CLIP and VAE come from the
+     checkpoint that is already there — whose only fault is a diffusion model
+     name that cannot exist. Two answers for one job: an unknown node type
+     means the worker is too old for Kontext, and otherwise the refusal lists
+     every file in diffusion_models. */
   var wf = {
-    "1": {class_type: "UNETLoader", inputs: {unet_name: "__pocketai_probe__.safetensors",
+    "1": {class_type: "CheckpointLoaderSimple", inputs: {ckpt_name: "flux1-dev-fp8.safetensors"}},
+    "2": {class_type: "UNETLoader", inputs: {unet_name: "__pocketai_probe__.safetensors",
           weight_dtype: "default"}},
-    "2": {class_type: "CLIPTextEncode", inputs: {text: "probe", clip: ["1", 0]}},
-    "3": {class_type: "ReferenceLatent", inputs: {conditioning: ["2", 0], latent: ["1", 0]}},
-    "4": {class_type: "SaveImage", inputs: {images: ["3", 0], filename_prefix: "probe"}}
+    "3": {class_type: "CLIPTextEncode", inputs: {text: "probe", clip: ["1", 1]}},
+    "5": {class_type: "EmptySD3LatentImage", inputs: {width: 64, height: 64, batch_size: 1}},
+    "4": {class_type: "ReferenceLatent", inputs: {conditioning: ["3", 0], latent: ["5", 0]}},
+    "6": {class_type: "FluxGuidance", inputs: {conditioning: ["4", 0], guidance: 2.5}},
+    "7": {class_type: "KSampler", inputs: {model: ["2", 0], positive: ["6", 0],
+          negative: ["3", 0], latent_image: ["5", 0], seed: 1, steps: 1, cfg: 1,
+          sampler_name: "euler", scheduler: "simple", denoise: 1}},
+    "8": {class_type: "VAEDecode", inputs: {samples: ["7", 0], vae: ["1", 2]}},
+    "9": {class_type: "SaveImage", inputs: {images: ["8", 0], filename_prefix: "probe"}}
   };
   rpProbeRun(wf, function(t){
     var nodeMissing = /ReferenceLatent|FluxGuidance/.test(t) &&
-      /does not exist|not found|unknown|invalid node/i.test(t);
+      /node type does not exist|does not exist|not found|unknown node/i.test(t) &&
+      !/return_type_mismatch/.test(t);
     var m = t.match(/not in\s*\(?\[([^\]]*)\]/);
     cb({
       names: m ? m[1].split(",").map(function(x){

@@ -1,6 +1,6 @@
 {
-  "versionCode": 136,
-  "versionName": "0.58.1",
+  "versionCode": 137,
+  "versionName": "0.58.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Both volume probes now survive a sleeping endpoint. Check Kontext and Test LoRAs work by handing ComfyUI a graph it must refuse and reading the refusal — but on a cold endpoint the synchronous call gives up before the worker has finished booting and answers with a job id and IN_PROGRESS instead, leaving no refusal to read. That is what 'Couldn't read the model list' followed by a raw job object was. The probe now recognises an unfinished job and polls it to completion, for up to three minutes, before reading the answer — with a log line saying the worker is booting so the wait is legible. The check also says up front that a sleeping endpoint means a couple of minutes' wait."
+  "notes": "Check Kontext asks a question the worker can actually answer. The probe works by handing ComfyUI a graph whose only fault is a model filename that cannot exist, so the refusal lists every file that does — but ComfyUI checks that a graph is wired correctly before it checks any of the values in it, and the probe's own wiring was wrong: it fed conditioning into an image input. The worker rejected the wiring and never reached the question. The probe is now a complete, valid graph — borrowing CLIP and VAE from the checkpoint already on the volume — so the refusal comes back with the model list in it, and a worker too old to know the Kontext nodes still announces itself the same way. A type mismatch is no longer misread as a missing node either."
 }
