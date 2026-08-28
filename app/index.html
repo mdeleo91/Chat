@@ -7491,6 +7491,31 @@ var callTimer = null, callChar = null;
    conversation hostage to it. Nothing here writes back to the LoRA cards. */
 var LAB = {engine: "", aspect: "portrait", mature: false, sel: {}, busy: false,
            pose: null, denoise: 0.6};
+/* The reference rides to the GPU inside the job's JSON body, and a fat
+   body is what a phone drops mid-request. Detail here barely matters —
+   the picture is squashed to a latent and the output is a megapixel of
+   the model's own detail — so squeeze it to a budget before upload. */
+function labShrinkPose(src, cb){
+  var BUDGET = 150000;                       // base64 bytes, not pixels
+  var steps = [[896, 0.75], [768, 0.72], [640, 0.7], [512, 0.68]];
+  var im = new Image();
+  im.onload = function(){
+    var i = 0, out = src;
+    for (; i < steps.length; i++) {
+      var max = steps[i][0], q = steps[i][1];
+      var k = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
+      var cv = document.createElement("canvas");
+      cv.width = Math.max(1, Math.round(im.naturalWidth * k));
+      cv.height = Math.max(1, Math.round(im.naturalHeight * k));
+      cv.getContext("2d").drawImage(im, 0, 0, cv.width, cv.height);
+      try { out = cv.toDataURL("image/jpeg", q); } catch (e) { break; }
+      if (out.length <= BUDGET) break;
+    }
+    cb(out, im.naturalWidth, im.naturalHeight);
+  };
+  im.onerror = function(){ cb(null); };
+  im.src = src;
+}
 /* FLUX wants dimensions in multiples of 16 and is happiest around a
    megapixel; the reference's own aspect is preserved. */
 function labPoseDims(w, h, cb){
@@ -7619,24 +7644,36 @@ function labRunpod(prompt, loras, aspect, cb, pose){
      poll below does the waiting. /runsync holds one connection open for the
      whole generation, which a phone carrying a few hundred KB of reference
      image drops often enough to matter ("Failed to fetch" at 12s). */
-  fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/run", {
-    method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
-    body: body
-  }).then(function(r){
-    if (!r.ok) return r.text().then(function(t){
-      throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 200) : ""));
-    });
-    return r.json();
-  }).then(function(j){ result(j, 90); })
-    .catch(function(e){
-      var m = String(e && e.message || e);
-      /* a TypeError here never reached the API — no status, no body */
-      fail(/fetch|network|load failed/i.test(m)
-        ? m + " — the request never reached RunPod (" + kb + "KB sent). " +
-          "Usually a dropped mobile connection; a smaller pose reference or wifi fixes it."
-        : m);
-    });
+  function submit(retriesLeft){
+    fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/run", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
+      body: body
+    }).then(function(r){
+      if (!r.ok) return r.text().then(function(t){
+        throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 200) : ""));
+      });
+      return r.json();
+    }).then(function(j){ result(j, 90); })
+      .catch(function(e){
+        var m = String(e && e.message || e);
+        /* a TypeError never reached the API — no status, no body. One blip
+           is worth a retry; two in a row is a real condition. */
+        var networky = /fetch|network|load failed/i.test(m);
+        if (networky && retriesLeft > 0) {
+          L("img", "lab submit didn't reach RunPod (" + kb + "KB) — retrying once", true);
+          $("lab-stat").textContent = "Connection dropped — retrying…";
+          setTimeout(function(){ submit(retriesLeft - 1); }, 2500);
+          return;
+        }
+        fail(networky
+          ? m + " — the request never reached RunPod (" + kb + "KB sent), twice. " +
+            "That is the phone's connection rather than the endpoint: try wifi, " +
+            "or a smaller pose reference."
+          : m);
+      });
+  }
+  submit(1);
 }
 function labShowResult(url, ch){
   var out = $("lab-out");
@@ -7743,16 +7780,15 @@ $("lab-pose-file").onchange = function(){
   this.value = "";
   if (!f) return;
   readChatPhoto(f, function(src){
-    var im = new Image();
-    im.onload = function(){
-      labPoseDims(im.naturalWidth, im.naturalHeight, function(w, h){
-        LAB.pose = {src: src, w: w, h: h, name: "pose_" + Date.now() + ".png"};
+    labShrinkPose(src, function(small, natW, natH){
+      if (!small) { toast("Couldn't read that image"); return; }
+      labPoseDims(natW, natH, function(w, h){
+        LAB.pose = {src: small, w: w, h: h, name: "pose_" + Date.now() + ".png",
+                    kb: Math.round(small.length / 1024)};
         renderLabPose();
         if (rpReady() && LAB.engine !== "rp") { LAB.engine = "rp"; renderLab(); }
       });
-    };
-    im.onerror = function(){ toast("Couldn't read that image"); };
-    im.src = src;
+    });
   });
 };
 $("lab-dn").oninput = function(){
