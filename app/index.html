@@ -829,6 +829,15 @@
         <select id="lab-char" class="srvinput"></select>
         <label class="phint" style="display:flex;align-items:center;gap:8px;padding-top:6px;cursor:pointer">
           <input type="checkbox" id="lab-anchor" checked> append their appearance anchor</label></div>
+      <div class="field"><label>POSE REFERENCE (OPTIONAL) — YOUR GPU ONLY</label>
+        <div class="phint">Repaint an existing picture with your character in it: the reference's pose, framing and lighting are kept while the prompt and the LoRAs decide who it is. Runs entirely on your own GPU, so nothing about it is moderated. The output follows the reference's shape, so ASPECT is ignored.</div>
+        <div class="refrow" id="lab-pose"></div>
+        <div id="lab-dn-wrap" hidden style="padding-top:10px">
+          <span class="lbl">HOW MUCH TO REPAINT · <span id="lab-dn-val">0.6</span></span>
+          <input type="range" id="lab-dn" min="0.35" max="0.95" step="0.05" value="0.6" style="width:100%">
+          <div class="phint">Lower keeps more of the reference — the pose is safest but the original face bleeds through. Higher rewrites more toward your character — identity is stronger but the pose drifts. Start at 0.6 and move in steps of 0.05.</div>
+        </div></div>
+      <input type="file" accept="image/*" id="lab-pose-file" style="display:none">
       <div class="field"><label>ENGINE</label><div id="lab-engine"></div></div>
       <div class="field"><label>ASPECT</label><div id="lab-aspect"></div></div>
       <div class="field" id="lab-mature-wrap" hidden><label>CONTENT</label><div id="lab-mature"></div></div>
@@ -2316,8 +2325,13 @@ function rpLoraName(path){
   var seg = path.split("/").pop().split("?")[0];
   return /\.safetensors$/i.test(seg) ? seg : seg + ".safetensors";
 }
-/* ComfyUI graph (API format): flux1-dev-fp8 checkpoint, LoRA chain */
-function buildFluxWorkflow(prompt, loras, aspect){
+/* ComfyUI graph (API format): flux1-dev-fp8 checkpoint, LoRA chain.
+   pose (optional) turns this into img2img: {name, w, h, denoise} — the
+   reference image is uploaded alongside the job, encoded to a latent and
+   partially renoised, so its composition survives while the prompt and the
+   LoRAs decide who is in it. Everything here is a core ComfyUI node, so it
+   runs on the stock worker image with nothing extra installed. */
+function buildFluxWorkflow(prompt, loras, aspect, pose){
   var wf = {
     "1": {class_type: "CheckpointLoaderSimple", inputs: {ckpt_name: "flux1-dev-fp8.safetensors"}}
   };
@@ -2334,11 +2348,21 @@ function buildFluxWorkflow(prompt, loras, aspect){
   });
   wf["3"] = {class_type: "CLIPTextEncode", inputs: {text: prompt, clip: clipRef}};
   wf["4"] = {class_type: "CLIPTextEncode", inputs: {text: "", clip: clipRef}};
-  wf["5"] = {class_type: "EmptySD3LatentImage", inputs: {width: W, height: H, batch_size: 1}};
+  /* the reference's own shape wins over the aspect chips — rescaling a pose
+     into a different frame is how a composition gets cropped in half */
+  if (pose) {
+    wf["20"] = {class_type: "LoadImage", inputs: {image: pose.name}};
+    wf["21"] = {class_type: "ImageScale", inputs: {image: ["20", 0],
+      upscale_method: "lanczos", width: pose.w, height: pose.h, crop: "disabled"}};
+    wf["22"] = {class_type: "VAEEncode", inputs: {pixels: ["21", 0], vae: ["1", 2]}};
+  } else {
+    wf["5"] = {class_type: "EmptySD3LatentImage", inputs: {width: W, height: H, batch_size: 1}};
+  }
   wf["6"] = {class_type: "KSampler", inputs: {
-    model: modelRef, positive: ["3", 0], negative: ["4", 0], latent_image: ["5", 0],
+    model: modelRef, positive: ["3", 0], negative: ["4", 0],
+    latent_image: pose ? ["22", 0] : ["5", 0],
     seed: Math.floor(Math.random() * 1e9), steps: 24, cfg: 1,
-    sampler_name: "euler", scheduler: "simple", denoise: 1
+    sampler_name: "euler", scheduler: "simple", denoise: pose ? pose.denoise : 1
   }};
   wf["7"] = {class_type: "VAEDecode", inputs: {samples: ["6", 0], vae: ["1", 2]}};
   wf["8"] = {class_type: "SaveImage", inputs: {images: ["7", 0], filename_prefix: "out"}};
@@ -7465,7 +7489,24 @@ var callTimer = null, callChar = null;
    bypassed on purpose — choose the engine and aspect, and paint. For
    testing a new LoRA or a freshly trained face without holding a
    conversation hostage to it. Nothing here writes back to the LoRA cards. */
-var LAB = {engine: "", aspect: "portrait", mature: false, sel: {}, busy: false};
+var LAB = {engine: "", aspect: "portrait", mature: false, sel: {}, busy: false,
+           pose: null, denoise: 0.6};
+/* FLUX wants dimensions in multiples of 16 and is happiest around a
+   megapixel; the reference's own aspect is preserved. */
+function labPoseDims(w, h, cb){
+  var k = Math.sqrt(1000000 / Math.max(1, w * h));
+  var r16 = function(v){ return Math.max(256, Math.round(v * k / 16) * 16); };
+  cb(r16(w), r16(h));
+}
+function renderLabPose(){
+  var row = $("lab-pose");
+  row.innerHTML = LAB.pose
+    ? '<div class="refthumb"><img src="' + LAB.pose.src + '">' +
+      '<button class="rx" data-x="1"><span class="msr" style="font-size:13px">close</span></button></div>' +
+      '<div class="phint" style="align-self:center">' + LAB.pose.w + "×" + LAB.pose.h + "</div>"
+    : '<button class="refadd" title="Choose a pose reference"><span class="msr">add</span></button>';
+  $("lab-dn-wrap").hidden = !LAB.pose;
+}
 function labLoraKey(x){ return x.where + "|" + (x.l.path || ""); }
 function labChips(el, options, cur, onPick){
   el.innerHTML = "";
@@ -7519,6 +7560,7 @@ function renderLab(){
   labChips($("lab-aspect"), [
     {v: "portrait", label: "Portrait"}, {v: "landscape", label: "Landscape"}, {v: "square", label: "Square"}
   ], LAB.aspect, function(v){ LAB.aspect = v; renderLab(); });
+  renderLabPose();
   var mw = $("lab-mature-wrap");
   mw.hidden = !S.adult;
   if (S.adult)
@@ -7540,7 +7582,7 @@ function openLab(){
 }
 /* lean RunPod round-trip for the lab — same workflow builder as chats, no
    chat-side stage/health machinery attached */
-function labRunpod(prompt, loras, aspect, cb){
+function labRunpod(prompt, loras, aspect, cb, pose){
   function fail(msg){ L("img", "lab runpod failed: " + msg.slice(0, 300), true); cb(null); }
   function result(j, tries){
     var out = j.output || {}, img = (out.images && out.images[0]) || {};
@@ -7567,7 +7609,13 @@ function labRunpod(prompt, loras, aspect, cb){
   fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
     method: "POST",
     headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
-    body: JSON.stringify({input: {workflow: buildFluxWorkflow(prompt, loras, aspect)}})
+    /* worker-comfyui writes each entry of input.images into ComfyUI's input
+       folder under its name, which is what the LoadImage node above asks for */
+    body: JSON.stringify({input: {
+      workflow: buildFluxWorkflow(prompt, loras, aspect, pose),
+      images: pose ? [{name: pose.name,
+                       image: String(pose.src).replace(/^data:image\/\w+;base64,/, "")}] : undefined
+    }})
   }).then(function(r){ return r.json(); })
     .then(function(j){ result(j, 75); })
     .catch(function(e){ fail(String(e && e.message || e)); });
@@ -7612,13 +7660,21 @@ function labGo(){
                   scale: Math.min(4, Math.max(0, s.scale || 1))});
   });
   var mature = LAB.mature && !!S.adult;
+  /* a pose reference is an img2img graph on the user's own worker — the other
+     two engines would silently ignore it and paint from text alone */
+  if (LAB.pose && LAB.engine !== "rp") {
+    toast("A pose reference needs the Your GPU engine — switch ENGINE above");
+    return;
+  }
   if (LAB.engine === "glm" && loras.length)
     toast("Heads up: GLM has no LoRA support — they won't apply on this engine");
   LAB.busy = true;
   $("lab-go").disabled = true;
   $("lab-stat").textContent = "Painting…";
-  L("img", "lab: engine=" + LAB.engine + " aspect=" + LAB.aspect + (mature ? " 18+" : "") +
-    " loras=" + (loras.length || "none") + " ↓\n" + prompt, true, 5000);
+  L("img", "lab: engine=" + LAB.engine +
+    (LAB.pose ? " pose-ref " + LAB.pose.w + "×" + LAB.pose.h + " denoise=" + LAB.denoise
+              : " aspect=" + LAB.aspect) +
+    (mature ? " 18+" : "") + " loras=" + (loras.length || "none") + " ↓\n" + prompt, true, 5000);
   var eng = LAB.engine;
   var done = function(url){
     LAB.busy = false;
@@ -7642,7 +7698,9 @@ function labGo(){
       body: JSON.stringify(body)
     }), "lab (flux, " + loras.length + " lora" + (loras.length === 1 ? "" : "s") + ")", done);
   } else if (LAB.engine === "rp") {
-    labRunpod(prompt, loras, LAB.aspect, done);
+    labRunpod(prompt, loras, LAB.aspect, done,
+      LAB.pose ? {src: LAB.pose.src, name: LAB.pose.name, w: LAB.pose.w, h: LAB.pose.h,
+                  denoise: LAB.denoise} : null);
   } else {
     imgResponse(fetch(GLM_IMG_URL, {
       method: "POST",
@@ -7654,6 +7712,31 @@ function labGo(){
 }
 $("lab-back").onclick = function(){ hide("v-lab"); };
 $("lab-go").onclick = labGo;
+$("lab-pose").onclick = function(e){
+  if (e.target.closest && e.target.closest("[data-x]")) { LAB.pose = null; renderLabPose(); return; }
+  if (e.target.closest && e.target.closest(".refadd")) $("lab-pose-file").click();
+};
+$("lab-pose-file").onchange = function(){
+  var f = this.files && this.files[0];
+  this.value = "";
+  if (!f) return;
+  readChatPhoto(f, function(src){
+    var im = new Image();
+    im.onload = function(){
+      labPoseDims(im.naturalWidth, im.naturalHeight, function(w, h){
+        LAB.pose = {src: src, w: w, h: h, name: "pose_" + Date.now() + ".png"};
+        renderLabPose();
+        if (rpReady() && LAB.engine !== "rp") { LAB.engine = "rp"; renderLab(); }
+      });
+    };
+    im.onerror = function(){ toast("Couldn't read that image"); };
+    im.src = src;
+  });
+};
+$("lab-dn").oninput = function(){
+  LAB.denoise = parseFloat(this.value) || 0.6;
+  $("lab-dn-val").textContent = LAB.denoise.toFixed(2);
+};
 function startCall(id){
   var ch = getChar(id); if (!ch) return;
   callChar = ch;
