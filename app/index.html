@@ -4133,6 +4133,7 @@ function sysPrompt(ch, convo){
     p += "Things you remember about the user:\n";
     mems.forEach(function(m){ p += "- " + m.text + "\n"; });
   }
+  p += timelineBlock(ch, convo);
   p += otherRooms(ch, convo);
   return p.replace(/\n$/, "");
 }
@@ -4146,12 +4147,64 @@ function sysPrompt(ch, convo){
    leaking it into a room full of other characters is a worse failure than
    forgetting. */
 var ROOM_TAIL = 14, ROOM_BUDGET = 2600, ROOM_LINE = 300;
+/* "in the last hour" cannot be ordered against "earlier today" — and
+   ordering is the whole point once a character can see more than one
+   conversation. Say how long ago, plainly. */
 function roomWhen(ts){
   var d = Date.now() - ts;
-  if (d < 36e5) return "in the last hour";
-  if (d < 864e5) return "earlier today";
-  if (d < 1728e5) return "yesterday";
+  if (d < 12e4) return "just now";
+  if (d < 36e5) { var m = Math.max(1, Math.round(d / 6e4)); return m + (m === 1 ? " minute ago" : " minutes ago"); }
+  if (d < 864e5) { var h = Math.round(d / 36e5); return h + (h === 1 ? " hour ago" : " hours ago"); }
+  var days = Math.round(d / 864e5);
+  if (days <= 14) return days + (days === 1 ? " day ago" : " days ago");
   return "on " + fmtTime(ts);
+}
+/* ---- where this conversation sits in the sequence ----
+   Every message carries a timestamp, so the order conversations happened in
+   has always been knowable — it was simply never said. Without it a
+   character handed a private chat and a group chat side by side has no way
+   to tell which came first, or that both came before the moment they are
+   answering in now. */
+function timelineRooms(ch, convo){
+  /* deliberately the same set otherRooms is allowed to quote, so the running
+     order can never name a conversation whose contents stay private */
+  var out = [];
+  if (convo.grp) {
+    if ((S.msgs[ch.id] || []).length)
+      out.push({label: "your private chat with " + userName(), msgs: S.msgs[ch.id]});
+  } else {
+    S.groups.forEach(function(g){
+      if ((g.members || []).indexOf(ch.id) >= 0 && (S.msgs[g.id] || []).length)
+        out.push({label: "the group chat \u201c" + g.name + "\u201d", msgs: S.msgs[g.id]});
+    });
+  }
+  return out;
+}
+function timelineBlock(ch, convo){
+  if (!ch || !convo) return "";
+  var now = new Date();
+  /* a bare "3:49" reads as afternoon as easily as morning; spell it out */
+  var p = "Right now it is " +
+    now.toLocaleDateString(undefined, {weekday: "long", day: "numeric", month: "long"}) +
+    ", " + now.toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"}) + ".\n";
+  var arr = S.msgs[convo.id] || [];
+  if (arr.length)
+    p += "The last thing said in this conversation was " + roomWhen(arr[arr.length - 1].ts) + ".\n";
+  var rooms = timelineRooms(ch, convo);
+  if (!rooms.length) return p;
+  rooms.sort(function(a, b){
+    return a.msgs[a.msgs.length - 1].ts - b.msgs[b.msgs.length - 1].ts;
+  });
+  p += "The order things happened in, oldest first:\n";
+  rooms.forEach(function(r, i){
+    p += "  " + (i + 1) + ". " + r.label + " — last spoken " +
+      roomWhen(r.msgs[r.msgs.length - 1].ts) + "\n";
+  });
+  p += "  " + (rooms.length + 1) + ". this conversation — now.\n";
+  p += "Everything in those other conversations happened BEFORE this moment: treat it as " +
+    "already said and already settled, not as news, and do not re-litigate or re-announce " +
+    "something that was worked out there.\n";
+  return p;
 }
 function roomSpeaker(room, m, ch){
   if (m.who === "scene") return "[scene]";
