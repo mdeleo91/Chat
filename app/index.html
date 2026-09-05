@@ -1025,6 +1025,14 @@ function load(){
      whole premise; in-person turns it into a scene played out in the room. */
   if (!S.modes) S.modes = {};
   if (!S.lens) S.lens = {};
+  /* ---- the story clock ----
+     Wall time is the wrong clock for a story: play happens in bursts, and a
+     week of not opening the app is not a week in the characters' lives. The
+     world therefore keeps its own datetime, moved only by playing and by
+     deliberate jumps. It is seeded from the real clock the first time, so
+     everything already in the history — which carries only real timestamps —
+     lines up behind it without a migration. */
+  if (!S.clock) S.clock = {t: Date.now()};
   var migrated = false;
   Object.keys(S.mems || {}).forEach(function(k){       // "read back" was renamed
     (S.mems[k] || []).forEach(function(m){
@@ -4147,18 +4155,6 @@ function sysPrompt(ch, convo){
    leaking it into a room full of other characters is a worse failure than
    forgetting. */
 var ROOM_TAIL = 14, ROOM_BUDGET = 2600, ROOM_LINE = 300;
-/* "in the last hour" cannot be ordered against "earlier today" — and
-   ordering is the whole point once a character can see more than one
-   conversation. Say how long ago, plainly. */
-function roomWhen(ts){
-  var d = Date.now() - ts;
-  if (d < 12e4) return "just now";
-  if (d < 36e5) { var m = Math.max(1, Math.round(d / 6e4)); return m + (m === 1 ? " minute ago" : " minutes ago"); }
-  if (d < 864e5) { var h = Math.round(d / 36e5); return h + (h === 1 ? " hour ago" : " hours ago"); }
-  var days = Math.round(d / 864e5);
-  if (days <= 14) return days + (days === 1 ? " day ago" : " days ago");
-  return "on " + fmtTime(ts);
-}
 /* ---- where this conversation sits in the sequence ----
    Every message carries a timestamp, so the order conversations happened in
    has always been knowable — it was simply never said. Without it a
@@ -4180,34 +4176,38 @@ function timelineRooms(ch, convo){
   }
   return out;
 }
+/* how you were together the last time this room was used — the difference
+   between "you texted me last night" and "I saw you last night" */
+function roomModeWord(msgs){
+  var m = msgs[msgs.length - 1];
+  return (m && m.md) === "person" ? "together in person" : "texting";
+}
 function timelineBlock(ch, convo){
   if (!ch || !convo) return "";
-  var now = new Date();
-  /* a bare "3:49" reads as afternoon as easily as morning; spell it out */
-  var p = "Right now it is " +
-    now.toLocaleDateString(undefined, {weekday: "long", day: "numeric", month: "long"}) +
-    ", " + now.toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"}) + ".\n";
+  var p = "Right now, in the story, it is " + storyStamp() + ". You and " + userName() +
+    " are " + (chatMode(convo.id) === "person" ? "together in person" : "texting") + ".\n";
   var arr = S.msgs[convo.id] || [];
   if (arr.length)
-    p += "The last thing said in this conversation was " + roomWhen(arr[arr.length - 1].ts) + ".\n";
+    p += "The last thing said in this conversation was " + storyWhen(msgStory(arr[arr.length - 1])) + ".\n";
   var rooms = timelineRooms(ch, convo);
   if (!rooms.length) return p;
   rooms.sort(function(a, b){
-    return a.msgs[a.msgs.length - 1].ts - b.msgs[b.msgs.length - 1].ts;
+    return msgStory(a.msgs[a.msgs.length - 1]) - msgStory(b.msgs[b.msgs.length - 1]);
   });
   p += "The order things happened in, oldest first:\n";
   rooms.forEach(function(r, i){
-    p += "  " + (i + 1) + ". " + r.label + " — last spoken " +
-      roomWhen(r.msgs[r.msgs.length - 1].ts) + "\n";
+    p += "  " + (i + 1) + ". " + r.label + " — " + roomModeWord(r.msgs) + ", " +
+      storyWhen(msgStory(r.msgs[r.msgs.length - 1])) + "\n";
   });
   p += "  " + (rooms.length + 1) + ". this conversation — now.\n";
   p += "Everything in those other conversations happened BEFORE this moment: treat it as " +
     "already said and already settled, not as news, and do not re-litigate or re-announce " +
-    "something that was worked out there.\n";
+    "something that was worked out there. Dated lines in the transcript below mark when " +
+    "each part of it happened, and whether you were texting or together at the time.\n";
   return p;
 }
 function roomSpeaker(room, m, ch){
-  if (m.who === "scene") return "[scene]";
+  if (m.who === "scene" || m.who === "time") return "[" + m.who + "]";
   if (m.who === "me") return userName();
   if (room.grp) { var by = getChar(m.by); return by ? by.name : "Someone"; }
   return ch.name;
@@ -4220,7 +4220,7 @@ function roomBlock(room, ch){
     return roomSpeaker(room, m, ch) + ": " + String(t).slice(0, ROOM_LINE);
   }).filter(Boolean).join("\n");
   if (!lines) return "";
-  return "— " + room.label + ", " + roomWhen(arr[arr.length - 1].ts) + ":\n" +
+  return "— " + room.label + ", " + storyWhen(msgStory(arr[arr.length - 1])) + ":\n" +
     (room.sum && room.sum.text ? "(before this: " + room.sum.text + ")\n" : "") + lines + "\n";
 }
 function otherRooms(ch, convo){
@@ -4245,7 +4245,7 @@ function otherRooms(ch, convo){
     if (!gs.length) return "";
     gs.sort(function(a, b){
       var la = S.msgs[a.id], lb = S.msgs[b.id];
-      return lb[lb.length - 1].ts - la[la.length - 1].ts;
+      return msgStory(lb[lb.length - 1]) - msgStory(la[la.length - 1]);
     });
     gs.forEach(function(g){
       rooms.push({id: g.id, grp: g, msgs: S.msgs[g.id], sum: S.sums[g.id],
@@ -4374,6 +4374,7 @@ function buildMessages(ch, convo, nudge){
   }
   w.forEach(function(m, mi){
     if (m.who === "scene") add("user", "[Scene: " + m.text + "]");
+    else if (m.who === "time") add("user", "[" + m.text + "]");
     else if (m.who === "me") {
       if (m.img && pixelIdx[mi]) {
         var parts = [{type:"image_url", image_url:{url:m.img}}];
@@ -4458,6 +4459,7 @@ function completeOnce(engine, messages, maxTok, cb){
 }
 function speakerName(convo, m){
   if (m.who === "scene") return "[scene change]";
+  if (m.who === "time") return "[" + m.text + "]";
   if (m.who === "me") return userName();
   if (convo.grp) { var x = getChar(m.by); return x ? x.name : "?"; }
   return convo.name;
@@ -4863,7 +4865,8 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
   });
   var tail = (S.msgs[convo.id] || []).slice(-8).map(function(m){
     var who = m.who === "me" ? "User"
-      : (m.who === "scene" ? "[scene]" : ((getChar(m.by) || ch).name));
+      : ((m.who === "scene" || m.who === "time") ? "[" + m.who + "]"
+                                                    : ((getChar(m.by) || ch).name));
     return who + ": " + (m.text || (m.img ? "[sent a photo]" : ""));
   }).join("\n").slice(-1600);
   var person = convo && chatMode(convo.id) === "person";
@@ -5867,6 +5870,54 @@ function fmtTime(ts){
   if (now - d < 6*864e5) return days[d.getDay()];
   return (d.getMonth()+1) + "/" + d.getDate();
 }
+/* ================= story time ================= */
+function storyNow(){ return (S.clock && S.clock.t) || Date.now(); }
+/* a message written before the clock existed has only its real timestamp,
+   and since the clock was seeded from the real one that is the right answer */
+function msgStory(m){ return (m && (m.st || m.ts)) || 0; }
+var STORY_DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+function storyPart(h){
+  return h < 5 ? "night" : h < 12 ? "morning" : h < 17 ? "afternoon"
+       : h < 22 ? "evening" : "night";
+}
+function storyClock(t){
+  var d = new Date(t), h = d.getHours();
+  var ampm = h < 12 ? "AM" : "PM", h12 = h % 12 || 12;
+  return h12 + ":" + ("0" + d.getMinutes()).slice(-2) + " " + ampm;
+}
+/* "Tuesday evening, 7:40 PM" — what it is now, in the story */
+function storyStamp(t){
+  var d = new Date(t === undefined ? storyNow() : t);
+  return STORY_DAYS[d.getDay()] + " " + storyPart(d.getHours()) + ", " + storyClock(d.getTime());
+}
+/* how long ago something was, in the language a person would actually use.
+   Calendar-relative, not arithmetic: "last night" beats "14 hours ago" when
+   the point is to place an evening. */
+function storyWhen(st){
+  var nowT = storyNow();
+  var now = new Date(nowT), then = new Date(st);
+  var days = Math.round(
+    (new Date(now.getFullYear(), now.getMonth(), now.getDate()) -
+     new Date(then.getFullYear(), then.getMonth(), then.getDate())) / 864e5);
+  var part = storyPart(then.getHours());
+  if (days <= 0) {
+    var mins = Math.round((nowT - st) / 6e4);
+    if (mins < 45) return "a few minutes ago";
+    if (mins < 150) return "a couple of hours ago";
+    return "earlier " + (part === "night" ? "tonight" : "this " + part);
+  }
+  if (days === 1) return (part === "night" || part === "evening") ? "last night" : "yesterday " + part;
+  if (days < 7) return "on " + STORY_DAYS[then.getDay()] + " " + part;
+  if (days < 14) return "about a week ago";
+  return "on " + (then.getMonth() + 1) + "/" + then.getDate();
+}
+/* playing moves the clock a little on its own, so an ordinary conversation
+   drifts forward without anyone touching a control. One tick per turn taken,
+   not per message, or a long exchange would eat the evening. */
+function driftStory(cid){
+  if (!S.clock) return;
+  S.clock.t += (chatMode(cid) === "person" ? 6 : 4) * 6e4;
+}
 function fmtClock(ts){
   var d = new Date(ts);
   return d.getHours() + ":" + ("0"+d.getMinutes()).slice(-2);
@@ -5924,6 +5975,7 @@ function renderHome(){
         ? '<span class="msr" style="font-size:12px">image</span> ' + esc(lm.text || "Photo")
         : esc(lm.text);
       if (lm.who === "scene") prev = '<span class="msr" style="font-size:12px">theaters</span> ' + esc(lm.text);
+      else if (lm.who === "time") prev = '<span class="msr" style="font-size:12px">schedule</span> ' + esc(lm.text);
       else if (lm.who === "me") prev = '<span class="tick msr">done_all</span> ' + body;
       else if (c.grp) { var by = getChar(lm.by); prev = esc((by ? by.name : "Someone") + ": ") + body; }
       else prev = body;
@@ -6018,9 +6070,10 @@ function renderStream(){
   st.innerHTML = '<div class="day"><span class="msr" style="font-size:12px">cloud</span> ' +
     (glmReady() ? esc(glm().model) + " · Z.ai" : "no API key") + '</div>';
   (S.msgs[cur]||[]).forEach(function(msg, idx){
-    if (msg.who === "scene") {
+    if (msg.who === "scene" || msg.who === "time") {
       var sc = document.createElement("div"); sc.className = "day";
-      sc.innerHTML = '<span class="msr" style="font-size:12px">theaters</span> ' + esc(msg.text);
+      sc.innerHTML = '<span class="msr" style="font-size:12px">' +
+        (msg.who === "time" ? "schedule" : "theaters") + '</span> ' + esc(msg.text);
       st.appendChild(sc); return;
     }
     var out = msg.who === "me";
@@ -6096,8 +6149,22 @@ function fmtBody(t){
   return out + s.slice(last).replace(/^\s+/, "");
 }
 function pushMsg(id, who, text, by, img){
-  (S.msgs[id] = S.msgs[id] || []).push({who:who, text:text, ts:Date.now(), by:by||null,
-    react:null, img:img||null});
+  /* st is when this happened in the story, md is how it happened — the pair
+     is what lets a character say "you texted me last night" rather than
+     guessing from a wall clock that has nothing to do with the story */
+  if (who === "me") driftStory(id);
+  (S.msgs[id] = S.msgs[id] || []).push({who:who, text:text, ts:Date.now(), st:storyNow(),
+    md:chatMode(id), by:by||null, react:null, img:img||null});
+  save();
+}
+/* a dated divider in the transcript: this is where the story time, and
+   possibly the way you are together, changed */
+function pushTimeMark(cid, opts){
+  var mode = opts.mode || chatMode(cid);
+  var label = storyStamp() + " · " + (mode === "person" ? "in person" : "texting") +
+    (opts.place ? " · " + opts.place : "");
+  (S.msgs[cid] = S.msgs[cid] || []).push({who:"time", text:label, ts:Date.now(),
+    st:storyNow(), md:mode, by:null, react:null, img:null});
   save();
 }
 function deliver(c, reply, by){
@@ -6157,21 +6224,92 @@ function chatLen(cid){
   for (var i = 0; i < LENGTHS.length; i++) if (LENGTHS[i].k === k) return LENGTHS[i];
   return LENGTHS[1];                       // Short, which is how it always behaved
 }
+/* the story clock, the way you are together and where — one bar, because in
+   a story those three change at the same moment */
 function modePill(){
   var el = $("mode-pill"); if (!el || !cur) return;
   var inPerson = chatMode(cur) === "person";
   el.classList.toggle("on", inPerson);
-  el.innerHTML = '<span class="msr" style="font-size:14px">' +
-    (inPerson ? "group" : "chat_bubble") + '</span> ' + (inPerson ? "In person" : "Texting");
+  el.innerHTML = '<span class="msr" style="font-size:14px">schedule</span> ' +
+    esc(storyStamp()) + " · " + (inPerson ? "in person" : "texting");
 }
-function toggleChatMode(){
+var NOW_JUMPS = [
+  {k: "none", label: "No jump", ms: 0},
+  {k: "m15", label: "+15 min", ms: 15 * 6e4},
+  {k: "h1", label: "+1 hour", ms: 36e5},
+  {k: "eve", label: "Later tonight", ms: 3 * 36e5},
+  {k: "morn", label: "Next morning", ms: -1},
+  {k: "day", label: "Next day", ms: 24 * 36e5}
+];
+/* "next morning" is a place on the calendar, not a number of hours */
+function nowJumpTarget(k){
+  var t = storyNow();
+  if (k === "morn") {
+    var d = new Date(t);
+    d.setDate(d.getDate() + 1); d.setHours(8, 0, 0, 0);
+    return d.getTime();
+  }
+  var j = NOW_JUMPS.filter(function(x){ return x.k === k; })[0];
+  return t + ((j && j.ms > 0) ? j.ms : 0);
+}
+function openNowSheet(){
   if (!cur) return;
-  S.modes[cur] = chatMode(cur) === "person" ? "text" : "person";
-  save();
-  modePill(); descBtn();
-  toast(chatMode(cur) === "person"
-    ? "In person — replies play out the scene, and the pencil writes an action"
-    : "Texting — replies read like messages");
+  var pick = {jump: "none", mode: chatMode(cur), place: S.scenes[cur] || ""};
+  var sh = $("asheet");
+  function chips(id, list, sel){
+    return '<div id="' + id + '" style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0 10px">' +
+      list.map(function(o){
+        var on = o.v === sel;
+        return '<button class="btn ghost" data-v="' + esc(o.v) + '" style="padding:8px 14px;' +
+          'font-size:13px' + (on ? ";background:var(--acc);color:#fff;border-color:var(--acc)" : "") +
+          '">' + esc(o.label) + "</button>";
+      }).join("") + "</div>";
+  }
+  function paint(){
+    sh.innerHTML = '<div class="grip"></div>' +
+      '<div class="as-msg full">In the story it is <b>' + esc(storyStamp()) + '</b>. ' +
+      "Moving time writes a dated line into the chat, so this part of it is pinned to when " +
+      "it happened — and everyone you talk to afterwards knows it came first.</div>" +
+      '<span class="lbl">MOVE THE CLOCK</span>' +
+      chips("nw-jump", NOW_JUMPS.map(function(j){ return {v: j.k, label: j.label}; }), pick.jump) +
+      '<span class="lbl">HOW YOU ARE TOGETHER</span>' +
+      chips("nw-mode", [{v: "text", label: "Texting"}, {v: "person", label: "In person"}], pick.mode) +
+      '<span class="lbl">WHERE — OPTIONAL</span>' +
+      '<input class="srvinput" id="nw-place" placeholder="e.g. her kitchen" value="' +
+      esc(pick.place) + '">' +
+      '<div style="display:flex;gap:8px;margin-top:10px">' +
+      '<button class="btn" id="nw-set" style="flex:1">Set</button>' +
+      '<button class="btn ghost" id="nw-go" style="flex:1">Go see them</button></div>' +
+      '<div class="phint" style="padding-top:8px">Go see them jumps half an hour, switches to ' +
+      "in person and marks it — the whole move in one tap.</div>";
+    ["nw-jump", "nw-mode"].forEach(function(id){
+      $(id).onclick = function(e){
+        var b = e.target.closest ? e.target.closest("[data-v]") : null;
+        if (!b) return;
+        pick.place = $("nw-place").value;
+        if (id === "nw-jump") pick.jump = b.dataset.v; else pick.mode = b.dataset.v;
+        paint();
+      };
+    });
+    $("nw-set").onclick = function(){ apply(pick.jump, pick.mode, $("nw-place").value); };
+    $("nw-go").onclick = function(){
+      S.clock.t = storyNow() + 30 * 6e4;
+      apply(null, "person", $("nw-place").value);
+    };
+  }
+  function apply(jump, mode, place){
+    if (jump && jump !== "none") S.clock.t = nowJumpTarget(jump);
+    S.modes[cur] = mode === "person" ? "person" : "text";
+    place = (place || "").trim();
+    if (place) S.scenes[cur] = place; else delete S.scenes[cur];
+    pushTimeMark(cur, {mode: S.modes[cur], place: place});
+    save();
+    modePill(); scenePill(); descBtn(); renderStream();
+    closeSheet();
+    toast(storyStamp() + " · " + (S.modes[cur] === "person" ? "in person" : "texting"));
+  }
+  paint();
+  openSheet();
 }
 /* ---- the describe button ----
    In person you are writing a scene, and wrapping every action in asterisks
@@ -8555,7 +8693,7 @@ $("input").addEventListener("blur", function(){
   setTimeout(function(){ var b = $("atbar"); if (b) { b.classList.remove("on"); b.innerHTML = ""; } }, 180);
 });
 $("chat-menu").onclick = openChatMenu;
-$("mode-pill").onclick = toggleChatMode;
+$("mode-pill").onclick = openNowSheet;
 $("set-rel").onclick = function(){ renderRel(); show("v-rel"); };
 $("rel-back").onclick = function(){ hide("v-rel"); initSettings(); };
 /* the input lives outside #memhub-list, so repainting the list on every
