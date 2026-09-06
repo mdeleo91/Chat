@@ -5864,14 +5864,6 @@ function getChar(id){ for (var i=0;i<S.chars.length;i++) if (S.chars[i].id===id)
 function getGroup(id){ for (var i=0;i<S.groups.length;i++) if (S.groups[i].id===id) return S.groups[i]; return null; }
 function getConvo(id){ return getChar(id) || getGroup(id); }
 function lastMsg(id){ var a = S.msgs[id]; return a && a.length ? a[a.length-1] : null; }
-function fmtTime(ts){
-  var d = new Date(ts), now = new Date();
-  if (d.toDateString() === now.toDateString())
-    return d.getHours() + ":" + ("0"+d.getMinutes()).slice(-2);
-  var days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  if (now - d < 6*864e5) return days[d.getDay()];
-  return (d.getMonth()+1) + "/" + d.getDate();
-}
 /* ================= story time ================= */
 function storyNow(){ return (S.clock && S.clock.t) || Date.now(); }
 /* a message written before the clock existed has only its real timestamp,
@@ -5895,6 +5887,16 @@ function storyStamp(t){
 /* how long ago something was, in the language a person would actually use.
    Calendar-relative, not arithmetic: "last night" beats "14 hours ago" when
    the point is to place an evening. */
+/* the short stamp on a chat row: the time if it happened today in the
+   story, the weekday if it was this week, otherwise the date — the same
+   shape fmtTime gives, measured against the story clock instead of the
+   real one */
+function storyTag(st){
+  var nowT = storyNow(), d = new Date(st);
+  if (d.toDateString() === new Date(nowT).toDateString()) return storyClock(st);
+  if (nowT - st < 6 * 864e5) return STORY_DAYS[d.getDay()].slice(0, 3);
+  return (d.getMonth() + 1) + "/" + d.getDate();
+}
 function storyWhen(st){
   var nowT = storyNow();
   var now = new Date(nowT), then = new Date(st);
@@ -5919,10 +5921,6 @@ function storyWhen(st){
 function driftStory(cid){
   if (!S.clock) return;
   S.clock.t += (chatMode(cid) === "person" ? 6 : 4) * 6e4;
-}
-function fmtClock(ts){
-  var d = new Date(ts);
-  return d.getHours() + ":" + ("0"+d.getMinutes()).slice(-2);
 }
 function toast(t){
   var el = $("toast"); el.textContent = t; el.classList.add("on");
@@ -5987,7 +5985,7 @@ function renderHome(){
       avatarEl(c)+
       '<div class="meta"><div class="name">'+esc(c.name)+(c.fav?' <span class="fav msr fill gold">star</span>':'')+'</div>'+
       '<div class="prev">'+prev.slice(0,140)+'</div></div>'+
-      '<div class="end"><div class="time'+(c.unread?' unread':'')+'">'+(lm?fmtTime(lm.ts):"")+'</div>'+
+      '<div class="end"><div class="time'+(c.unread?' unread':'')+'">'+(lm?storyTag(msgStory(lm)):"")+'</div>'+
       (c.unread ? '<div class="pill">'+c.unread+'</div>' : "")+'</div>';
     row.onclick = function(){ openChat(c.id); };
     attachPress(row, null, function(){ openConvoSheet(c.id); });
@@ -6095,7 +6093,7 @@ function renderStream(){
           ? '<div class="imgstub"><span class="msr">lock</span>Photo — tap to show</div>'
           : '<img class="mimg" src="' + msg.img + '">')
       : '') + fmtBody(msg.text) +
-      '<span class="mt">'+fmtClock(msg.ts)+(out?' <span class="tick msr">done_all</span>':'')+'</span>' +
+      '<span class="mt">'+storyClock(msgStory(msg))+(out?' <span class="tick msr">done_all</span>':'')+'</span>' +
       (msg.react?'<span class="react"><span class="msr fill">'+esc(msg.react)+'</span></span>':'');
     var b = document.createElement("div"); b.className = "msg"; b.innerHTML = inner;
     rw.appendChild(b); st.appendChild(rw);

@@ -1,6 +1,6 @@
 {
-  "versionCode": 146,
-  "versionName": "0.62.0",
+  "versionCode": 147,
+  "versionName": "0.62.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Rewinding is no longer all or nothing, and no longer final. When a rewind or a deleted message takes back something a character had already learned, the sheet that asks about those memories now lets you choose between them one at a time — everything starts ticked, tapping one leaves it alone, and the button counts what it is actually about to forget. A rewind rarely invalidates every single thing that was learned, and until now keeping one meant keeping all of them. The same sheet is also the last moment at which the rewind itself can be taken back, so it now offers that outright: Undo the rewind puts every message back exactly as it was, restores the running summary, returns whatever you had half-typed, and forgets nothing. A deleted message gets the same treatment. Nothing about the memories is decided until you choose, so backing out is always available right up to the moment you commit."
+  "notes": "The times on the messages themselves are story times now. The little stamp under a bubble and the one on each row of the chat list were still reading the real clock — the hour you happened to be holding the phone — while everything else about a conversation had moved onto the story's calendar. They now read the same clock the characters do: a bubble shows the story time it was said at, with AM or PM rather than the old twenty-four hour form, and a chat row shows the time if it happened today in the story, the weekday if it was earlier this week, and the date beyond that. Because they are measured against the story clock rather than a fixed one, moving time forward re-labels them: a conversation that read 9:07 AM this morning reads Thu once the story has moved on to Sunday."
 }
