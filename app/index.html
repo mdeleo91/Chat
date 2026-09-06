@@ -5917,10 +5917,13 @@ function storyWhen(st){
 }
 /* playing moves the clock a little on its own, so an ordinary conversation
    drifts forward without anyone touching a control. One tick per turn taken,
-   not per message, or a long exchange would eat the evening. */
+   not per message, or a long exchange would eat the evening — and the tick
+   is seconds rather than minutes, so a back-and-forth passes at roughly the
+   pace people actually text: about three messages to the story minute. */
+var DRIFT_TEXT = 40 * 1000, DRIFT_PERSON = 60 * 1000;
 function driftStory(cid){
   if (!S.clock) return;
-  S.clock.t += (chatMode(cid) === "person" ? 6 : 4) * 6e4;
+  S.clock.t += chatMode(cid) === "person" ? DRIFT_PERSON : DRIFT_TEXT;
 }
 function toast(t){
   var el = $("toast"); el.textContent = t; el.classList.add("on");

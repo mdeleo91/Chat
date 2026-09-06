@@ -1,6 +1,6 @@
 {
-  "versionCode": 147,
-  "versionName": "0.62.1",
+  "versionCode": 148,
+  "versionName": "0.62.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "The times on the messages themselves are story times now. The little stamp under a bubble and the one on each row of the chat list were still reading the real clock — the hour you happened to be holding the phone — while everything else about a conversation had moved onto the story's calendar. They now read the same clock the characters do: a bubble shows the story time it was said at, with AM or PM rather than the old twenty-four hour form, and a chat row shows the time if it happened today in the story, the weekday if it was earlier this week, and the date beyond that. Because they are measured against the story clock rather than a fixed one, moving time forward re-labels them: a conversation that read 9:07 AM this morning reads Thu once the story has moved on to Sunday."
+  "notes": "Time passes at the pace of a conversation now. Play was nudging the story clock four minutes for every turn taken, which meant twenty messages ate the better part of an hour and an evening was gone before anything happened in it. The nudge is measured in seconds instead: a texting exchange moves the clock forty seconds and a scene played out in person a minute, so twenty messages of texting take about seven story minutes rather than forty. That works out at roughly three messages to the minute, which is about how fast people actually text. Jumps are unaffected — a quarter of an hour, an hour, next morning and a picked date all move exactly as much as they say."
 }
