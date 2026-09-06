@@ -6905,15 +6905,25 @@ function msgAction(act, idx){
   }
   else if (act === "rewind") {
     var cut = m.ts, gone = memsSince(c, cut);
+    /* everything needed to put it back, so the forget sheet can offer to */
+    var undoRewind = (function(cid, removed, sum, typed){
+      return function(){
+        S.msgs[cid] = (S.msgs[cid] || []).concat(removed);
+        if (sum) S.sums[cid] = sum;
+        if (cur === cid && typed !== null) $("input").value = typed;
+        save(); renderStream(); renderHome();
+        L("msg", "rewind undone — " + removed.length + " message(s) back");
+        toast("Rewind undone — nothing forgotten");
+      };
+    })(cur, arr.slice(idx), S.sums[cur], m.who === "me" ? $("input").value : null);
     S.msgs[cur] = arr.slice(0, idx);
     if (m.who === "me") $("input").value = m.text;
     trimSummary(cur);
     save(); renderStream(); renderHome();
     L("msg", "rewound to #" + idx);
     closeSheet();
-    /* the messages are gone either way; this is only about the memories */
     if (gone.length) setTimeout(function(){
-      offerForget(gone, "Rewound to here"); }, 260);
+      offerForget(gone, "Rewound to here", undoRewind, "Undo the rewind \u2014 put it all back"); }, 260);
   }
   else if (act === "regen") {
     var ch = c.grp ? (getChar(m.by) || getChar(c.members[0])) : c;
@@ -6927,11 +6937,20 @@ function msgAction(act, idx){
   }
   else if (act === "del") {
     var taught = memsAbout(c, m);
+    var undoDel = (function(cid, at, msg, sum){
+      return function(){
+        (S.msgs[cid] || []).splice(at, 0, msg);
+        if (sum) S.sums[cid] = sum;
+        save(); renderStream(); renderHome();
+        L("msg", "delete undone — message back at #" + at);
+        toast("Message restored — nothing forgotten");
+      };
+    })(cur, idx, m, S.sums[cur]);
     arr.splice(idx, 1); trimSummary(cur); save(); renderStream(); renderHome();
     L("msg", "deleted #" + idx);
     closeSheet();
     if (taught.length) setTimeout(function(){
-      offerForget(taught, "Message deleted"); }, 260);
+      offerForget(taught, "Message deleted", undoDel, "Undo \u2014 put the message back"); }, 260);
   }
 }
 function nudgeFrom(c, ch){
@@ -7373,31 +7392,57 @@ function forgetThese(list){
 }
 /* Shown after the messages are already gone, so the choice is only about
    the memories. Nothing is forgotten without being read first. */
-function offerForget(list, what){
+/* undo, when given, puts the messages back — the sheet is the last point at
+   which a rewind can be taken back, so it has to offer that as plainly as it
+   offers the forgetting. Each memory is chosen on its own: a rewind usually
+   invalidates some of what was learned, not all of it. */
+function offerForget(list, what, undo, undoLabel){
   if (!list.length) return;
   var grp = getConvo(cur) && getConvo(cur).grp, sh = $("asheet");
-  sh.innerHTML = '<div class="grip"></div>' +
-    '<div class="as-msg full">' + what + ", but " +
-      (list.length === 1 ? "one thing was" : list.length + " things were") +
-      " already learned from " + (list.length === 1 ? "it" : "them") +
-      ". Forget those too?</div>" +
-    '<div style="max-height:38vh;overflow-y:auto;margin-bottom:4px">' +
-      list.map(function(x){
-        return '<div class="memcard" style="margin:6px 0"><div class="t">' + esc(x.m.text) +
-          '<span class="src">' + (grp ? esc(x.ch.name) + " \u00b7 " : "") +
-          esc(x.m.src || "from chat") + (x.m.pin ? " \u00b7 always sent" : "") +
-          '</span></div></div>'; }).join("") +
-    '</div>' +
-    '<div style="display:flex;gap:8px;padding-top:6px">' +
-    '<button class="btn" id="fg-yes" style="flex:1">Forget ' +
-      (list.length === 1 ? "it" : "them") + '</button>' +
-    '<button class="btn ghost" id="fg-no" style="flex:1">Keep</button></div>';
-  $("fg-yes").onclick = function(){
-    forgetThese(list);
-    toast(list.length === 1 ? "Forgotten" : list.length + " memories forgotten");
-    closeSheet();
-  };
-  $("fg-no").onclick = closeSheet;
+  var picked = list.map(function(){ return true; });
+  function count(){ return picked.filter(Boolean).length; }
+  function paint(){
+    var n = count();
+    sh.innerHTML = '<div class="grip"></div>' +
+      '<div class="as-msg full">' + what + ", but " +
+        (list.length === 1 ? "one thing was" : list.length + " things were") +
+        " already learned from " + (list.length === 1 ? "it" : "them") +
+        ". Tap any of them to keep it; the ticked ones are forgotten.</div>" +
+      '<div id="fg-list" style="max-height:34vh;overflow-y:auto;overscroll-behavior:contain;margin-bottom:4px">' +
+        list.map(function(x, i){
+          return '<div class="memcard" data-i="' + i + '" style="margin:6px 0;cursor:pointer;' +
+            "border:1px solid " + (picked[i] ? "var(--acc)" : "var(--line)") + '"><div class="t">' +
+            '<span class="msr" style="font-size:14px;vertical-align:-2px;color:' +
+            (picked[i] ? "var(--acc)" : "var(--mist)") + '">' +
+            (picked[i] ? "check_circle" : "person") + "</span> " + esc(x.m.text) +
+            '<span class="src">' + (grp ? esc(x.ch.name) + " \u00b7 " : "") +
+            esc(x.m.src || "from chat") + (x.m.pin ? " \u00b7 always sent" : "") +
+            "</span></div></div>"; }).join("") +
+      "</div>" +
+      '<div style="display:flex;gap:8px;padding-top:6px">' +
+      '<button class="btn" id="fg-yes" style="flex:1"' + (n ? "" : " disabled") + ">Forget " +
+        (n === list.length ? (n === 1 ? "it" : "all " + n) : n) + "</button>" +
+      '<button class="btn ghost" id="fg-no" style="flex:1">Keep all</button></div>' +
+      (undo ? '<button class="btn ghost" id="fg-undo" style="width:100%;margin-top:8px">' +
+        esc(undoLabel || "Undo") + "</button>" : "");
+    $("fg-list").onclick = function(e){
+      var c = e.target.closest ? e.target.closest("[data-i]") : null;
+      if (!c) return;
+      picked[+c.dataset.i] = !picked[+c.dataset.i];
+      paint();
+    };
+    $("fg-yes").onclick = function(){
+      var keep = list.filter(function(x, i){ return picked[i]; });
+      if (!keep.length) { closeSheet(); return; }
+      forgetThese(keep);
+      toast(keep.length === 1 ? "Forgotten" : keep.length + " memories forgotten" +
+        (keep.length < list.length ? " \u00b7 " + (list.length - keep.length) + " kept" : ""));
+      closeSheet();
+    };
+    $("fg-no").onclick = closeSheet;
+    if (undo) $("fg-undo").onclick = function(){ closeSheet(); undo(); };
+  }
+  paint();
   openSheet();
 }
 

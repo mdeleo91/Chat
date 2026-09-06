@@ -1,6 +1,6 @@
 {
-  "versionCode": 145,
-  "versionName": "0.61.1",
+  "versionCode": 146,
+  "versionName": "0.62.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Fixes the word SCHEDULE printed across the settings screen. The icon font is a small embedded subset carrying only the glyphs the app uses, and a name outside it does not come out blank — it renders as its own name in letters. The story clock work introduced a clock icon in four places without checking, so the Story timeline row, the bar at the top of a chat, the dated dividers in a transcript and the chat-list preview were all asking for a glyph that is not in the font. They now use the calendar icon, which is. Every icon name in the app has been checked against the set the font actually carries."
+  "notes": "Rewinding is no longer all or nothing, and no longer final. When a rewind or a deleted message takes back something a character had already learned, the sheet that asks about those memories now lets you choose between them one at a time — everything starts ticked, tapping one leaves it alone, and the button counts what it is actually about to forget. A rewind rarely invalidates every single thing that was learned, and until now keeping one meant keeping all of them. The same sheet is also the last moment at which the rewind itself can be taken back, so it now offers that outright: Undo the rewind puts every message back exactly as it was, restores the running summary, returns whatever you had half-typed, and forgets nothing. A deleted message gets the same treatment. Nothing about the memories is decided until you choose, so backing out is always available right up to the moment you commit."
 }
