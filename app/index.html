@@ -5915,15 +5915,13 @@ function storyWhen(st){
   if (days < 14) return "about a week ago";
   return "on " + (then.getMonth() + 1) + "/" + then.getDate();
 }
-/* playing moves the clock a little on its own, so an ordinary conversation
-   drifts forward without anyone touching a control. One tick per turn taken,
-   not per message, or a long exchange would eat the evening — and the tick
-   is seconds rather than minutes, so a back-and-forth passes at roughly the
-   pace people actually text: about three messages to the story minute. */
-var DRIFT_TEXT = 40 * 1000, DRIFT_PERSON = 60 * 1000;
-function driftStory(cid){
-  if (!S.clock) return;
-  S.clock.t += chatMode(cid) === "person" ? DRIFT_PERSON : DRIFT_TEXT;
+/* playing moves the clock on its own, so an ordinary conversation drifts
+   forward without anyone touching a control: ten story seconds for every
+   message said, whether it is typed or spoken in the room. Six messages to
+   the minute — slow enough that a long scene stays inside its own evening. */
+var DRIFT_MS = 10 * 1000;
+function driftStory(){
+  if (S.clock) S.clock.t += DRIFT_MS;
 }
 function toast(t){
   var el = $("toast"); el.textContent = t; el.classList.add("on");
@@ -6155,9 +6153,12 @@ function pushMsg(id, who, text, by, img){
   /* st is when this happened in the story, md is how it happened — the pair
      is what lets a character say "you texted me last night" rather than
      guessing from a wall clock that has nothing to do with the story */
-  if (who === "me") driftStory(id);
   (S.msgs[id] = S.msgs[id] || []).push({who:who, text:text, ts:Date.now(), st:storyNow(),
     md:chatMode(id), by:by||null, react:null, img:img||null});
+  /* stamped first, so the opening line of a scene lands exactly on the time
+     you set rather than ten seconds past it. Scene and time markers are
+     punctuation, not speech, and move nothing. */
+  if (who === "me" || who === "them") driftStory();
   save();
 }
 /* a dated divider in the transcript: this is where the story time, and

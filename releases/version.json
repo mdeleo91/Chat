@@ -1,6 +1,6 @@
 {
-  "versionCode": 148,
-  "versionName": "0.62.2",
+  "versionCode": 149,
+  "versionName": "0.62.3",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Time passes at the pace of a conversation now. Play was nudging the story clock four minutes for every turn taken, which meant twenty messages ate the better part of an hour and an evening was gone before anything happened in it. The nudge is measured in seconds instead: a texting exchange moves the clock forty seconds and a scene played out in person a minute, so twenty messages of texting take about seven story minutes rather than forty. That works out at roughly three messages to the minute, which is about how fast people actually text. Jumps are unaffected — a quarter of an hour, an hour, next morning and a picked date all move exactly as much as they say."
+  "notes": "Ten story seconds a message, and the same whether you are texting or in the room. The clock used to move once per turn taken and by a different amount in each mode; it now moves for every message said, by ten seconds, which is six messages to the minute. Twenty messages take three minutes and twenty seconds of story time, so a whole scene comfortably fits inside the evening it started in. Messages are also stamped before the clock moves rather than after, so the opening line after you set a time lands exactly on that time instead of ten seconds past it. Scene changes and the dated dividers are punctuation rather than speech and move nothing at all. Explicit jumps are unchanged."
 }
