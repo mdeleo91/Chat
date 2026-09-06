@@ -4186,8 +4186,10 @@ function roomModeWord(msgs){
 }
 function timelineBlock(ch, convo){
   if (!ch || !convo) return "";
-  var p = "Right now, in the story, it is " + storyStamp() + ". You and " + userName() +
-    " are " + (chatMode(convo.id) === "person" ? "together in person" : "texting") + ".\n";
+  var p = "Right now, in the story, it is " + storyStampFull() + ". You and " + userName() +
+    " are " + (chatMode(convo.id) === "person" ? "together in person" : "texting") + ". " +
+    "That is the real time where you are: if you look at a clock, say how late it is, or " +
+    "work out how long something has taken, it has to agree with it.\n";
   var arr = S.msgs[convo.id] || [];
   if (arr.length)
     p += "The last thing said in this conversation was " + storyWhen(msgStory(arr[arr.length - 1])) + ".\n";
@@ -4426,10 +4428,16 @@ function buildMessages(ch, convo, nudge){
       "no actions, nothing in *asterisks*, no narration, no stage directions. " +
       (len.k !== "long" ? len.text + " — no more. " : "");
   }
-  if (last)
-    msgs.push({role: "system", content: last +
-      "Earlier messages here may be longer than that, or written as a scene with actions " +
-      "in asterisks — they are not the example. Follow this instruction, not the history."});
+  /* the clock goes here for the same reason the length does: read once near
+     the top of a long prompt it gets approximated, and a character glancing
+     at the microwave invents 2:34 when the story says 2:32 */
+  msgs.push({role: "system", content:
+    (last ? last + "Earlier messages here may be longer than that, or written as a scene " +
+      "with actions in asterisks — they are not the example. Follow this instruction, not " +
+      "the history. " : "") +
+    "It is " + storyStampFull() + " right now. Any time you name — reading a clock, saying " +
+    "how late it is, how long you have waited — must match that exactly. Do not invent a " +
+    "different one."});
   return msgs;
 }
 /* ---- rolling summary of evicted history ---- */
@@ -5883,6 +5891,15 @@ function storyClock(t){
 function storyStamp(t){
   var d = new Date(t === undefined ? storyNow() : t);
   return STORY_DAYS[d.getDay()] + " " + storyPart(d.getHours()) + ", " + storyClock(d.getTime());
+}
+var STORY_MONTHS = ["January","February","March","April","May","June","July",
+  "August","September","October","November","December"];
+/* the same moment with the date on it. The pill wants brevity; a prompt
+   wants to be unambiguous about which Thursday. */
+function storyStampFull(t){
+  var d = new Date(t === undefined ? storyNow() : t);
+  return STORY_DAYS[d.getDay()] + " " + d.getDate() + " " + STORY_MONTHS[d.getMonth()] +
+    ", " + storyClock(d.getTime()) + " (" + storyPart(d.getHours()) + ")";
 }
 /* how long ago something was, in the language a person would actually use.
    Calendar-relative, not arithmetic: "last night" beats "14 hours ago" when
