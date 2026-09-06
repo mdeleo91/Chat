@@ -549,6 +549,8 @@
           <span class="val" id="set-rel-val"></span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
         <button class="srow" id="set-mem"><span class="ic msr">psychology</span><span class="lbl">Memory</span>
           <span class="val">Manage memories</span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
+        <button class="srow" id="set-timeline"><span class="ic msr">schedule</span><span class="lbl">Story timeline</span>
+          <span class="val" id="set-timeline-val"></span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
         <div class="sechead">APPEARANCE</div>
         <button class="srow" id="set-themes"><span class="ic msr">palette</span><span class="lbl">Themes</span>
           <span class="val" id="set-theme-val"></span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
@@ -8376,10 +8378,201 @@ function endCall(){
 }
 
 /* ================= settings / update flow ================= */
+/* ================= backdating an existing history =================
+   Everything played before the story clock existed is stamped with the real
+   times it was typed at — bursty, with week-long gaps where life happened.
+   This walks the whole history once, groups it into sittings, asks the text
+   model to place each sitting on a span you choose, and rewrites the story
+   stamps to match. One-time by nature: once the history reads right, the
+   clock takes over and this never needs running again. */
+function convoLabel(cid){
+  var g = getGroup(cid); if (g) return "group \u201c" + g.name + "\u201d";
+  var c = getChar(cid); return c ? c.name : cid;
+}
+var BLOCK_GAP = 45 * 6e4;      // a pause this long ended the sitting
+function storyBlocks(){
+  var out = [];
+  Object.keys(S.msgs || {}).forEach(function(cid){
+    var arr = S.msgs[cid] || [];
+    if (!arr.length) return;
+    var label = convoLabel(cid), cur = null;
+    arr.forEach(function(m){
+      if (!cur || (m.ts - cur.end) > BLOCK_GAP) {
+        cur = {cid: cid, label: label, start: m.ts, end: m.ts, msgs: []};
+        out.push(cur);
+      }
+      cur.end = m.ts; cur.msgs.push(m);
+    });
+  });
+  out.sort(function(a, b){ return a.start - b.start; });
+  return out;
+}
+/* a few lines from each end is enough for the model to tell a late-night
+   goodbye from a lunchtime plan; sending whole transcripts is not */
+function blockDigest(b){
+  var pick = b.msgs.length <= 4 ? b.msgs
+    : b.msgs.slice(0, 2).concat(b.msgs.slice(-2));
+  return pick.map(function(m){
+    var who = m.who === "me" ? "You" : (m.who === "scene" ? "[scene]"
+      : (m.who === "time" ? "[time]" : (getChar(m.by) || {}).name || "Them"));
+    return who + ": " + String(m.text || (m.img ? "[a photo]" : "")).replace(/\s+/g, " ").slice(0, 110);
+  }).filter(Boolean).join(" / ");
+}
+/* order is not negotiable — the model may place two sittings too close, or
+   out of order, and a timeline that goes backwards is worse than a naive one */
+var BLOCK_CAP = 90 * 6e4, BLOCK_GAP_MIN = 5 * 6e4;
+function fitBlocks(blocks, times, fromT, toT){
+  var span = Math.max(36e5, toT - fromT);
+  /* a sitting occupies time, so placing one is really placing it AND leaving
+     room for everything after it — otherwise the last sitting starts on the
+     final minute and its messages spill past "now" */
+  var durs = blocks.map(function(b){ return Math.min(b.end - b.start, BLOCK_CAP); });
+  var need = [], acc = 0;
+  for (var k = blocks.length - 1; k >= 0; k--) { need[k] = acc; acc += durs[k] + BLOCK_GAP_MIN; }
+  var out = [], last = fromT;
+  blocks.forEach(function(b, i){
+    var t = times && times[i];
+    if (!t || isNaN(t)) t = fromT + Math.round(span * (i / Math.max(1, blocks.length - 1)));
+    t = Math.min(Math.max(t, last), toT - durs[i] - need[i]);
+    if (t < last) t = last;            // a span too short to hold everything
+    out.push(t);
+    last = t + durs[i] + BLOCK_GAP_MIN;
+  });
+  return out;
+}
+function applyBlockTimes(blocks, times){
+  var n = 0;
+  blocks.forEach(function(b, i) {
+    var span = b.end - b.start;
+    var scale = span > 90 * 6e4 ? (90 * 6e4) / span : 1;
+    b.msgs.forEach(function(m){
+      m.st = times[i] + Math.round((m.ts - b.start) * scale);
+      n++;
+    });
+  });
+  return n;
+}
+function openTimelineSheet(){
+  var blocks = storyBlocks();
+  var planned = null;
+  var sh = $("asheet");
+  /* the sheet repaints to show the preview, which would blow away whatever
+     was typed into the two date fields — so the dates live here, not in the
+     DOM, and the inputs are just a view of them */
+  var from = storyNow() - 7 * 864e5, to = storyNow();
+  function paint(body){
+    sh.innerHTML = '<div class="grip"></div>' +
+      '<div class="as-msg full">Your history is stamped with the real times you typed it, ' +
+      "gaps and all. This reads every conversation once, groups it into sittings, and spreads " +
+      "them across a span you choose — using what was said to place them, so a goodnight lands " +
+      "at night. " + blocks.length + " sitting(s) found.</div>" +
+      '<span class="lbl">THE STORY STARTS</span>' +
+      '<input class="srvinput" id="tl-from" type="datetime-local" value="' + dtLocalValue(from) + '">' +
+      '<span class="lbl" style="padding-top:8px">AND \u201cNOW\u201d IS</span>' +
+      '<input class="srvinput" id="tl-to" type="datetime-local" value="' + dtLocalValue(to) + '">' +
+      '<div id="tl-body" style="max-height:38vh;overflow-y:auto;overscroll-behavior:contain;' +
+      'padding-top:8px">' + (body || "") + "</div>" +
+      '<div style="display:flex;gap:8px;margin-top:10px">' +
+      '<button class="btn" id="tl-plan" style="flex:1">Scan &amp; plan</button>' +
+      '<button class="btn ghost" id="tl-apply" style="flex:1"' + (planned ? "" : " disabled") +
+      ">Apply</button></div>" +
+      '<button class="btn ghost" id="tl-revert" style="width:100%;margin-top:8px">' +
+      "Undo \u2014 put everything back on real times</button>";
+    $("tl-from").oninput = function(){
+      var t = Date.parse(this.value); if (!isNaN(t)) from = t;
+    };
+    $("tl-to").oninput = function(){
+      var t = Date.parse(this.value); if (!isNaN(t)) to = t;
+    };
+    $("tl-plan").onclick = plan;
+    $("tl-apply").onclick = apply;
+    $("tl-revert").onclick = revert;
+  }
+  function bounds(){ return to > from ? [from, to] : null; }
+  function preview(times){
+    return blocks.map(function(b, i){
+      return '<div style="padding:5px 0;border-bottom:1px solid var(--line)">' +
+        '<b>' + esc(b.label) + "</b> \u00b7 " + b.msgs.length + " msg<br>" +
+        '<span style="color:var(--mist)">' + esc(storyStamp(times[i])) + "</span></div>";
+    }).join("");
+  }
+  function plan(){
+    var bb = bounds();
+    if (!bb) { toast("Give a start earlier than the now date"); return; }
+    if (!blocks.length) { toast("No conversations to place"); return; }
+    paint('<div class="phint">Reading ' + blocks.length + " sitting(s)\u2026</div>");
+    $("tl-plan").disabled = true;
+    var list = blocks.slice(0, 60).map(function(b, i){
+      return i + ". [" + b.label + "] " + blockDigest(b);
+    }).join("\n");
+    var ask = "You are placing an existing roleplay history onto a story timeline.\n" +
+      "The story runs from " + storyStamp(bb[0]) + " to " + storyStamp(bb[1]) + " (" +
+      dtLocalValue(bb[0]) + " to " + dtLocalValue(bb[1]) + ").\n\n" +
+      "Here are the sittings, in the order they were actually played, oldest first:\n" +
+      list + "\n\n" +
+      "Give each sitting a date and time inside that span. Rules: keep them in the order " +
+      "given, never going backwards; spread them across the whole span rather than bunching " +
+      "them at one end; and use what is said to place them believably \u2014 a goodnight " +
+      "belongs at night, a good morning early, a dinner in the evening, and something " +
+      "arranging plans for the next day belongs the day before it happens.\n" +
+      "Reply with ONLY a JSON array, one entry per sitting, same order: " +
+      "[{\"i\":0,\"t\":\"2026-08-20T19:30\"}]";
+    completeOnce(REMOTE, [{role: "user", content: ask}], 1600, function(err, text){
+      var times = null;
+      if (!err && text) {
+        try {
+          var m = String(text).match(/\[[\s\S]*\]/);
+          var j = JSON.parse(m ? m[0] : text);
+          times = [];
+          j.forEach(function(e){
+            var idx = typeof e.i === "number" ? e.i : times.length;
+            times[idx] = Date.parse(e.t);
+          });
+        } catch (e) { times = null; }
+      }
+      if (!times) L("gen", "timeline: the model didn't return usable times (" +
+        (err ? String(err.message || err).slice(0, 120) : "unparsable") +
+        ") — spreading the sittings evenly instead", true);
+      planned = fitBlocks(blocks, times, bb[0], bb[1]);
+      L("gen", "timeline planned " + blocks.length + " sitting(s) from " +
+        storyStamp(planned[0]) + " to " + storyStamp(planned[planned.length - 1]), true);
+      paint(preview(planned));
+      if (!times) toast("Placed evenly — the model didn't answer usably");
+    });
+  }
+  function apply(){
+    if (!planned) return;
+    var bb = bounds(); if (!bb) return;
+    var n = applyBlockTimes(blocks, planned);
+    S.clock.t = bb[1];
+    save();
+    L("gen", "timeline applied to " + n + " message(s); story now " + storyStamp(), true);
+    closeSheet();
+    if (cur) { modePill(); renderStream(); }
+    initSettings();
+    toast(n + " messages re-dated \u2014 now is " + storyStamp());
+  }
+  function revert(){
+    if (!confirm("Put every message back on the real time it was typed?")) return;
+    var n = 0;
+    Object.keys(S.msgs || {}).forEach(function(k){
+      (S.msgs[k] || []).forEach(function(m){ if (m.st) { delete m.st; n++; } });
+    });
+    save();
+    L("gen", "timeline reverted — " + n + " message(s) back on real times", true);
+    closeSheet();
+    if (cur) { modePill(); renderStream(); }
+    initSettings();
+    toast(n + " messages back on real times");
+  }
+  paint("");
+  openSheet();
+}
 function initSettings(){
   $("set-sub").textContent = "v" + MY_VN + " · " + (IS_APK ? "Android app" : "web version") +
     " · everything is stored locally";
   $("set-model-val").textContent = friendlyModel();
+  $("set-timeline-val").textContent = storyStamp();
   var me = S.profile || {};
   $("set-me-val").textContent = !me.name && !me.desc ? "Not set"
     : (me.name || "Unnamed") + (me.desc ? (meOn() ? " · described" : " · description off") : "");
@@ -8797,6 +8990,7 @@ $("me-photo-rm").onclick = function(){
 $("me-name").addEventListener("input", renderMeAvatar);
 
 $("set-me").onclick = openMe;
+$("set-timeline").onclick = openTimelineSheet;
 $("me-back").onclick = function(){ hide("v-me"); initSettings(); };
 $("me-save").onclick = saveMe;
 $("me-toggle").onclick = function(){
