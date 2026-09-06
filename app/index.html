@@ -6241,6 +6241,36 @@ var NOW_JUMPS = [
   {k: "morn", label: "Next morning", ms: -1},
   {k: "day", label: "Next day", ms: 24 * 36e5}
 ];
+/* the value a datetime-local input wants, in local time */
+function dtLocalValue(t){
+  var d = new Date(t), p = function(n){ return ("0" + n).slice(-2); };
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
+         "T" + p(d.getHours()) + ":" + p(d.getMinutes());
+}
+/* Moving the clock back behind conversations that already happened would
+   leave the past sitting in the future, and every "last night" would come
+   out wrong. Shift every stamp by the same amount instead, so the history
+   keeps its shape and lands just behind the new present. */
+function setStoryClock(t){
+  if (!S.clock) S.clock = {t: t};
+  var newest = 0;
+  Object.keys(S.msgs || {}).forEach(function(k){
+    (S.msgs[k] || []).forEach(function(m){
+      var st = msgStory(m); if (st > newest) newest = st;
+    });
+  });
+  if (newest && t < newest) {
+    var delta = newest - t + 6e4;
+    var n = 0;
+    Object.keys(S.msgs).forEach(function(k){
+      (S.msgs[k] || []).forEach(function(m){ m.st = msgStory(m) - delta; n++; });
+    });
+    L("gen", "story clock set back to " + storyStamp(t) + " — moved " + n +
+      " existing message(s) back with it so the past stays in the past", true);
+    toast("Everything already said moved back with the clock");
+  }
+  S.clock.t = t;
+}
 /* "next morning" is a place on the calendar, not a number of hours */
 function nowJumpTarget(k){
   var t = storyNow();
@@ -6254,7 +6284,9 @@ function nowJumpTarget(k){
 }
 function openNowSheet(){
   if (!cur) return;
-  var pick = {jump: "none", mode: chatMode(cur), place: S.scenes[cur] || ""};
+  /* pick.t is the target moment; the chips and the picker are two ways of
+     writing to it, so they can never disagree about what Set will do */
+  var pick = {t: storyNow(), mode: chatMode(cur), place: S.scenes[cur] || ""};
   var sh = $("asheet");
   function chips(id, list, sel){
     return '<div id="' + id + '" style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0 10px">' +
@@ -6271,7 +6303,12 @@ function openNowSheet(){
       "Moving time writes a dated line into the chat, so this part of it is pinned to when " +
       "it happened — and everyone you talk to afterwards knows it came first.</div>" +
       '<span class="lbl">MOVE THE CLOCK</span>' +
-      chips("nw-jump", NOW_JUMPS.map(function(j){ return {v: j.k, label: j.label}; }), pick.jump) +
+      chips("nw-jump", NOW_JUMPS.map(function(j){ return {v: j.k, label: j.label}; }), "none") +
+      '<span class="lbl">OR PICK THE DAY AND TIME</span>' +
+      '<input class="srvinput" id="nw-abs" type="datetime-local" value="' +
+      dtLocalValue(pick.t) + '">' +
+      '<div class="phint" style="padding:4px 0 8px" id="nw-pre">Set to: ' +
+      esc(storyStamp(pick.t)) + "</div>" +
       '<span class="lbl">HOW YOU ARE TOGETHER</span>' +
       chips("nw-mode", [{v: "text", label: "Texting"}, {v: "person", label: "In person"}], pick.mode) +
       '<span class="lbl">WHERE — OPTIONAL</span>' +
@@ -6281,24 +6318,38 @@ function openNowSheet(){
       '<button class="btn" id="nw-set" style="flex:1">Set</button>' +
       '<button class="btn ghost" id="nw-go" style="flex:1">Go see them</button></div>' +
       '<div class="phint" style="padding-top:8px">Go see them jumps half an hour, switches to ' +
-      "in person and marks it — the whole move in one tap.</div>";
-    ["nw-jump", "nw-mode"].forEach(function(id){
-      $(id).onclick = function(e){
-        var b = e.target.closest ? e.target.closest("[data-v]") : null;
-        if (!b) return;
-        pick.place = $("nw-place").value;
-        if (id === "nw-jump") pick.jump = b.dataset.v; else pick.mode = b.dataset.v;
-        paint();
-      };
-    });
-    $("nw-set").onclick = function(){ apply(pick.jump, pick.mode, $("nw-place").value); };
+      "in person and marks it — the whole move in one tap. Setting a day earlier than what you " +
+      "have already played moves that history back with it, so nothing ends up in the future.</div>";
+    $("nw-jump").onclick = function(e){
+      var b = e.target.closest ? e.target.closest("[data-v]") : null;
+      if (!b) return;
+      pick.place = $("nw-place").value;
+      pick.t = nowJumpTarget(b.dataset.v);
+      paint();
+    };
+    $("nw-mode").onclick = function(e){
+      var b = e.target.closest ? e.target.closest("[data-v]") : null;
+      if (!b) return;
+      pick.place = $("nw-place").value;
+      pick.t = readAbs();
+      pick.mode = b.dataset.v;
+      paint();
+    };
+    $("nw-abs").oninput = function(){
+      pick.t = readAbs();
+      $("nw-pre").textContent = "Set to: " + storyStamp(pick.t);
+    };
+    $("nw-set").onclick = function(){ apply(readAbs(), pick.mode, $("nw-place").value); };
     $("nw-go").onclick = function(){
-      S.clock.t = storyNow() + 30 * 6e4;
-      apply(null, "person", $("nw-place").value);
+      apply(storyNow() + 30 * 6e4, "person", $("nw-place").value);
     };
   }
-  function apply(jump, mode, place){
-    if (jump && jump !== "none") S.clock.t = nowJumpTarget(jump);
+  function readAbs(){
+    var el = $("nw-abs"), t = el ? Date.parse(el.value) : NaN;
+    return isNaN(t) ? pick.t : t;
+  }
+  function apply(target, mode, place){
+    if (target && Math.abs(target - storyNow()) > 3e4) setStoryClock(target);
     S.modes[cur] = mode === "person" ? "person" : "text";
     place = (place || "").trim();
     if (place) S.scenes[cur] = place; else delete S.scenes[cur];
