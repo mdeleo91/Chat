@@ -549,7 +549,7 @@
           <span class="val" id="set-rel-val"></span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
         <button class="srow" id="set-mem"><span class="ic msr">psychology</span><span class="lbl">Memory</span>
           <span class="val">Manage memories</span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
-        <button class="srow" id="set-timeline"><span class="ic msr">schedule</span><span class="lbl">Story timeline</span>
+        <button class="srow" id="set-timeline"><span class="ic msr">calendar_month</span><span class="lbl">Story timeline</span>
           <span class="val" id="set-timeline-val"></span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
         <div class="sechead">APPEARANCE</div>
         <button class="srow" id="set-themes"><span class="ic msr">palette</span><span class="lbl">Themes</span>
@@ -5977,7 +5977,7 @@ function renderHome(){
         ? '<span class="msr" style="font-size:12px">image</span> ' + esc(lm.text || "Photo")
         : esc(lm.text);
       if (lm.who === "scene") prev = '<span class="msr" style="font-size:12px">theaters</span> ' + esc(lm.text);
-      else if (lm.who === "time") prev = '<span class="msr" style="font-size:12px">schedule</span> ' + esc(lm.text);
+      else if (lm.who === "time") prev = '<span class="msr" style="font-size:12px">calendar_month</span> ' + esc(lm.text);
       else if (lm.who === "me") prev = '<span class="tick msr">done_all</span> ' + body;
       else if (c.grp) { var by = getChar(lm.by); prev = esc((by ? by.name : "Someone") + ": ") + body; }
       else prev = body;
@@ -6075,7 +6075,7 @@ function renderStream(){
     if (msg.who === "scene" || msg.who === "time") {
       var sc = document.createElement("div"); sc.className = "day";
       sc.innerHTML = '<span class="msr" style="font-size:12px">' +
-        (msg.who === "time" ? "schedule" : "theaters") + '</span> ' + esc(msg.text);
+        (msg.who === "time" ? "calendar_month" : "theaters") + '</span> ' + esc(msg.text);
       st.appendChild(sc); return;
     }
     var out = msg.who === "me";
@@ -6232,7 +6232,7 @@ function modePill(){
   var el = $("mode-pill"); if (!el || !cur) return;
   var inPerson = chatMode(cur) === "person";
   el.classList.toggle("on", inPerson);
-  el.innerHTML = '<span class="msr" style="font-size:14px">schedule</span> ' +
+  el.innerHTML = '<span class="msr" style="font-size:14px">calendar_month</span> ' +
     esc(storyStamp()) + " · " + (inPerson ? "in person" : "texting");
 }
 var NOW_JUMPS = [
