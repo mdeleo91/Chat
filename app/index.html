@@ -4155,7 +4155,15 @@ function sysPrompt(ch, convo){
    they remember it.
    Not the other way round — a private conversation stays private, and
    leaking it into a room full of other characters is a worse failure than
-   forgetting. */
+   forgetting.
+   Where it goes matters as much as whether it goes. Quoted at the end of the
+   system prompt, the other room sat *above* the whole of this chat's own
+   history, so a character who had just left a group conversation read that,
+   then a hundred lines of last week's private chat, and picked up from last
+   week — the group was correctly dated and correctly ordered and still lost
+   to recency. So the other room is now spliced into the transcript itself,
+   as a bracketed interlude at the point in time it happened: after the old
+   messages, before the new one. */
 var ROOM_TAIL = 14, ROOM_BUDGET = 2600, ROOM_LINE = 300;
 /* ---- where this conversation sits in the sequence ----
    Every message carries a timestamp, so the order conversations happened in
@@ -4216,58 +4224,64 @@ function roomSpeaker(room, m, ch){
   if (room.grp) { var by = getChar(m.by); return by ? by.name : "Someone"; }
   return ch.name;
 }
-function roomBlock(room, ch){
-  var arr = room.msgs;
-  var lines = arr.slice(-ROOM_TAIL).map(function(m){
+function roomLines(room, ch){
+  return room.msgs.slice(-ROOM_TAIL).map(function(m){
     var t = m.text || (m.img ? "[sent a photo]" : "");
     if (!t) return "";
     return roomSpeaker(room, m, ch) + ": " + String(t).slice(0, ROOM_LINE);
   }).filter(Boolean).join("\n");
-  if (!lines) return "";
-  return "— " + room.label + ", " + storyWhen(msgStory(arr[arr.length - 1])) + ":\n" +
-    (room.sum && room.sum.text ? "(before this: " + room.sum.text + ")\n" : "") + lines + "\n";
 }
-function otherRooms(ch, convo){
-  if (!convo || !ch) return "";
-  var rooms = [], intro;
+/* the rooms this character may carry in here, newest first, each as the
+   interlude text buildMessages splices into the transcript and the story
+   time it belongs at */
+function roomInterludes(ch, convo){
+  if (!convo || !ch) return [];
+  var rooms = [];
   if (convo.grp) {
     /* the other direction, which used to be missing entirely: what this
        character was told one to one. Only their own chat — nobody can know
        what was said to someone else, and pulling in a third party's private
        conversation would be a genuine leak rather than continuity. */
     var mine = S.msgs[ch.id] || [];
-    if (!mine.length) return "";
-    rooms.push({id: ch.id, grp: null, msgs: mine, sum: S.sums[ch.id],
-      label: "your private chat with " + userName()});
-    intro = "You and " + userName() + " have also been talking one to one. You know all of it — " +
-      "it was said to you. They may pick it up here in front of the others, and you can raise it " +
-      "yourself if the moment fits; it is yours to bring up or keep to yourself:\n";
+    if (mine.length)
+      rooms.push({id: ch.id, grp: null, msgs: mine, sum: S.sums[ch.id],
+        label: "your private chat with " + userName(),
+        note: "Only the two of you know this; it is yours to raise in front of the " +
+          "others or keep to yourself"});
   } else {
-    var gs = S.groups.filter(function(g){
-      return (g.members || []).indexOf(ch.id) >= 0 && (S.msgs[g.id] || []).length;
+    S.groups.forEach(function(g){
+      if ((g.members || []).indexOf(ch.id) >= 0 && (S.msgs[g.id] || []).length)
+        rooms.push({id: g.id, grp: g, msgs: S.msgs[g.id], sum: S.sums[g.id],
+          label: "the group chat “" + g.name + "”",
+          note: "You were part of this and remember it — it happened to you, not to " +
+            "someone you were told about; " + userName() + " may pick it up here without " +
+            "explaining it first"});
     });
-    if (!gs.length) return "";
-    gs.sort(function(a, b){
-      var la = S.msgs[a.id], lb = S.msgs[b.id];
-      return msgStory(lb[lb.length - 1]) - msgStory(la[la.length - 1]);
-    });
-    gs.forEach(function(g){
-      rooms.push({id: g.id, grp: g, msgs: S.msgs[g.id], sum: S.sums[g.id],
-        label: "the group chat \u201c" + g.name + "\u201d"});
-    });
-    intro = "You were also in these conversations, and you remember them \u2014 they happened to " +
-      "you, not to someone you were told about. The user may pick one up here, privately, " +
-      "without explaining it first:\n";
   }
-  var out = "", used = 0;
+  rooms.forEach(function(r){ r.st = msgStory(r.msgs[r.msgs.length - 1]); });
+  rooms.sort(function(a, b){ return b.st - a.st; });   // newest gets the budget first
+  var out = [], used = 0;
   rooms.forEach(function(r){
     if (used >= ROOM_BUDGET) return;
-    var blk = roomBlock(r, ch);
-    if (!blk) return;
-    if (used + blk.length > ROOM_BUDGET && used) return;
-    out += blk; used += blk.length;
+    var lines = roomLines(r, ch);
+    if (!lines) return;
+    var text = "[Elsewhere, " + storyWhen(r.st) + " — " + r.label + ", " +
+      roomModeWord(r.msgs) + ". " + r.note + ":\n" +
+      (r.sum && r.sum.text ? "(before this: " + r.sum.text + ")\n" : "") + lines + "]";
+    if (used + text.length > ROOM_BUDGET && used) return;
+    out.push({st: r.st, label: r.label, mode: roomModeWord(r.msgs), text: text});
+    used += text.length;
   });
-  return out ? intro + out : "";
+  return out;
+}
+/* the system prompt only points at them now; the words themselves sit in
+   the transcript where the story puts them */
+function otherRooms(ch, convo){
+  var list = roomInterludes(ch, convo);
+  if (!list.length) return "";
+  return "Conversations you were part of elsewhere are quoted in the transcript below, each " +
+    "in a bracketed [Elsewhere …] note at the point in time it happened. You remember " +
+    "them as things that happened to you.\n";
 }
 /* ---- which memories ride along ----
    Recency alone is what made "you said this last week" impossible: after a
@@ -4376,7 +4390,16 @@ function buildMessages(ch, convo, nudge){
       pixelIdx[pi] = true; kept++;
     }
   }
+  /* the other rooms go in at the point in the story they happened — for a
+     group chat that just ended, that is after every old message here and
+     right before the one being answered, which is where a reader's sense
+     of "what just happened" actually lives */
+  var inter = roomInterludes(ch, convo).sort(function(a, b){ return a.st - b.st; }), ii = 0;
+  var lastSaid = 0;   // the newest thing the character said in *this* room
   w.forEach(function(m, mi){
+    while (ii < inter.length && inter[ii].st <= msgStory(m)) add("user", inter[ii++].text);
+    if (m.who !== "me" && m.who !== "scene" && m.who !== "time" && (!convo.grp || m.by === ch.id))
+      lastSaid = msgStory(m);
     if (m.who === "scene") add("user", "[Scene: " + m.text + "]");
     else if (m.who === "time") add("user", "[" + m.text + "]");
     else if (m.who === "me") {
@@ -4408,6 +4431,7 @@ function buildMessages(ch, convo, nudge){
       add("assistant", t);
     }
   });
+  while (ii < inter.length) add("user", inter[ii++].text);
   if (nudge)
     add("user", "[The user tapped send without typing — they want you to continue. Send one more " +
       "message in character: build on what you said, ask something, or move things forward. Don't repeat yourself.]");
@@ -4421,6 +4445,15 @@ function buildMessages(ch, convo, nudge){
      there in *asterisks* as a worked example of the thing being forbidden.
      So both are said again, last, and the history is disowned outright. */
   var len = chatLen(convo.id), person = chatMode(convo.id) === "person", last = "";
+  /* and the same for where the character is coming *from*: when the newest
+     thing that happened to them was in another room, the last thing said in
+     this one is not the thread to pick up */
+  var newest = inter.length ? inter[inter.length - 1] : null, sinceHere = "";
+  if (newest && newest.st > lastSaid)
+    sinceHere = " The most recent thing that happened to you was " + newest.label + " (" +
+      newest.mode + ", " + storyWhen(newest.st) + "), quoted above in the [Elsewhere \u2026] " +
+      "note: that is where you are coming from now. This chat's earlier messages are older " +
+      "than it, so continue from there, not from where this chat left off.";
   if (person) {
     if (len.k !== "long") last = "Before you answer, check the length. " + len.scene + " — no more. ";
   } else {
@@ -4437,7 +4470,7 @@ function buildMessages(ch, convo, nudge){
       "the history. " : "") +
     "It is " + storyStampFull() + " right now. Any time you name — reading a clock, saying " +
     "how late it is, how long you have waited — must match that exactly. Do not invent a " +
-    "different one."});
+    "different one." + sinceHere});
   return msgs;
 }
 /* ---- rolling summary of evicted history ---- */
