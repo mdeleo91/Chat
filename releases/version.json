@@ -1,6 +1,6 @@
 {
-  "versionCode": 161,
-  "versionName": "0.74.0",
+  "versionCode": 162,
+  "versionName": "0.75.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Photos with a pose are one job now, and they never wait for the vision model. A photo with the face and feet passes was taking five minutes, and the log said why: twenty seconds to paint, three and a half minutes waiting for the vision endpoint to wake up and find the feet, then another minute and a half because the image worker had fallen asleep in the meantime and had to boot again for the second pass. When a pose is used none of that is necessary. The skeleton already says where the face, feet and hands will be, in the output's own pixels, because the ControlNet puts them there; so the boxes are taken from the skeleton, the face pass and each detail pass are appended to the same ComfyUI graph as the paint, and the whole thing runs as a single job on a single warm worker with one upload. Photos without a pose still ask the vision model where things are, but that endpoint is now woken the moment the paint starts so its boot overlaps the painting instead of following it, and the image endpoint is woken the moment a chat decides on a GPU photo, while the director is still thinking. The detail passes also take sixteen sampling steps instead of twenty, which at their light denoise makes no visible difference."
+  "notes": "In the Photo Lab, a ticked face LoRA counts as the identity for the face pass whether or not its character is chosen in the dropdown. It rode the main paint either way, but the face pass only looked for it on the selected character's card, so with the character left at None the pass reported that no identity LoRA had ridden and sat out. The tick is the request; the dropdown only adds the appearance anchor and the gallery to save into."
 }

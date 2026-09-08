@@ -1047,7 +1047,7 @@ window.addEventListener("unhandledrejection", function(e){
 /* ================= platform & version ================= */
 /* the one place the version lives for the web build; the APK passes its
    own in the query string from BuildVersion */
-var APP_VN = "0.74.0";
+var APP_VN = "0.75.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -9982,7 +9982,9 @@ function labGo(){
       if ((x.l.add || "").trim()) r.adds.push(x.l.add.trim());
       return;
     }
-    if (ch && (x.where === ch.name || x.l.face))
+    /* a LoRA that lives on a character's card is an identity, whoever is
+       picked in the dropdown above — the tick is the request */
+    if (x.where !== "Settings" || x.l.face)
       idl.push({path: withCivitaiToken(x.l.path.trim()), scale: Math.min(4, Math.max(0, s.scale || 1)),
                 add: (x.l.add || "").trim()});
   });
