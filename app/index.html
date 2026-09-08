@@ -1040,7 +1040,7 @@ window.addEventListener("unhandledrejection", function(e){
 /* ================= platform & version ================= */
 /* the one place the version lives for the web build; the APK passes its
    own in the query string from BuildVersion */
-var APP_VN = "0.78.0";
+var APP_VN = "0.79.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -3040,9 +3040,10 @@ var RP_REST = "https://rest.runpod.io/v1";
    access and can call RunPod directly, so it does, with the relay as its
    fallback if that ever stops working. */
 var RP_RELAY = "https://chat-nine-psi-68.vercel.app/api/runpod";
+var RP_DIRECT_DOWN = 0;   // when the direct route last failed; the relay leads for a while after
 function rpRestBases(){
   if (/^https?:$/.test(location.protocol)) return [location.origin + "/api/runpod"];
-  return [RP_REST, RP_RELAY];
+  return Date.now() - RP_DIRECT_DOWN < 10 * 60000 ? [RP_RELAY, RP_REST] : [RP_REST, RP_RELAY];
 }
 function rpRest(method, path, body){
   var bases = rpRestBases();
@@ -3070,8 +3071,10 @@ function rpRest(method, path, body){
          next route if there is one; otherwise say which route failed. */
       if (!/^HTTP /.test(m)) {
         if (i + 1 < bases.length) {
-          L("img", "runpod management: " + base + " didn't answer (" + m.slice(0, 80) +
-            ") — trying " + bases[i + 1], true);
+          if (base === RP_REST && Date.now() - RP_DIRECT_DOWN > 10 * 60000)
+            L("img", "runpod management: " + base + " didn't answer (" + m.slice(0, 80) +
+              ") — using the relay for the next while", true);
+          if (base === RP_REST) RP_DIRECT_DOWN = Date.now();
           return via(i + 1);
         }
         throw new Error("no answer from " + base.replace(/^https?:\/\//, "") + " (" + m.slice(0, 120) + ")");
@@ -3120,6 +3123,32 @@ function rpInstallScript(missing, selfDelete){
   s += 'du -sh "$M"/* 2>/dev/null\n';
   s += bye;
   return s;
+}
+/* which of the expected files are on the volume — the same probes, but
+   reporting each file rather than one yes or no */
+function rpVolumeReport(missing, cb){
+  var have = {}, pending = 0, unknown = {};
+  function step(){ if (--pending <= 0) cb(have, unknown); }
+  var loras = missing.filter(function(m){ return (m.folder || "loras") === "loras"; });
+  var models = missing.filter(function(m){ return /^(diffusion_models|text_encoders|vae)$/.test(m.folder); });
+  var cn = missing.filter(function(m){ return m.folder === "controlnet"; });
+  pending = (loras.length ? 1 : 0) + (models.length ? 1 : 0) + (cn.length ? 1 : 0);
+  if (!pending) { cb(have, unknown); return; }
+  if (loras.length) rpLoraProbe(function(n){
+    loras.forEach(function(m){ if (!n) unknown[m.name] = 1; else if (n.indexOf(m.name) >= 0) have[m.name] = 1; });
+    step();
+  });
+  if (models.length) rpModelProbe(function(r){
+    models.forEach(function(m){
+      var l = m.folder === "diffusion_models" ? r.unet : m.folder === "text_encoders" ? r.clip : r.vae;
+      if (!l) unknown[m.name] = 1; else if (l.indexOf(m.name) >= 0) have[m.name] = 1;
+    });
+    step();
+  });
+  if (cn.length) rpCnProbe(function(r){
+    cn.forEach(function(m){ if (!r.names) unknown[m.name] = 1; else if (r.names.indexOf(m.name) >= 0) have[m.name] = 1; });
+    step();
+  });
 }
 /* is every expected file on the volume? Each model folder can be listed by
    making ComfyUI refuse a name that cannot exist. */
@@ -3290,11 +3319,24 @@ async function rpAutoInstall(out, missing, line, opts){
       line("✗ Pod came back without an id — raw: " + JSON.stringify(pod).slice(0, 200));
       return;
     }
-    line("Pod " + pid + " is " + (opts.verb ? opts.verb.toLowerCase() + "ing" : "downloading") + " " +
+    var gbAll = Math.max(1, Math.round(missing.reduce(function(a, m){ return a + (m.gb || 0.2); }, 0)));
+    line("Pod " + pid + " is " + (opts.verb ? opts.verb.toLowerCase().replace(/e$/, "") + "ing" : "downloading") + " " +
          missing.length + " file(s); it deletes itself when done. A few cents." +
-         (opts.script ? "" : " Around " +
-           Math.max(1, Math.round(missing.reduce(function(a, m){ return a + (m.gb || 0.2); }, 0))) +
-           "GB, so give it a few minutes") + " — this line updates when it finishes.");
+         (opts.script ? "" : " Around " + gbAll + "GB — " +
+           (gbAll >= 10 ? "anywhere from five to forty minutes depending on the link" : "a few minutes") +
+           ". Keep the app in front: the line below only updates while it is on screen.") + "");
+    /* one line that is rewritten rather than appended: how long, and what has landed */
+    var prog = document.createElement("div");
+    prog.className = "ds"; prog.style.paddingTop = "4px";
+    out.appendChild(prog);
+    var landedNames = {};
+    function progress(){
+      var mins = Math.round((Date.now() - t0) / 60000);
+      var parts = missing.map(function(m){
+        return (landedNames[m.name] ? "✓ " : "⏳ ") + (m.name.length > 28 ? m.name.slice(0, 26) + "…" : m.name);
+      });
+      prog.textContent = mins + " min" + (mins === 1 ? "" : "s") + " in · " + parts.join(" · ");
+    }
     var cancel = document.createElement("button");
     cancel.className = "use"; cancel.textContent = "Cancel & delete pod";
     cancel.style.marginTop = "6px";
@@ -3313,10 +3355,12 @@ async function rpAutoInstall(out, missing, line, opts){
     var totalGb = opts.script ? 0 : missing.reduce(function(a, m){ return a + (m.gb || 0.2); }, 0);
     var deadlineMs = (opts.script ? 6 : Math.min(45, Math.max(12, Math.round(12 + totalGb * 2)))) * 60000;
     var t0 = Date.now(), ticks = 0, goneSeen = 0;
+    progress();
     while (!stopped) {
       await new Promise(function(r){ setTimeout(r, 10000); });
       ticks++;
       if (stopped) return;
+      progress();
       var st = null;
       try { st = await rpRest("GET", "/pods/" + pid); } catch(e){}
       /* RunPod 404s a pod for the first few seconds while it is still being
@@ -3334,6 +3378,10 @@ async function rpAutoInstall(out, missing, line, opts){
          ComfyUI endpoint whether everything has landed; when it has, delete
          the pod from here instead of waiting out the clock. */
       if (rpReady() && ticks % 6 === 0) {
+        if (!opts.script) {
+          var rep_ = await new Promise(function(res){ rpVolumeReport(missing, function(h){ res(h); }); });
+          landedNames = rep_ || {}; progress();
+        }
         var landed = await new Promise(function(res){ verify(res); });
         if (landed) {
           line("Everything is on the volume — deleting the pod.");
@@ -3357,7 +3405,9 @@ async function rpAutoInstall(out, missing, line, opts){
       line(opts.done || ("✓ Everything landed. Diagnostics can confirm it: Check edit model, Check ControlNet, " +
            "or LoRA health."));
     } else if (opts.script) {
-      line("The volume isn't as expected yet — if the pod was still working, wait a minute and check again.");
+      line("The volume doesn't show the change yet. A running worker lists its folders from a cache, " +
+           "so a removal often shows only after a new worker boots — try Diagnostics again later " +
+           "rather than running this twice.");
     } else {
       /* the probe can only see loras and diffusion_models, so a "no" here may
          just mean the file it can see is the one that hasn't arrived */

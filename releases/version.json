@@ -1,6 +1,6 @@
 {
-  "versionCode": 165,
-  "versionName": "0.78.0",
+  "versionCode": 166,
+  "versionName": "0.79.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "A button to take the retired Kontext files off the volume. Free Kontext space, under Your own GPU, rents the same throwaway CPU pod the installer uses, removes the four files the subject-swap left behind, about 17GB that the edit model needs back, confirms with the volume that they are gone, and deletes itself; or copies the same script for a pod terminal. Nothing else in the app loads those files."
+  "notes": "The installer shows its progress. A 30GB download on a CPU pod takes anywhere from five to forty minutes depending on the link, and the only sign of life was a line that said to give it a few minutes; now one line is rewritten as it goes, with how long it has been running and a tick beside each file as the volume reports it landed, and the intro says the honest range and that the line only moves while the app is on screen, because a phone pauses a backgrounded app. When the phone's direct route to RunPod's management API stops answering mid-job, the app now says so once and leads with the site's relay for the next ten minutes instead of failing over on every poll and logging each time. The removal check explains that a running worker lists its folders from a cache, so a file just removed can still show until a new worker boots. And the pod line no longer says \"removeing\"."
 }
