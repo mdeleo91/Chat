@@ -866,6 +866,9 @@
           <span class="lbl" style="display:block;padding-top:8px">POSE GRIP · <span id="lab-cn-val">0.75</span></span>
           <input type="range" id="lab-cn" min="0.4" max="1" step="0.05" value="0.75" style="width:100%">
           <div class="phint">How hard the picture is held to the skeleton. 0.75 follows it faithfully and still lets the face LoRA finish the picture; go lower if the body looks stiff, higher if the pose drifts.</div>
+          <span class="lbl" style="display:block;padding-top:10px">CONTROLNET MODE</span>
+          <div id="lab-cn-type" style="padding-top:6px"></div>
+          <div class="phint">ComfyUI names these after a different union model and passes the number through; on this ControlNet #4 is pose. If a paint comes back with the coloured sticks drawn into the picture, the mode is wrong — this setting is shared with chat photos.</div>
         </div></div>
       <div class="field"><label>ENGINE</label><div id="lab-engine"></div></div>
       <div class="field"><label>ASPECT</label><div id="lab-aspect"></div></div>
@@ -1043,7 +1046,7 @@ window.addEventListener("unhandledrejection", function(e){
 /* ================= platform & version ================= */
 /* the one place the version lives for the web build; the APK passes its
    own in the query string from BuildVersion */
-var APP_VN = "0.69.0";
+var APP_VN = "0.70.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -2634,7 +2637,7 @@ function buildFluxWorkflow(prompt, loras, aspect, pose, cn){
   if (cn) {
     wf["30"] = {class_type: "LoadImage", inputs: {image: cn.name}};
     wf["32"] = {class_type: "ControlNetLoader", inputs: {control_net_name: CN_NAME}};
-    wf["33"] = {class_type: "SetUnionControlNetType", inputs: {control_net: ["32", 0], type: "openpose"}};
+    wf["33"] = {class_type: "SetUnionControlNetType", inputs: {control_net: ["32", 0], type: cn.type || cnType()}};
     /* the hint goes through the VAE for this family of ControlNets — without
        the vae input ComfyUI warns and applies nothing. Ending early leaves
        the last stretch of steps to the LoRA alone, which is where likeness
@@ -2804,6 +2807,15 @@ function rpKontextProbe(cb){
    LoRA, alone; the pose comes from a drawing. Every node is a core ComfyUI
    node; the only extra file is the Union-Pro ControlNet on the volume. */
 var CN_NAME = "flux-union-pro.safetensors";
+/* ComfyUI's SetUnionControlNetType names its modes after the SDXL union
+   model and passes the index straight through. On this FLUX Union-Pro the
+   indices mean canny, tile, depth, blur, POSE, gray, low-quality — so
+   "openpose" (0) is canny, which paints the skeleton as an object, and pose
+   is index 4, which ComfyUI calls "normal". The number is what matters. */
+var CN_TYPES = [["openpose", "canny"], ["depth", "tile"], ["hed/pidi/scribble/ted", "depth"],
+                ["canny/lineart/anime_lineart/mlsd", "blur"], ["normal", "pose"],
+                ["segment", "gray"], ["tile", "low quality"], ["repaint", "—"]];
+function cnType(){ return rp().cnType || "normal"; }
 var CN_URL = "https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro/resolve/main/" +
   "diffusion_pytorch_model.safetensors";
 function cnFiles(){
@@ -3281,7 +3293,8 @@ function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame, cast,
     cn = {name: "pose_" + pose.id + ".png", src: poseSkeleton(pose, pd.w, pd.h), w: pd.w, h: pd.h,
           strength: 0.75, end: 0.8};
     L("img", "pose “" + pose.name + "” from the library → ControlNet " + pd.w + "×" + pd.h +
-      " grip 0.75" + (stood.length ? " · concept LoRAs stood down: " + stood.join(", ") : ""), true);
+      " grip 0.75 mode " + cnType() + " (#" + CN_TYPES.findIndex(function(t){ return t[0] === cnType(); }) + ")" +
+      (stood.length ? " · concept LoRAs stood down: " + stood.join(", ") : ""), true);
   }
   var trig = [(fal().trigger || "").trim()].concat(lf.adds)
     .concat(mat ? [(fal().mat || "").trim()] : []).filter(Boolean).join("\n");
@@ -8628,7 +8641,7 @@ function poseSkeleton(p, W, H, clear){
   cv.width = W; cv.height = H;
   var g = cv.getContext("2d");
   if (!clear) { g.fillStyle = "#000"; g.fillRect(0, 0, W, H); }
-  drawSkeleton(g, poseOp(p), W, H, Math.max(2, Math.round(Math.min(W, H) / 256 * 4)));
+  drawSkeleton(g, poseOp(p), W, H, Math.max(2, Math.round(4 * Math.min(W, H) / 512)));
   try { return cv.toDataURL("image/png"); } catch (e) { return ""; }
 }
 function drawSkeleton(g, pts, W, H, stick, hot){
@@ -8963,7 +8976,7 @@ function peDraw(){
   g.clearRect(0, 0, cv.width, cv.height);
   var k = cv.width / PE.W;
   g.setTransform(k, 0, 0, k, 0, 0);
-  drawSkeleton(g, poseOp(p), PE.W, PE.H, Math.max(4, Math.round(Math.min(PE.W, PE.H) / 256 * 5)), PE.drag);
+  drawSkeleton(g, poseOp(p), PE.W, PE.H, Math.max(3, Math.min(7, Math.round(PE.W / 96))), PE.drag);
   var op = poseOp(p);
   $("pe-chips").innerHTML = OP_NAMES.map(function(n, i){
     var c = OP_COLORS[i], on = !!op[i];
@@ -9346,6 +9359,9 @@ function renderLabPose(){
       '<div class="phint" style="align-self:center">' + esc(pp.name || "") + " · out " + pd.w + "×" + pd.h +
       (rp().cn ? "" : "<br>ControlNet not confirmed on the volume — run Check ControlNet") + "</div>";
     $("lab-cn").value = LAB.cn; $("lab-cn-val").textContent = LAB.cn;
+    labChips($("lab-cn-type"), CN_TYPES.map(function(t, i){
+      return {v: t[0], label: "#" + i + " " + t[1] + (i === 4 ? " ✓" : "")};
+    }), cnType(), function(v){ rp().cnType = v; save(); renderLab(); });
   }
   $("lab-face").checked = !!LAB.face;
 }
@@ -9506,7 +9522,7 @@ function labGo(){
   if (libPose && poseReady(libPose)) {
     var pd = poseDims(libPose);
     cn = {name: "pose_" + libPose.id + ".png", src: poseSkeleton(libPose, pd.w, pd.h),
-          w: pd.w, h: pd.h, strength: LAB.cn, end: 0.8};
+          w: pd.w, h: pd.h, strength: LAB.cn, end: 0.8, type: cnType()};
   }
   /* the face pass wants exactly one identity LoRA: one that sits on the
      chosen character's card, or came out of the face trainer */
@@ -9525,7 +9541,7 @@ function labGo(){
     : null;
   L("img", "lab: engine=" + LAB.engine +
     (labSwapMode() ? " KONTEXT SWAP out " + LAB.pose.w + "×" + LAB.pose.h
-      : cn ? " library pose “" + libPose.name + "” " + cn.w + "×" + cn.h + " grip=" + cn.strength
+      : cn ? " library pose “" + libPose.name + "” " + cn.w + "×" + cn.h + " grip=" + cn.strength + " mode=" + cn.type
       : LAB.pose ? " pose-ref " + LAB.pose.w + "×" + LAB.pose.h + " denoise=" + LAB.denoise
                  : " aspect=" + LAB.aspect) +
     (faceCtx ? " face-pass" : "") +
