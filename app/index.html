@@ -839,8 +839,9 @@
         <div class="phint">Goes to the engine exactly as written — no director, no rewriting. Describe the shot, subject, pose, light.</div>
         <textarea id="lab-prompt" rows="5" placeholder="e.g. Waist-up shot by a window, warm evening light, a woman laughing with her eyes closed"></textarea></div>
       <div class="field"><label>CHARACTER (OPTIONAL)</label>
-        <div class="phint">Appends their appearance anchor to the prompt and lets you save results into their gallery.</div>
+        <div class="phint">Picking a character paints with her card's LoRAs — her face for the identity, and any detail-pass LoRA on her card for its part — appends her appearance anchor, and lets you save results into her gallery.</div>
         <select id="lab-char" class="srvinput"></select>
+        <div id="lab-char-loras" style="padding-top:6px"></div>
         <label class="phint" style="display:flex;align-items:center;gap:8px;padding-top:6px;cursor:pointer">
           <input type="checkbox" id="lab-anchor" checked> append their appearance anchor</label></div>
       <div class="field"><details class="adv" style="margin-top:0;border:0;padding:0"><summary>Advanced: picture reference · Kontext subject-swap (Your GPU only)</summary>
@@ -873,7 +874,7 @@
       <div class="field"><label>ENGINE</label><div id="lab-engine"></div></div>
       <div class="field"><label>ASPECT</label><div id="lab-aspect"></div></div>
       <div class="field" id="lab-mature-wrap" hidden><label>CONTENT</label><div id="lab-mature"></div></div>
-      <div class="field"><label>LORAS — checked ones ride at the strength shown; WHEN keywords don't apply here</label>
+      <div class="field"><label>SHARED LORAS — checked ones ride at the strength shown; WHEN keywords don't apply here</label>
         <div id="lab-loras"></div>
         <label class="phint" style="display:flex;align-items:center;gap:8px;padding-top:10px;cursor:pointer">
           <input type="checkbox" id="lab-face" checked> second pass on the face (Your GPU, one identity LoRA ticked, a character chosen — starts from the setting under Your own GPU). A ticked LoRA marked "detail pass" runs on its own part the same way, after the face.</label></div>
@@ -1047,7 +1048,7 @@ window.addEventListener("unhandledrejection", function(e){
 /* ================= platform & version ================= */
 /* the one place the version lives for the web build; the APK passes its
    own in the query string from BuildVersion */
-var APP_VN = "0.75.0";
+var APP_VN = "0.76.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -9817,10 +9818,35 @@ function labChips(el, options, cur, onPick){
     el.appendChild(b);
   });
 }
+/* the character's own LoRAs, shown under the dropdown with an editable
+   strength each — they ride because she was picked, not because of a tick */
+function labCharLoras(){
+  var ch = $("lab-char").value ? getChar($("lab-char").value) : null;
+  var box = $("lab-char-loras");
+  var list = ch ? chLoraList(ch).filter(function(l){ return /^https?:\/\//i.test((l.path || "").trim()); }) : [];
+  if (!list.length) { box.innerHTML = ch ? '<div class="phint">No LoRAs on ' + esc(ch.name) + "'s card.</div>" : ""; return; }
+  box.innerHTML = list.map(function(l, i){
+    var k = "c|" + ch.id + "|" + l.path;
+    if (!LAB.sel[k]) LAB.sel[k] = {scale: l.scale || 1};
+    return '<div class="lorarow" data-ck="' + esc(k) + '" style="margin-top:6px"><div class="lr1" style="align-items:center">' +
+      '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+      esc((l.name || "").trim() || rpLoraName(l.path)) +
+      ' <span style="color:var(--mist);font-size:12px">· ' +
+      ((l.region || "").trim() ? "detail pass: " + esc(l.region.split(",")[0].trim()) : "identity") + "</span></span>" +
+      '<input class="srvinput lab-csc" inputmode="decimal" style="width:64px;flex-shrink:0" value="' + LAB.sel[k].scale + '">' +
+      "</div></div>";
+  }).join("");
+  box.onchange = function(e){
+    var row = e.target.closest ? e.target.closest("[data-ck]") : null;
+    if (!row || !e.target.classList.contains("lab-csc")) return;
+    LAB.sel[row.dataset.ck].scale = parseFloat(e.target.value) || 1;
+  };
+}
 function renderLabLoras(){
-  var box = $("lab-loras"), items = allLoras();
+  var box = $("lab-loras"), items = allLoras().filter(function(x){ return x.where === "Settings"; });
+  labCharLoras();
   if (!items.length) {
-    box.innerHTML = '<div class="phint">No LoRAs configured yet — add some under Settings → Image generation or on a character.</div>';
+    box.innerHTML = '<div class="phint">No shared LoRAs yet — add some under Settings → Image generation. Face LoRAs live on the character cards and come along when a character is picked above.</div>';
     return;
   }
   var h = "";
@@ -9842,7 +9868,7 @@ function renderLabLoras(){
   box.onchange = function(e){
     var row = e.target.closest ? e.target.closest(".lorarow") : null;
     if (!row) return;
-    var x = allLoras()[+row.dataset.i]; if (!x) return;
+    var x = allLoras().filter(function(y){ return y.where === "Settings"; })[+row.dataset.i]; if (!x) return;
     var s = LAB.sel[labLoraKey(x)];
     if (e.target.classList.contains("lab-on")) s.on = e.target.checked;
     else if (e.target.classList.contains("lab-sc")) s.scale = parseFloat(e.target.value) || 1;
@@ -9932,12 +9958,25 @@ function labGo(){
   var ch = $("lab-char").value ? getChar($("lab-char").value) : null;
   if (ch && $("lab-anchor").checked && (ch.look || "").trim())
     prompt += "\n\nThe person shown is the same in every photo: " + ch.look.trim();
+  if (ch) {
+    var adds = chLoraList(ch).filter(function(l){ return !(l.region || "").trim() && (l.add || "").trim(); })
+      .map(function(l){ return l.add.trim(); });
+    if (adds.length) prompt += "\n" + adds.join("\n");
+  }
   var loras = [];
   allLoras().forEach(function(x){
     var s = LAB.sel[labLoraKey(x)];
-    if (s && s.on && /^https?:\/\//i.test((x.l.path || "").trim()))
+    if (x.where === "Settings" && s && s.on && /^https?:\/\//i.test((x.l.path || "").trim()))
       loras.push({path: withCivitaiToken(x.l.path.trim()),
                   scale: Math.min(4, Math.max(0, s.scale || 1))});
+  });
+  /* her card rides because she was picked: identity LoRAs on the main
+     paint (and the face pass), detail-pass LoRAs on their part */
+  var cardLoras = ch ? chLoraList(ch).filter(function(l){ return /^https?:\/\//i.test((l.path || "").trim()); }) : [];
+  cardLoras.forEach(function(l){
+    if ((l.region || "").trim()) return;
+    var k = "c|" + ch.id + "|" + l.path, sc = (LAB.sel[k] && LAB.sel[k].scale) || l.scale || 1;
+    loras.push({path: withCivitaiToken(l.path.trim()), scale: Math.min(4, Math.max(0, sc))});
   });
   var mature = LAB.mature && !!S.adult;
   /* a pose reference is an img2img graph on the user's own worker — the other
@@ -9950,8 +9989,8 @@ function labGo(){
     toast("Heads up: GLM has no LoRA support — they won't apply on this engine");
   /* a trigger word in the prompt does nothing on its own — the run looks
      like an identity test and isn't one */
-  if (!loras.length && ch && chLoraList(ch).length && !labSwapMode())
-    toast("No LoRAs ticked — " + ch.name + "'s face LoRA is in the list below");
+  if (!ch && !loras.length && S.chars.some(function(c){ return chLoraList(c).length; }) && !labSwapMode())
+    toast("No character picked — her face LoRA comes along when you pick one above");
   /* Kontext takes identity from the reference picture, so the LoRA chain
      isn't part of its graph at all — say so rather than let ticked boxes imply
      they are doing something */
@@ -9969,29 +10008,34 @@ function labGo(){
   /* the face pass wants exactly one identity LoRA: one that sits on the
      chosen character's card, or came out of the face trainer */
   var idl = [], regs = [], regSeen = {};
+  function region(l, sc){
+    var words = (l.region || "").split(",").map(function(w){ return w.trim().toLowerCase(); }).filter(Boolean);
+    if (!words.length) return false;
+    /* detail LoRAs run on their patch regardless of the prompt — being
+       ticked, or being on her card, is the request */
+    var r = regSeen[words[0]];
+    if (!r) { r = regSeen[words[0]] = {name: words[0], loras: [], adds: []}; regs.push(r); }
+    r.loras.push({path: withCivitaiToken(l.path.trim()), scale: Math.min(4, Math.max(0, sc))});
+    if ((l.add || "").trim()) r.adds.push(l.add.trim());
+    return true;
+  }
   allLoras().forEach(function(x){
     var s = LAB.sel[labLoraKey(x)];
-    if (!s || !s.on || !/^https?:\/\//i.test((x.l.path || "").trim())) return;
-    var words = (x.l.region || "").split(",").map(function(w){ return w.trim().toLowerCase(); }).filter(Boolean);
-    if (words.length) {
-      /* ticked detail LoRAs run on their patch regardless of the prompt —
-         the tick is the request */
-      var r = regSeen[words[0]];
-      if (!r) { r = regSeen[words[0]] = {name: words[0], loras: [], adds: []}; regs.push(r); }
-      r.loras.push({path: withCivitaiToken(x.l.path.trim()), scale: Math.min(4, Math.max(0, s.scale || 1))});
-      if ((x.l.add || "").trim()) r.adds.push(x.l.add.trim());
-      return;
-    }
-    /* a LoRA that lives on a character's card is an identity, whoever is
-       picked in the dropdown above — the tick is the request */
-    if (x.where !== "Settings" || x.l.face)
+    if (x.where !== "Settings" || !s || !s.on || !/^https?:\/\//i.test((x.l.path || "").trim())) return;
+    if (region(x.l, s.scale || 1)) return;
+    if (x.l.face)
       idl.push({path: withCivitaiToken(x.l.path.trim()), scale: Math.min(4, Math.max(0, s.scale || 1)),
                 add: (x.l.add || "").trim()});
   });
-  /* and they never ride the main paint */
-  loras = loras.filter(function(l){
-    return !allLoras().some(function(x){ return (x.l.region || "").trim() && withCivitaiToken((x.l.path || "").trim()) === l.path; });
+  cardLoras.forEach(function(l){
+    var k = "c|" + ch.id + "|" + l.path, sc = (LAB.sel[k] && LAB.sel[k].scale) || l.scale || 1;
+    if (region(l, sc)) return;
+    idl.push({path: withCivitaiToken(l.path.trim()), scale: Math.min(4, Math.max(0, sc)), add: (l.add || "").trim()});
   });
+  /* detail LoRAs never ride the main paint */
+  var regionPaths = {};
+  regs.forEach(function(r){ r.loras.forEach(function(l){ regionPaths[l.path] = 1; }); });
+  loras = loras.filter(function(l){ return !regionPaths[l.path]; });
   var faceCtx = LAB.engine === "rp" && !labSwapMode() && (LAB.face || regs.length)
     ? {ch: ch, idLoras: LAB.face ? idl : [], inFrame: true, desc: prompt, mat: mature, regions: regs,
        look: ch && $("lab-anchor").checked ? (ch.look || "").trim() : "",
@@ -10099,6 +10143,7 @@ $("lab-cref-file").onchange = function(){
 /* choosing a character offers their own face as the swap source */
 $("lab-char").onchange = function(){
   var ch = this.value ? getChar(this.value) : null;
+  labCharLoras();
   if (ch && LAB.pose && !LAB.cref && (ch.refimgs || []).length) {
     labShrinkPose(ch.refimgs[0], function(small){
       if (small) { LAB.cref = small; renderLabPose(); toast("Using " + ch.name + "'s first reference"); }

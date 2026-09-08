@@ -1,6 +1,6 @@
 {
-  "versionCode": 162,
-  "versionName": "0.75.0",
+  "versionCode": 163,
+  "versionName": "0.76.0",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "In the Photo Lab, a ticked face LoRA counts as the identity for the face pass whether or not its character is chosen in the dropdown. It rode the main paint either way, but the face pass only looked for it on the selected character's card, so with the character left at None the pass reported that no identity LoRA had ridden and sat out. The tick is the request; the dropdown only adds the appearance anchor and the gallery to save into."
+  "notes": "In the Photo Lab, picking a character is picking her LoRAs. Her card's LoRAs no longer sit in the checklist waiting to be ticked; they appear under the dropdown the moment she is chosen, each with its strength ready to edit, and they ride because she was picked: identity LoRAs on the main paint and the face pass, any detail-pass LoRA on her card on its part, and her trigger words in the prompt, exactly as a chat would do it. The checklist below now holds only the shared LoRAs from Settings, which is what it is for. Leaving the character at None paints without an identity, and the Lab says so."
 }
