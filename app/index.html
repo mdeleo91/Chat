@@ -1047,7 +1047,7 @@ window.addEventListener("unhandledrejection", function(e){
 /* ================= platform & version ================= */
 /* the one place the version lives for the web build; the APK passes its
    own in the query string from BuildVersion */
-var APP_VN = "0.73.0";
+var APP_VN = "0.74.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -2622,7 +2622,11 @@ function rpLoraName(path){
    conditioning through the union ControlNet in openpose mode, so the
    latent stays empty and the LoRA chain is untouched. pose and cn are
    exclusive; cn wins. */
-function buildFluxWorkflow(prompt, loras, aspect, pose, cn){
+/* passes (optional): [{crop, loras, prompt, denoise}] appended to the same
+   graph — each crops the picture so far, blows it up, repaints it lightly
+   with its own LoRA chain, and blends it back. One job, one worker, no
+   second upload, and no gap for the worker to fall asleep in. */
+function buildFluxWorkflow(prompt, loras, aspect, pose, cn, passes){
   var wf = {
     "1": {class_type: "CheckpointLoaderSimple", inputs: {ckpt_name: "flux1-dev-fp8.safetensors"}}
   };
@@ -2671,8 +2675,44 @@ function buildFluxWorkflow(prompt, loras, aspect, pose, cn){
     sampler_name: "euler", scheduler: "simple", denoise: pose ? pose.denoise : 1
   }};
   wf["7"] = {class_type: "VAEDecode", inputs: {samples: ["6", 0], vae: ["1", 2]}};
-  wf["8"] = {class_type: "SaveImage", inputs: {images: ["7", 0], filename_prefix: "out"}};
+  var img = ["7", 0];
+  (passes || []).forEach(function(ps, i){ img = appendDetailPass(wf, img, ps, 100 + i * 20); });
+  wf["8"] = {class_type: "SaveImage", inputs: {images: img, filename_prefix: "out"}};
   return wf;
+}
+function appendDetailPass(wf, img, ps, base){
+  var n = function(k){ return String(base + k); };
+  /* nodes 0–10 are the pass itself; its LoRA loaders take 11 onwards */
+  var modelRef = ["1", 0], clipRef = ["1", 1], id = base + 11;
+  ps.loras.forEach(function(l){
+    wf[String(id)] = {class_type: "LoraLoader", inputs: {
+      model: modelRef, clip: clipRef, lora_name: rpLoraName(l.path),
+      strength_model: l.scale || 1, strength_clip: l.scale || 1
+    }};
+    modelRef = [String(id), 0]; clipRef = [String(id), 1];
+    id++;
+  });
+  var crop = ps.crop;
+  var k = Math.max(1, 1024 / Math.max(crop.w, crop.h));
+  var UW = Math.round(crop.w * k / 16) * 16, UH = Math.round(crop.h * k / 16) * 16;
+  var feather = Math.max(8, Math.round(Math.min(crop.w, crop.h) * 0.12));
+  wf[n(0)] = {class_type: "CLIPTextEncode", inputs: {text: ps.prompt, clip: clipRef}};
+  wf[n(1)] = {class_type: "CLIPTextEncode", inputs: {text: "", clip: clipRef}};
+  wf[n(2)] = {class_type: "ImageCrop", inputs: {image: img, width: crop.w, height: crop.h, x: crop.x, y: crop.y}};
+  wf[n(3)] = {class_type: "ImageScale", inputs: {image: [n(2), 0], upscale_method: "lanczos", width: UW, height: UH, crop: "disabled"}};
+  wf[n(4)] = {class_type: "VAEEncode", inputs: {pixels: [n(3), 0], vae: ["1", 2]}};
+  wf[n(5)] = {class_type: "KSampler", inputs: {
+    model: modelRef, positive: [n(0), 0], negative: [n(1), 0], latent_image: [n(4), 0],
+    seed: Math.floor(Math.random() * 1e9), steps: 16, cfg: 1,
+    sampler_name: "euler", scheduler: "simple", denoise: ps.denoise
+  }};
+  wf[n(6)] = {class_type: "VAEDecode", inputs: {samples: [n(5), 0], vae: ["1", 2]}};
+  wf[n(7)] = {class_type: "ImageScale", inputs: {image: [n(6), 0], upscale_method: "lanczos", width: crop.w, height: crop.h, crop: "disabled"}};
+  wf[n(8)] = {class_type: "SolidMask", inputs: {value: 1.0, width: crop.w, height: crop.h}};
+  wf[n(9)] = {class_type: "FeatherMask", inputs: {mask: [n(8), 0], left: feather, top: feather, right: feather, bottom: feather}};
+  wf[n(10)] = {class_type: "ImageCompositeMasked", inputs: {destination: img, source: [n(7), 0],
+    x: crop.x, y: crop.y, resize_source: false, mask: [n(9), 0]}};
+  return [n(10), 0];
 }
 /* ================= FLUX Kontext (subject swap) =================
    img2img can only renoise what a latent already holds. Kontext is an
@@ -3324,17 +3364,27 @@ function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame, cast,
     /* what the face pass will need once the picture is back: the identity
        LoRA(s) that rode, at their configured strength, and who it is */
     var idl = loras.filter(function(l){ var i = lf.loras.indexOf(l); return i >= 0 && lf.ids[i]; });
-    RPCTX[cid] = {ch: ch, idLoras: idl, inFrame: inFrame, desc: desc, mat: mat,
+    var ctx = {ch: ch, idLoras: idl, inFrame: inFrame, desc: desc, mat: mat,
       regions: detailRegions(desc, ch, cast),
       look: (ch && ch.look || "").trim(),
       trig: [(fal().trigger || "").trim()].concat(loras.map(function(l){
         var i = lf.loras.indexOf(l); return i >= 0 && lf.ids[i] ? (lf.addl || [])[i] || "" : "";
       })).filter(Boolean).join("\n"),
       stage: function(t){ setStage(cid, t); }};
+    var passes = null;
+    if (cn && pose) {
+      /* the skeleton says where the parts are: the passes ride this job */
+      passes = posePasses(ctx, pose, cn.w, cn.h);
+      RPCTX[cid] = null;
+    } else {
+      RPCTX[cid] = ctx;
+      /* the parts will have to be found afterwards — get that worker booting now */
+      if (detailPassList(ctx).length && rpVisionReady() && (mat || !glmReady())) rpWarm("vision");
+    }
     fetch("https://api.runpod.ai/v2/" + rp().ep.trim() + "/runsync", {
       method: "POST",
       headers: {"Content-Type": "application/json", "Authorization": "Bearer " + rp().key.trim()},
-      body: JSON.stringify({input: {workflow: buildFluxWorkflow(prompt, loras, aspect, null, cn),
+      body: JSON.stringify({input: {workflow: buildFluxWorkflow(prompt, loras, aspect, null, cn, passes),
         images: cn ? [{name: cn.name, image: cn.src.replace(/^data:image\/\w+;base64,/, "")}] : undefined}})
     }).then(function(r){
       if (!r.ok) return r.text().then(function(t){
@@ -3392,7 +3442,7 @@ function rpFinish(j, isSelfie, cid, nLoras, cb, onFail){
     L("img", (isSelfie ? "selfie" : "photo") + " (runpod, " + nLoras + " lora" +
       (nLoras === 1 ? "" : "s") + ") ok", true);
     var ctx = RPCTX[cid]; delete RPCTX[cid];
-    faceRefine(String(b64).replace(/^data:image\/\w+;base64,/, ""), ctx, function(b){
+    faceRefine(String(b64).replace(/^data:image\/\w+;base64,/, ""), ctx || null, function(b){
       shrinkImage("data:image/png;base64," + b, cb);
     });
     return;
@@ -5556,6 +5606,7 @@ function deliverPhoto(convo, ch, desc, isSelfie, isMature){
   var ty = $("ty");
   if (cur === convo.id && ty){ ty.classList.add("on"); $("stream").scrollTop = 1e9; }
   setStage(convo.id, "framing the shot");
+  if (rpReady() && (isMature || rp().all)) rpWarm("image");
   /* learn the face once, plan the shot, then paint */
   ensureLook(ch, function(){
     directPhoto(convo, ch, desc, isSelfie, isMature, function(finalDesc, picked, inFrame, aspect, poseName){
@@ -8729,6 +8780,46 @@ function drawSkeleton(g, pts, W, H, stick, hot, p){
     }
   });
 }
+/* where the parts will be, straight from the skeleton, in the output's own
+   pixels — the ControlNet puts them there, so no vision model is needed to
+   find them afterwards. Face from nose, eyes and ears (or the nose-to-neck
+   length when the face is turned); feet and hands from their points, or
+   from the ankle or wrist with a margin taken from the limb above. */
+function poseBoxes(p, W, H){
+  var op = poseOp(p), ex = poseExtras(p), out = {face: null, feet: null, hands: null};
+  var dist = function(a, b){ return Math.sqrt(Math.pow((a[0] - b[0]) * W, 2) + Math.pow((a[1] - b[1]) * H, 2)); };
+  var bounds = function(pts, pad){
+    var xs = pts.map(function(q){ return q[0] * W; }), ys = pts.map(function(q){ return q[1] * H; });
+    var x1 = Math.min.apply(null, xs) - pad, y1 = Math.min.apply(null, ys) - pad;
+    var x2 = Math.max.apply(null, xs) + pad, y2 = Math.max.apply(null, ys) + pad;
+    x1 = Math.max(0, x1); y1 = Math.max(0, y1); x2 = Math.min(W, x2); y2 = Math.min(H, y2);
+    return x2 > x1 && y2 > y1 ? {x: Math.round(x1), y: Math.round(y1), w: Math.round(x2 - x1), h: Math.round(y2 - y1)} : null;
+  };
+  var nose = op[0], neck = op[1];
+  if (nose) {
+    var head = [nose].concat([op[14], op[15], op[16], op[17]].filter(Boolean));
+    var size = head.length > 1
+      ? Math.max.apply(null, head.map(function(q){ return dist(nose, q); })) * 2.2
+      : (neck ? dist(nose, neck) * 0.9 : Math.min(W, H) * 0.12);
+    size = Math.max(size, Math.min(W, H) * 0.06);
+    out.face = bounds([[nose[0], nose[1] - size * 0.12 / H]], size / 2);
+  }
+  var limb = function(keys, tips, joint, above, share){
+    var pts = [];
+    keys.forEach(function(k, i){
+      var extra = ex[k], j = op[tips[i]];
+      if (extra) pts = pts.concat(extra.filter(Boolean)).concat(j ? [j] : []);
+      else if (j) {
+        var up = op[above[i]], r = up ? dist(j, up) * share : Math.min(W, H) * 0.08;
+        pts.push([j[0] - r / W, j[1] - r / H], [j[0] + r / W, j[1] + r / H]);
+      }
+    });
+    return pts.length ? bounds(pts, Math.min(W, H) * 0.04) : null;
+  };
+  out.feet = limb(["fl", "fr"], [13, 10], [12, 9], 0.35);
+  out.hands = limb(["hl", "hr"], [7, 4], [6, 3], 0.45);
+  return out;
+}
 /* the output frame for a pose: its own aspect, around a megapixel, in
    multiples of 16 — the same rule the img2img reference uses */
 function poseDims(p){
@@ -9459,31 +9550,60 @@ function buildDetailWorkflow(imgName, crop, loras, prompt, denoise){
 function buildFaceWorkflow(imgName, crop, loras, prompt){
   return buildDetailWorkflow(imgName, crop, loras, prompt, 0.45);
 }
-/* b64 in, b64 out — the same picture if anything along the way says no.
-   The face first, with the identity LoRA; then each detail region with its
-   own LoRA, each pass working on the picture the previous one left. */
-function faceRefine(b64, ctx, cb){
-  if (!ctx) { cb(b64); return; }
-  var faceWhy = faceRefineWhy(ctx);
-  var regions = ctx.regions || [];
+/* what the passes would be for this picture: the face with the identity
+   LoRA, then each detail region with its own — without yet knowing where
+   anything is */
+function detailPassList(ctx){
+  var faceWhy = faceRefineWhy(ctx), passes = [];
   if (faceWhy) L("img", "face pass skipped — " + faceWhy, true);
-  if (faceWhy && !regions.length) { cb(b64); return; }
-  if (!(rpVisionReady() || (glmReady() && !ctx.mat))) {
-    L("img", "detail pass skipped — " + (ctx.mat ? "no RunPod vision endpoint to find parts on an 18+ picture" : "no vision model"), true);
-    cb(b64); return;
-  }
-  var stage = ctx.stage || function(){};
-  var passes = [];
-  if (!faceWhy) passes.push({name: "face", loras: ctx.idLoras, denoise: 0.45, prompt:
+  else passes.push({name: "face", loras: ctx.idLoras, denoise: 0.45, prompt:
     "Close-up photo of the same person's face and hair, sharp focus, natural skin texture, the " +
     "same expression, head angle, lighting and colours as the picture around it." +
     (ctx.look ? "\n\nThe person shown: " + ctx.look : "") + (ctx.trig ? "\n" + ctx.trig : "")});
-  regions.forEach(function(r){
+  (ctx.regions || []).forEach(function(r){
     passes.push({name: r.name, loras: r.loras, denoise: 0.5, prompt:
       "Close-up photo of the same person's " + r.name + ", anatomically correct with natural " +
       "proportions, sharp focus, natural skin texture, the same skin tone, lighting and colours " +
       "as the picture around it." + (r.adds.length ? "\n" + r.adds.join("\n") : "")});
   });
+  return passes;
+}
+/* with a pose, the skeleton says where everything is: the passes ride the
+   main graph, and nothing is asked of a vision model */
+function posePasses(ctx, pose, W, H){
+  if (!ctx) return [];
+  var passes = detailPassList(ctx);
+  if (!passes.length) return [];
+  var boxes = poseBoxes(pose, W, H), out = [];
+  passes.forEach(function(ps){
+    var box = boxes[ps.name];
+    if (!box) {
+      L("img", ps.name + " pass skipped — the skeleton has no " + ps.name +
+        (ps.name === "face" ? "" : " (add it in the pose editor)"), true);
+      return;
+    }
+    ps.crop = ps.name === "face" ? faceCropBox(box, W, H) : partCropBox(box, W, H);
+    L("img", ps.name + " pass (in-graph, from the skeleton): " + box.w + "×" + box.h + " at " + box.x + "," + box.y +
+      " → crop " + ps.crop.w + "×" + ps.crop.h + " at " + ps.crop.x + "," + ps.crop.y + " of " + W + "×" + H +
+      " · denoise " + ps.denoise + " · lora " +
+      (ps.loras.map(function(l){ return rpLoraName(l.path) + "@" + (l.scale || 1); }).join(",") || "none"), true);
+    out.push(ps);
+  });
+  return out;
+}
+/* b64 in, b64 out — the same picture if anything along the way says no.
+   Without a pose the parts have to be found first: one vision question,
+   then the face with the identity LoRA, then each detail region with its
+   own LoRA, each pass working on the picture the previous one left. */
+function faceRefine(b64, ctx, cb){
+  if (!ctx) { cb(b64); return; }
+  var passes = detailPassList(ctx);
+  if (!passes.length) { cb(b64); return; }
+  if (!(rpVisionReady() || (glmReady() && !ctx.mat))) {
+    L("img", "detail pass skipped — " + (ctx.mat ? "no RunPod vision endpoint to find parts on an 18+ picture" : "no vision model"), true);
+    cb(b64); return;
+  }
+  var stage = ctx.stage || function(){};
   toJpegFull("data:image/png;base64," + b64, 0.92, function(jpg, W, H){
     if (!jpg) { cb(b64); return; }
     stage("finding the " + passes.map(function(p){ return p.name; }).join(" and "));
@@ -9514,6 +9634,27 @@ function faceRefine(b64, ctx, cb){
       })(0);
     });
   });
+}
+/* ---- waking the workers early ----
+   A serverless worker sleeps after a few idle seconds and takes a minute or
+   more to come back, and the vision one, with a 7B model to load, several.
+   Both used to be woken only when their turn came, one after the other. A
+   throwaway job sent the moment a photo is decided on has them booting
+   while the director thinks and the paint runs. */
+var WARMED = {};
+function rpWarm(kind){
+  if (!(rp().key || "").trim()) return;
+  var ep = kind === "vision" ? (rp().vep || "").trim() : (rp().ep || "").trim();
+  if (!ep) return;
+  if (WARMED[ep] && Date.now() - WARMED[ep] < 45000) return;
+  WARMED[ep] = Date.now();
+  var body = kind === "vision"
+    ? {input: {openai_route: "/v1/models", openai_input: {}}}
+    : {input: {workflow: {"1": {class_type: "CheckpointLoaderSimple", inputs: {ckpt_name: "__pocketai_warm__.safetensors"}}}}};
+  fetch("https://api.runpod.ai/v2/" + ep + "/run", {
+    method: "POST", headers: rpJobHeaders(), body: JSON.stringify(body)
+  }).then(function(r){ L("gen", "warm-up sent to the " + kind + " endpoint (" + r.status + ")", true); })
+    .catch(function(){});
 }
 /* one graph to the GPU and back, by /run and a poll. /runsync holds one
    connection open for the whole generation, which a phone carrying a few
@@ -9746,7 +9887,10 @@ function labRunpod(prompt, loras, aspect, cb, pose, kontext, cn, faceCtx){
     wf = buildKontextWorkflow(kontext.prompt, kontext.name, kontext.outW, kontext.outH);
     images = [{name: kontext.name, image: bare(kontext.src)}];
   } else {
-    wf = buildFluxWorkflow(prompt, loras, aspect, pose, cn);
+    var passes = null;
+    if (cn && cn.pose && faceCtx) { passes = posePasses(faceCtx, cn.pose, cn.w, cn.h); faceCtx = null; }
+    else if (faceCtx && detailPassList(faceCtx).length && rpVisionReady() && (faceCtx.mat || !glmReady())) rpWarm("vision");
+    wf = buildFluxWorkflow(prompt, loras, aspect, pose, cn, passes);
     images = cn ? [{name: cn.name, image: bare(cn.src)}]
            : pose ? [{name: pose.name, image: bare(pose.src)}] : null;
   }
@@ -9820,7 +9964,7 @@ function labGo(){
   if (libPose && poseReady(libPose)) {
     var pd = poseDims(libPose);
     cn = {name: "pose_" + libPose.id + ".png", src: poseSkeleton(libPose, pd.w, pd.h),
-          w: pd.w, h: pd.h, strength: LAB.cn, end: 0.8, type: cnType()};
+          w: pd.w, h: pd.h, strength: LAB.cn, end: 0.8, type: cnType(), pose: libPose};
   }
   /* the face pass wants exactly one identity LoRA: one that sits on the
      chosen character's card, or came out of the face trainer */
