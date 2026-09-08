@@ -303,6 +303,13 @@
   .accbtn .lbl{flex:1;font-weight:600}
   .accbtn .val{color:var(--mist);font-size:12.5px;max-width:45%;text-align:right;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* collapsed-by-default corners: things kept, not things used */
+  details.adv{margin-top:10px;border:1px dashed var(--line);border-radius:12px;padding:8px 12px}
+  details.adv>summary{cursor:pointer;font-size:12.5px;font-weight:700;color:var(--mist);
+    letter-spacing:.3px;list-style:none;display:flex;align-items:center;gap:6px}
+  details.adv>summary::-webkit-details-marker{display:none}
+  details.adv>summary::before{content:"▸";font-size:11px}
+  details.adv[open]>summary::before{content:"▾"}
   /* the tree: one row per generation, oldest at the top */
   .gen{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;padding:10px 12px}
   .genlab{text-align:center;font-size:10.5px;letter-spacing:.7px;color:var(--mist);
@@ -776,7 +783,7 @@
         the placeholder in — <b>{{char}}</b> becomes this character's name, <b>{{user}}</b> your persona name, in every
         field here.<br><br>
         Personality and speaking style set their voice; description, scenario and interests set what they react to.
-        Both shape replies right away — and word-for-word once you pick an AI model under Settings → Change model.</div>
+        Both shape replies right away — and word-for-word once a text engine is set under Settings → Engines &amp; keys.</div>
       <div class="field"><label>ROLE / TAGLINE</label><input id="nc-tag" placeholder="e.g. Film noir detective"></div>
       <div class="field"><label>STATUS MESSAGE</label><input id="nc-status" placeholder="e.g. it was a dark and stormy night…"></div>
       <div style="height:24px"></div>
@@ -836,12 +843,12 @@
         <select id="lab-char" class="srvinput"></select>
         <label class="phint" style="display:flex;align-items:center;gap:8px;padding-top:6px;cursor:pointer">
           <input type="checkbox" id="lab-anchor" checked> append their appearance anchor</label></div>
-      <div class="field"><label>POSE REFERENCE (OPTIONAL) — YOUR GPU ONLY</label>
-        <div class="phint">Repaint an existing picture with your character in it: the reference's pose, framing and lighting are kept while the prompt and the LoRAs decide who it is. Runs entirely on your own GPU, so nothing about it is moderated. The output follows the reference's shape, so ASPECT is ignored.</div>
+      <div class="field"><details class="adv" style="margin-top:0;border:0;padding:0"><summary>Advanced: picture reference · Kontext subject-swap (Your GPU only)</summary>
+        <div class="phint" style="padding-top:6px">The way before the Pose library: repaint an existing picture with your character in it — the reference's pose, framing and lighting are kept while the prompt and the LoRAs decide who it is. Everything of the reference bleeds through a little; a library pose below carries nothing but the skeleton. The output follows the reference's shape, so ASPECT is ignored.</div>
         <div class="refrow" id="lab-pose"></div>
         <div id="lab-cref-wrap" hidden style="padding-top:12px">
           <span class="lbl">CHARACTER REFERENCE — ADD ONE TO SWAP INSTEAD OF REPAINT</span>
-          <div class="phint">With a second picture here the GPU switches to Kontext, the subject-swap model: it is shown both pictures and told to keep the pose picture's composition while making the person the one in this picture. No denoise to tune — it edits rather than renoises. Picking a character above fills this from their first selfie reference. Needs the Kontext models on your volume (Settings → Your own GPU → Check Kontext).</div>
+          <div class="phint">With a second picture here the GPU switches to Kontext, the subject-swap model: it is shown both pictures and told to keep the pose picture's composition while making the person the one in this picture. No denoise to tune — it edits rather than renoises. Needs the Kontext models on your volume (Settings → Engines &amp; keys → Diagnostics → Check Kontext).</div>
           <div class="refrow" id="lab-cref"></div>
         </div>
         <input type="file" accept="image/*" id="lab-cref-file" style="display:none">
@@ -849,10 +856,10 @@
           <span class="lbl">HOW MUCH TO REPAINT · <span id="lab-dn-val">0.6</span></span>
           <input type="range" id="lab-dn" min="0.35" max="0.95" step="0.05" value="0.6" style="width:100%">
           <div class="phint">Lower keeps more of the reference — the pose is safest but the original face bleeds through. Higher rewrites more toward your character — identity is stronger but the pose drifts. Start at 0.6 and move in steps of 0.05.</div>
-        </div></div>
+        </div></details></div>
       <input type="file" accept="image/*" id="lab-pose-file" style="display:none">
       <div class="field"><label>POSE FROM THE LIBRARY (OPTIONAL) — YOUR GPU ONLY</label>
-        <div class="phint">Hold the picture to a skeleton from the Pose library through the ControlNet: only the body position is taken from the reference, nothing of its face, body type or lighting. Identity comes from the LoRAs you tick, alone. The output follows the pose's shape, so ASPECT is ignored. Needs the ControlNet on your volume (Settings → Your own GPU → Check ControlNet).</div>
+        <div class="phint">Hold the picture to a skeleton from the Pose library through the ControlNet: only the body position is taken from the reference, nothing of its face, body type or lighting. Identity comes from the LoRAs you tick, alone. The output follows the pose's shape, so ASPECT is ignored. Poses are added under Settings → Pose library. Needs the ControlNet on your volume (Settings → Engines &amp; keys → Diagnostics → Check ControlNet).</div>
         <div id="lab-lib" style="padding-top:8px"></div>
         <div id="lab-lib-wrap" hidden>
           <div class="refrow" id="lab-lib-prev"></div>
@@ -863,10 +870,10 @@
       <div class="field"><label>ENGINE</label><div id="lab-engine"></div></div>
       <div class="field"><label>ASPECT</label><div id="lab-aspect"></div></div>
       <div class="field" id="lab-mature-wrap" hidden><label>CONTENT</label><div id="lab-mature"></div></div>
-      <div class="field"><label>LORAS — checked ones ride at the strength shown; WHEN is ignored here</label>
+      <div class="field"><label>LORAS — checked ones ride at the strength shown; WHEN keywords don't apply here</label>
         <div id="lab-loras"></div>
         <label class="phint" style="display:flex;align-items:center;gap:8px;padding-top:10px;cursor:pointer">
-          <input type="checkbox" id="lab-face" checked> second pass on the face — a vision model finds the face and the GPU repaints just that patch at full resolution with the ticked identity LoRA (Your GPU only; needs exactly one identity LoRA ticked and a character chosen)</label></div>
+          <input type="checkbox" id="lab-face" checked> second pass on the face (Your GPU, one identity LoRA ticked, a character chosen — starts from the setting under Your own GPU)</label></div>
       <div id="lab-stat" class="ds" style="padding-top:4px"></div>
       <div id="lab-out"></div>
       <div style="height:24px"></div>
@@ -884,7 +891,7 @@
     <input type="file" accept="image/*" multiple id="poses-file" style="display:none">
     <div class="rows">
       <div class="field"><label>HOW IT WORKS</label>
-        <div class="phint">Add reference pictures of the poses you want — any person, any body, mature or not; they never leave your own machines. Extract reads each one on a throwaway CPU pod (a few cents, deletes itself) and keeps only the skeleton: a few dozen joint positions, nothing of who was in the picture. Give each pose a name and a line saying what it is — the photo director reads that line to pick a pose for a shot, and the Photo Lab lists them by name. Painting with a pose needs the ControlNet on your volume (Settings → Engines &amp; keys → Check ControlNet).</div>
+        <div class="phint">Add reference pictures of the poses you want — any person, any body, mature or not; they never leave your own machines. Extract reads each one on a throwaway CPU pod (a few cents, deletes itself) and keeps only the skeleton: a few dozen joint positions, nothing of who was in the picture. Give each pose a name and a line saying what it is — the photo director reads that line to pick a pose for a shot, and the Photo Lab lists them by name. Painting with a pose needs the ControlNet on your volume: install it under Settings → Engines &amp; keys → Your own GPU, and confirm with Diagnostics → Check ControlNet.</div>
         <div class="srvbtns" style="margin-top:10px">
           <button class="use" id="poses-extract">Extract poses</button>
           <button class="use" id="poses-describe">Describe untagged</button></div>
@@ -1013,14 +1020,16 @@ window.addEventListener("unhandledrejection", function(e){
 });
 
 /* ================= platform & version ================= */
-var WEB_VN = "0.6.1";
+/* the one place the version lives for the web build; the APK passes its
+   own in the query string from BuildVersion */
+var APP_VN = "0.65.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
 });
 var IS_APK = Q.platform === "apk";
 var MY_VC = parseInt(Q.vc || "0", 10) || 0;
-var MY_VN = Q.vn || WEB_VN;
+var MY_VN = Q.vn || APP_VN;
 var REPO = "mdeleo91/Chat";
 var BRANCHES = ["main"];
 var FALLBACK_APK = "https://github.com/" + REPO + "/raw/main/releases/PocketAI.apk";
@@ -1691,7 +1700,7 @@ async function loraHealth(out){
   function afterFix(msg){
     save(); toast(msg);
     renderModelUI();
-    var o = $("lora-test-out");
+    var o = $("diag-out");
     if (o) loraHealth(o);
   }
   function removeLora(x){
@@ -1850,7 +1859,7 @@ function loraRowsHTML(list){
       '<input class="srvinput lr-path" placeholder=".safetensors URL — or paste a Civitai page link" value="' + esc(l.path || "") + '">' +
       '<div class="lr2"><div style="width:88px"><span class="lbl">STRENGTH 0–2</span>' +
       '<input class="srvinput lr-scale" inputmode="decimal" placeholder="1.0" value="' + (l.scale || "") + '"></div>' +
-      '<div style="flex:1"><span class="lbl">WHEN — keywords, comma separated; empty = every photo; 18+ alone = every mature photo; 18+ with keywords = mature photos matching a keyword</span>' +
+      '<div style="flex:1"><span class="lbl">WHEN — empty = rides every photo (styles); keywords = only photos whose description mentions one (subjects); 18+ alone = every mature photo; 18+ with keywords = mature photos matching one</span>' +
       '<input class="srvinput lr-when" placeholder="always" value="' + esc(l.when || "") + '"></div></div>' +
       '<span class="lbl">TRIGGER WORDS — sent along when this LoRA loads</span>' +
       '<input class="srvinput lr-add" placeholder="none" value="' + esc(l.add || "") + '">' +
@@ -5588,8 +5597,8 @@ function glmSectionHTML(){
        'you (billed per image)</div>';
   h += '<input id="glm-imodel" class="srvinput" ' +
        'placeholder="' + GLM_IMAGE_MODEL + '" value="' + esc(g.imodel || "") + '">';
-  h += '<div class="srvbtns"><button class="use" id="glm-test">Test key</button>' +
-       '<span class="dl">' + esc(g.model || GLM_DEFAULT_MODEL) + ' · flagship</span></div>';
+  h += '<div class="srvbtns"><span class="dl">' + esc(g.model || GLM_DEFAULT_MODEL) +
+       ' · flagship</span></div>';
   if (g.err)
     h += '<div class="ds" style="color:var(--danger);padding-top:6px">' + esc(g.err).slice(0,160) + '</div>';
   return h;
@@ -5608,94 +5617,103 @@ function falSectionHTML(){
        'Civitai account settings → API Keys).</div>';
   h += '<input id="fal-civitai" class="srvinput" type="password" autocomplete="off" ' +
        'placeholder="Civitai API token (optional)" value="' + esc(f.civitai || "") + '">';
-  h += '<div class="ds" style="padding:8px 0 0">LoRAs — paste a Civitai <b>model page</b> link ' +
-       'into URL and the row fills itself: download link, name, trigger words, and <b>when</b> ' +
-       'worked out from the model\'s tags and 18+ flag. Leave <b>when</b> empty for style LoRAs ' +
-       'that shape every photo; keywords keep subject LoRAs (golf, cooking…) out of unrelated ' +
-       'photos.</div>';
+  h += '<div class="ds" style="padding:8px 0 0">Shared LoRAs — styles and subjects that may ride any ' +
+       'character\'s photos. Paste a Civitai <b>model page</b> link into URL and the row fills itself. ' +
+       'Face LoRAs belong on the character\'s own card, where <i>Browse Civitai favorites</i> lives. ' +
+       'Poses are not LoRAs any more: they come from the Pose library.</div>';
   h += '<div id="fal-loras">' + loraRowsHTML(f.loras) + '</div>';
   h += '<div class="ds" style="padding:10px 0 4px">Global trigger words — appended to every FLUX ' +
        'prompt (for the always-on style LoRAs).</div>';
   h += '<input id="fal-trigger" class="srvinput" placeholder="e.g. amateur photo" ' +
        'value="' + esc(f.trigger || "") + '">';
   h += '<div class="srvbtns" style="margin-top:10px">' +
-       '<button class="use" id="civ-favs">Civitai favorites</button>' +
-       '<button class="use" id="lora-test">LoRA health</button>' +
        '<button class="use" id="open-lab">Photo lab</button></div>';
-  h += '<div id="lora-test-out" class="ds" style="padding-top:6px"></div>';
+  h += '<div class="ds" style="padding-top:6px">LoRA health lives under Diagnostics below.</div>';
   return h;
 }
 /* the self-hosted engines, kept apart from the fal settings they used to be
    crammed in with */
 function rpSectionHTML(){
   var f = fal(), h = "";
-  h += '<div class="ds" style="padding:14px 0 6px;font-weight:800;letter-spacing:.5px">SELF-HOSTED 18+ (RUNPOD) · OPTIONAL</div>';
-  h += '<div class="ds" style="padding-bottom:8px">fal moderates mature outputs no matter what the ' +
-       'request says. With a RunPod serverless ComfyUI endpoint here (worker-comfyui, flux1-dev-fp8 ' +
-       'image, your LoRA files on its volume named by Civitai id, e.g. 1821702.safetensors), photos ' +
-       'the character marks 18+ run on your own GPU instead. Everything else stays on fal.</div>';
   var r = rp();
+  h += '<div class="ds" style="padding:14px 0 6px;font-weight:800;letter-spacing:.5px">YOUR OWN GPU (RUNPOD) · OPTIONAL</div>';
+  h += '<div class="ds" style="padding-bottom:8px">A RunPod serverless ComfyUI endpoint (worker-comfyui, ' +
+       'flux1-dev-fp8) paints photos on a GPU you rent by the second, with nothing moderating them. ' +
+       'Every 18+ photo goes here once it is set up; tick the box below and every photo does. Identity ' +
+       'comes from the face LoRA on the endpoint\'s network volume, poses from the Pose library held ' +
+       'through a ControlNet, and a second pass sharpens the face. LoRA and ControlNet files are ' +
+       'installed onto the volume from here; the API key stays on this device and rides each request.</div>';
   h += '<input id="rp-ep" class="srvinput" autocomplete="off" ' +
        'placeholder="RunPod endpoint ID" value="' + esc(r.ep || "") + '">';
   h += '<input id="rp-key" class="srvinput" type="password" autocomplete="off" style="margin-top:8px" ' +
        'placeholder="RunPod API key" value="' + esc(r.key || "") + '">';
   h += '<label class="ds" style="display:flex;align-items:flex-start;gap:8px;padding:10px 0 0;cursor:pointer">' +
        '<input type="checkbox" id="rp-all" style="margin-top:2px"' + (r.all ? " checked" : "") + '>' +
-       '<span>Paint EVERY photo on this GPU, not just 18+ — for when the fal path never quite ' +
-       'matches the character. Selfie reference photos don\'t apply here; identity comes from ' +
-       'the face LoRA on the volume and the appearance anchor. fal stays as the fallback if ' +
-       'the GPU fails.</span></label>';
-  h += '<div class="srvbtns" style="margin-top:8px">' +
-       '<button class="use" id="rp-lora-install">Install LoRAs to volume</button>' +
-       '<button class="use" id="rp-kontext-check">Check Kontext</button>' +
-       '<button class="use" id="rp-kontext-install">Install Kontext</button></div>';
-  h += '<div class="srvbtns" style="margin-top:8px">' +
-       '<button class="use" id="rp-cn-check">Check ControlNet</button>' +
-       '<button class="use" id="rp-cn-install">Install ControlNet</button>' +
-       '<button class="use" id="open-poses">Pose library</button></div>';
-  h += '<div class="ds" style="padding-top:6px">The ControlNet is what holds a picture to a pose ' +
-       'from the Pose library: it is handed a skeleton and keeps the body on it while your face ' +
-       'LoRA, alone, decides who it is — no pose LoRAs competing with the likeness. One file on ' +
-       'the volume (about 6.6GB, one time). Check first, then install.</div>';
-  h += '<div id="rp-cn-out" class="ds" style="padding-top:6px"></div>';
+       '<span>Paint EVERY photo on this GPU, not just 18+. Selfie reference photos don\'t apply ' +
+       'here; identity comes from the face LoRA and the appearance anchor. fal stays as the ' +
+       'fallback if the GPU fails.</span></label>';
   h += '<label class="ds" style="display:flex;align-items:flex-start;gap:8px;padding:10px 0 0;cursor:pointer">' +
        '<input type="checkbox" id="rp-face" style="margin-top:2px"' + (r.face !== false ? " checked" : "") + '>' +
        '<span>Second pass on the face. After a GPU photo comes back, a vision model finds the ' +
        'face and the GPU repaints just that patch at full resolution with the face LoRA at full ' +
-       'strength, then blends it back. Small faces in full-body shots are where likeness is ' +
-       'lost, and this is what fixes it. Costs one vision read and a short extra GPU run per ' +
-       'photo; skipped automatically when no face LoRA rides, when two do, or when the face is ' +
-       'out of shot.</span></label>';
-  h += '<div class="ds" style="padding-top:6px">Kontext is the subject-swap model: shown a pose ' +
-       'picture and a picture of your character, it repaints the pose with your character in it — ' +
-       'the Photo Lab uses it when both references are set. It needs its own model files on the ' +
-       'volume (about 17GB, one time). Check first, then install.</div>';
-  h += '<div id="rp-kontext-out" class="ds" style="padding-top:6px"></div>';
-  h += '<div class="ds" style="padding-top:6px">Checks which configured LoRAs the volume is ' +
-       'missing, then either rents a tiny CPU pod for a few minutes to download them onto it ' +
-       '(a few cents, deletes itself), or copies the same script for pasting into a pod ' +
-       'terminal yourself.</div>';
+       'strength, then blends it back — small faces in full-body shots are where likeness is ' +
+       'lost. One vision read and a short extra GPU run per photo; skipped on its own when no ' +
+       'face LoRA rode, when two did, or when the face is out of shot. The Photo Lab starts ' +
+       'from this setting.</span></label>';
+  h += '<div class="srvbtns" style="margin-top:10px">' +
+       '<button class="use" id="rp-lora-install">Install LoRAs to volume</button>' +
+       '<button class="use" id="rp-cn-install">Install ControlNet</button></div>';
+  h += '<div class="ds" style="padding-top:6px">Install LoRAs puts every configured LoRA the volume ' +
+       'is missing onto it; Install ControlNet adds the one file (about 6.6GB, once) that holds a ' +
+       'picture to a pose from the Pose library. Either rents a tiny CPU pod for a few minutes ' +
+       '(a few cents, deletes itself) or copies the same script for pasting into a pod terminal. ' +
+       'Check what is there first under Diagnostics.</div>';
   h += '<div id="rp-install-out" class="ds" style="padding-top:6px"></div>';
-  h += '<div class="ds" style="padding:8px 0 4px">Vision endpoint (optional) — a second RunPod ' +
+  h += '<div class="ds" style="padding:12px 0 4px">Vision endpoint (optional) — a second RunPod ' +
        'endpoint (vLLM quick-deploy) that reads the photos you send during mature conversations, ' +
-       'since Z.ai refuses explicit image input. SFW conversations keep using Z.ai\'s vision.</div>';
+       'since Z.ai refuses explicit image input, finds the face for the second pass, and describes ' +
+       'mature pose references. SFW conversations keep using Z.ai\'s vision.</div>';
   h += '<input id="rp-vep" class="srvinput" autocomplete="off" ' +
        'placeholder="RunPod vision endpoint ID" value="' + esc(r.vep || "") + '">';
-  h += '<input id="rp-vmodel" class="srvinput" autocomplete="off" style="margin-top:8px" ' +
-       'placeholder="Qwen/Qwen2.5-VL-7B-Instruct" value="' + esc(r.vmodel || "") + '">';
-  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
-       '<button id="rp-vtest" class="btn">Test vision endpoint</button>' +
-       '<button id="rp-vpurge" class="btn ghost">Purge queued jobs</button></div>';
-  h += '<div class="ds" style="padding-top:6px">Purge clears photo-reads still waiting for a GPU. ' +
-       'Worth doing once if reads have been timing out — abandoned jobs used to pile up and run ' +
-       'ahead of the live one.</div>';
-  h += '<div id="rp-vtest-out" class="ds" style="padding-top:6px"></div>';
-  h += '<div class="ds" style="padding:10px 0 4px">18+ add-on (optional) — extra wording appended ' +
+  h += '<div class="ds" style="padding:12px 0 4px">18+ add-on (optional) — extra wording appended ' +
        'only to photos the character marks 18+. The character already writes what each mature photo ' +
        'shows from the conversation itself; use this only for constants you want on every one ' +
        '(style tags, LoRA activation words). Leave empty otherwise.</div>';
   h += '<textarea id="fal-mat" class="srvinput" rows="2" style="resize:none" ' +
        'placeholder="optional — only ever used on 18+ marked photos">' + esc(f.mat || "") + '</textarea>';
+  h += '<details class="adv"><summary>Advanced: Kontext subject-swap · vision model name</summary>';
+  h += '<div class="ds" style="padding-top:8px">Kontext is the subject-swap model the Photo Lab used ' +
+       'before the Pose library: shown a pose picture and a picture of your character, it repaints ' +
+       'the pose with your character in it. Superseded by skeletons and the face pass for everyday ' +
+       'use, kept for experiments. It needs about 17GB of its own model files on the volume.</div>';
+  h += '<div class="srvbtns" style="margin-top:8px">' +
+       '<button class="use" id="rp-kontext-install">Install Kontext</button></div>';
+  h += '<div id="rp-kontext-out" class="ds" style="padding-top:6px"></div>';
+  h += '<div class="ds" style="padding:10px 0 4px">Vision model name as the vision endpoint serves ' +
+       'it — leave alone unless Test vision endpoint says otherwise.</div>';
+  h += '<input id="rp-vmodel" class="srvinput" autocomplete="off" ' +
+       'placeholder="Qwen/Qwen2.5-VL-7B-Instruct" value="' + esc(r.vmodel || "") + '">';
+  h += '</details>';
+  return h;
+}
+/* every check in one place, with one answer box — the buttons used to sit
+   next to whatever they checked, five panels apart */
+function diagSectionHTML(){
+  var h = "";
+  h += '<div class="ds" style="padding:2px 0 8px">Each of these asks a service what it can do and ' +
+       'prints the answer below. A sleeping endpoint takes a couple of minutes to boot first.</div>';
+  h += '<div class="srvbtns">' +
+       '<button class="use" id="glm-test"' + (glmReady() ? "" : " disabled") + '>Test Z.ai key</button>' +
+       '<button class="use" id="rp-vtest"' + (rpVisionReady() ? "" : " disabled") + '>Test vision endpoint</button>' +
+       '<button class="use" id="rp-cn-check"' + (rpReady() ? "" : " disabled") + '>Check ControlNet</button>' +
+       '<button class="use" id="rp-kontext-check"' + (rpReady() ? "" : " disabled") + '>Check Kontext</button>' +
+       '<button class="use" id="lora-test"' + (allLoras().length ? "" : " disabled") + '>LoRA health</button></div>';
+  h += '<div class="ds" style="padding-top:6px">Test Z.ai key: does the text engine answer. Test ' +
+       'vision endpoint: does the RunPod vision model answer and under what name. Check ControlNet ' +
+       'and Check Kontext: are their model files on the GPU\'s volume and does the worker know the ' +
+       'nodes. LoRA health: every configured LoRA against everything that silently breaks one, with ' +
+       'a Fix button per problem. Purging stuck vision jobs is under Troubleshooting logs.</div>';
+  h += '<div id="diag-out" class="ds" style="padding-top:6px"></div>';
   return h;
 }
 function wireFalUI(card){
@@ -5708,16 +5726,12 @@ function wireFalUI(card){
     save();
     if (structural) renderModelUI();
   });
-  var cf = card.querySelector("#civ-favs");
-  if (cf) cf.onclick = function(){
-    openCivFavs(fal().loras, function(){ save(); renderModelUI(); });
-  };
   var lab = card.querySelector("#open-lab");
   if (lab) lab.onclick = openLab;
   var kc = card.querySelector("#rp-kontext-check");
   if (kc) kc.onclick = function(){
     kc.disabled = true;
-    kontextCheck(card.querySelector("#rp-kontext-out"))
+    kontextCheck(card.querySelector("#diag-out"))
       .then(function(){ kc.disabled = false; }, function(){ kc.disabled = false; });
   };
   var ki = card.querySelector("#rp-kontext-install");
@@ -5752,17 +5766,15 @@ function wireFalUI(card){
   if (rpa) rpa.onchange = function(){ rp().all = rpa.checked; save(); };
   var rpf = card.querySelector("#rp-face");
   if (rpf) rpf.onchange = function(){ rp().face = rpf.checked; save(); };
-  var op = card.querySelector("#open-poses");
-  if (op) op.onclick = openPoses;
   var cc = card.querySelector("#rp-cn-check");
   if (cc) cc.onclick = function(){
     cc.disabled = true;
-    cnCheck(card.querySelector("#rp-cn-out"))
+    cnCheck(card.querySelector("#diag-out"))
       .then(function(){ cc.disabled = false; }, function(){ cc.disabled = false; });
   };
   var ci = card.querySelector("#rp-cn-install");
   if (ci) ci.onclick = function(){
-    var out = card.querySelector("#rp-cn-out");
+    var out = card.querySelector("#rp-install-out");
     out.innerHTML = "";
     if (!rpReady()) { out.textContent = "Add the RunPod endpoint ID and API key above first."; return; }
     var files = cnFiles();
@@ -5787,16 +5799,9 @@ function wireFalUI(card){
   var vt = card.querySelector("#rp-vtest");
   if (vt) vt.onclick = function(){
     vt.disabled = true;
-    rpVisionTest(card.querySelector("#rp-vtest-out"))
+    rpVisionTest(card.querySelector("#diag-out"))
       .then(function(){ vt.disabled = false; },
             function(){ vt.disabled = false; });
-  };
-  var vp = card.querySelector("#rp-vpurge");
-  if (vp) vp.onclick = function(){
-    vp.disabled = true;
-    rpPurgeVisionQueue(card.querySelector("#rp-vtest-out"))
-      .then(function(){ vp.disabled = false; },
-            function(){ vp.disabled = false; });
   };
 }
 /* one-tap diagnosis of the vision endpoint, without burning a chat message:
@@ -6025,6 +6030,8 @@ function renderModelUI(){
       rpSectionHTML()) +
     accSection("adult", "lock", "Mature roleplay",
       S.adult ? "On" : "Off", adultSectionHTML()) +
+    accSection("diag", "bug_report", "Diagnostics",
+      "test keys, endpoints, files on the volume", diagSectionHTML()) +
     '<div class="ds" style="padding-top:12px">Replies come only from the API. If it\'s ' +
     'unreachable, messages will say so rather than being answered by anything else.</div>';
   var accs = card.querySelectorAll(".accbtn");
@@ -6040,7 +6047,7 @@ function renderModelUI(){
   var lt = card.querySelector("#lora-test");
   if (lt) lt.onclick = function(){
     lt.disabled = true;
-    loraHealth(card.querySelector("#lora-test-out"))
+    loraHealth(card.querySelector("#diag-out"))
       .then(function(){ lt.disabled = false; }, function(){ lt.disabled = false; });
   };
   var at = card.querySelector("#adult-toggle");
@@ -8754,10 +8761,14 @@ function faceBox(dataUrl, mature, cb){
       var fx = grid ? W / 1000 : W / sw, fy = grid ? H / 1000 : H / sh;
       var box = {x: Math.round(n[0] * fx), y: Math.round(n[1] * fy),
                  w: Math.round((n[2] - n[0]) * fx), h: Math.round((n[3] - n[1]) * fy)};
+      L("img", "face pass: model answered [" + n.join(", ") + "] read as " +
+        (grid ? "a 0–1000 grid" : "pixels of the " + sw + "×" + sh + " copy it was sent") +
+        " → x" + box.x + " y" + box.y + " w" + box.w + " h" + box.h + " in the " + W + "×" + H +
+        " picture (" + (useRp ? "RunPod vision" : "Z.ai vision") + ")", true);
       /* sanity: a face is a face-sized thing somewhere inside the picture */
       if (box.w < W * 0.03 || box.h < H * 0.03 || box.w > W * 0.7 || box.h > H * 0.7 ||
           box.x < 0 || box.y < 0 || box.x + box.w > W || box.y + box.h > H) {
-        L("img", "face pass: box " + JSON.stringify(box) + " doesn't look like a face in " + W + "×" + H, true);
+        L("img", "face pass: that box doesn't look like a face in a " + W + "×" + H + " picture — skipped", true);
         cb(null); return;
       }
       cb(box);
@@ -8840,7 +8851,7 @@ function faceRefine(b64, ctx, cb){
       stage("second pass on the face");
       var kb = rpRunGraph(wf, [{name: name, image: jpg}], function(out, err){
         if (!out) { L("img", "face pass failed — " + String(err).slice(0, 200) + " — keeping the first pass", true); cb(b64); return; }
-        L("img", "face pass ok", true);
+        L("img", "face pass ok — " + W + "×" + H + ", face patch " + crop.w + "px at " + crop.x + "," + crop.y + " blended back", true);
         cb(out);
       }, stage);
       L("img", "face pass job " + kb + "KB", true);
@@ -9057,6 +9068,7 @@ function openLab(){
   sel.innerHTML = '<option value="">None</option>' + S.chars.map(function(c){
     return '<option value="' + esc(c.id) + '">' + esc(c.name) + "</option>";
   }).join("");
+  LAB.face = rp().face !== false;
   if (!LAB.engine || (LAB.engine === "fal" && !falReady()) ||
       (LAB.engine === "rp" && !rpReady()) || (LAB.engine === "glm" && !glmReady()))
     LAB.engine = (rp().all && rpReady()) ? "rp"
@@ -9514,9 +9526,10 @@ function initSettings(){
   }
   applyTheme();
   $("about-note").innerHTML =
-    "<b>About this build.</b> Chats, characters and memories are stored only in this device's local storage. " +
-    "Replies and generated photos come from Z.ai's GLM API (<i>Change model</i>, above) — conversations " +
-    "are sent to Z.ai to be answered, billed per token on your API key." +
+    "<b>About this build.</b> Chats, characters, memories and poses are stored only in this device's local storage. " +
+    "Replies come from the text engine set under <i>Engines &amp; keys</i> (Z.ai's GLM API, billed per token " +
+    "on your key), and photos from whichever image engine is set up there: Z.ai, FLUX via fal, or your " +
+    "own GPU on RunPod. Conversations are sent to the text engine to be answered." +
     (IS_APK ? "<br><br>Updates are fetched straight from the GitHub repo — <i>Check for updates</i> reads " +
       "<code>releases/version.json</code> on the main branch." :
       "<br><br>The APK installs on Android 5.0+ and checks this repo for its own updates.");
@@ -9583,7 +9596,20 @@ function renderLogCard(){
       '<span class="msr" style="font-size:16px">content_copy</span> Copy all</button>' +
     '<button class="btn ghost" id="log-clear" style="padding:9px 18px;font-size:13.5px">' +
       '<span class="msr" style="font-size:16px">delete_sweep</span> Clear</button></div>' +
-    '<div class="ds" style="padding-top:8px">Logs stay on this device. Attach them when reporting a problem.</div>';
+    '<div class="ds" style="padding-top:8px">Logs stay on this device. Attach them when reporting a problem.</div>' +
+    (rpVisionReady()
+      ? '<div class="ds" style="padding-top:12px"><b>Stuck vision jobs.</b> Photo-reads still waiting for a ' +
+        'GPU can pile up on the RunPod vision endpoint and run ahead of the live one — if reads keep ' +
+        'timing out, clear the queue once.</div>' +
+        '<button class="btn ghost" id="log-purge" style="margin-top:8px;padding:9px 18px;font-size:13.5px">' +
+        'Purge queued vision jobs</button><div id="log-purge-out" class="ds" style="padding-top:6px"></div>'
+      : "");
+  var pg = card.querySelector("#log-purge");
+  if (pg) pg.onclick = function(){
+    pg.disabled = true;
+    rpPurgeVisionQueue(card.querySelector("#log-purge-out"))
+      .then(function(){ pg.disabled = false; }, function(){ pg.disabled = false; });
+  };
   var dl = card.querySelector("#log-dl");
   if (dl) dl.onclick = function(){
     var blob = new Blob([logText()], {type:"text/plain"});
