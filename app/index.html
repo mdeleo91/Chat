@@ -1043,7 +1043,7 @@ window.addEventListener("unhandledrejection", function(e){
 /* ================= platform & version ================= */
 /* the one place the version lives for the web build; the APK passes its
    own in the query string from BuildVersion */
-var APP_VN = "0.67.0";
+var APP_VN = "0.68.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -1124,14 +1124,19 @@ function load(){
    something big (a gallery photo) can put the state back rather than leave
    it sitting in memory looking saved until the next reload eats it */
 function save(){
-  try { localStorage.setItem(KEY, JSON.stringify(S)); return true; }
+  var json;
+  try { json = JSON.stringify(S); localStorage.setItem(KEY, json); return true; }
   catch(e){
-    /* photos are the only thing here big enough to fill the quota — say so
-       rather than losing the write silently */
+    /* photos are the only thing here big enough to fill the quota — say so,
+       with the size, rather than losing the write silently */
+    var mb = json ? (json.length / 1048576).toFixed(1) + "MB" : "?";
+    var full = /quota|exceed/i.test(String(e && e.name || e));
+    if (typeof L === "function")
+      L("store", "save failed: " + (full ? "storage full" : String(e && e.name || e)) +
+        " — the app holds " + mb + " (chat photos and galleries are the bulk of it)", true);
     if (typeof toast === "function")
-      toast(/quota|exceed/i.test(String(e && e.name || e))
-        ? "Storage full — remove a photo and try again"
-        : "Couldn't save to this device");
+      toast(full ? "Storage full (" + mb + " in use) — remove some chat photos and try again"
+                 : "Couldn't save to this device");
     return false;
   }
 }
@@ -8500,17 +8505,20 @@ function poseDims(p){
 function poseThumb(src, cb){
   var im = new Image();
   im.onload = function(){
-    var k = Math.min(1, 512 / Math.max(im.naturalWidth, im.naturalHeight));
+    var k = Math.min(1, 640 / Math.max(im.naturalWidth, im.naturalHeight));
     var cv = document.createElement("canvas");
     cv.width = Math.max(1, Math.round(im.naturalWidth * k));
     cv.height = Math.max(1, Math.round(im.naturalHeight * k));
     cv.getContext("2d").drawImage(im, 0, 0, cv.width, cv.height);
-    try { cb(cv.toDataURL("image/jpeg", 0.7), im.naturalWidth, im.naturalHeight); }
+    try { cb(cv.toDataURL("image/jpeg", 0.72), im.naturalWidth, im.naturalHeight); }
     catch (e) { cb(null); }
   };
   im.onerror = function(){ cb(null); };
   im.src = src;
 }
+/* what is still waiting for the pod: has a picture, no skeleton, and the
+   reader hasn't already said there is nobody in it */
+function posePending(p){ return !!(p && p.thumb && !poseReady(p) && !p.none); }
 /* ---- the extraction pod ----
    The reader is RTMW, the whole-body model of the DWPose line, trained on
    HumanArt as well as photographs; it holds up on lying, foreshortened and
@@ -8535,7 +8543,7 @@ function poseStat(t){
   L("img", "poses: " + t, true, 600);
 }
 async function poseExtract(){
-  var todo = poses().filter(function(p){ return !poseReady(p) && p.src; });
+  var todo = poses().filter(posePending);
   if (!todo.length) { toast("Nothing waiting — add reference pictures first"); return; }
   if (!(rp().key || "").trim()) { poseStat("Add the RunPod API key under Settings → Engines & keys first."); return; }
   if (POSEX.busy) return;
@@ -8600,15 +8608,13 @@ async function poseExtract(){
     try {
       var r2 = await fetch(base + "/pose", {method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({image: p.src.replace(/^data:image\/\w+;base64,/, "")})});
+        body: JSON.stringify({image: p.thumb.replace(/^data:image\/\w+;base64,/, "")})});
       var j2 = await r2.json();
       if (j2 && j2.pts) {
         if (j2.fmt === "op18") { p.op = j2.pts; delete p.pts; } else { p.pts = j2.pts; delete p.op; }
         delete p.op0;
         p.w = j2.w; p.h = j2.h; p.model = j2.model || ""; delete p.none; done++;
       } else { p.none = true; none++; }
-      /* read or not, the picture itself has done its job */
-      delete p.src;
       save(); renderPoses();
     } catch (e) {
       failed++;
@@ -8663,7 +8669,10 @@ function renderPoses(){
   var list = poses(), box = $("poses-list");
   $("set-poses-val").textContent = list.length
     ? list.length + " pose" + (list.length === 1 ? "" : "s") : "None yet";
-  var pending = list.filter(function(p){ return !poseReady(p) && p.src; }).length;
+  /* older entries kept the full-size picture as well; the thumbnail is
+     the picture now, and the space is better spent on chats */
+  list.forEach(function(p){ if (p.src) { delete p.src; save(); } });
+  var pending = list.filter(posePending).length;
   var ex = $("poses-extract");
   ex.disabled = POSEX.busy || !pending;
   ex.textContent = POSEX.busy ? "Working…" : "Extract poses" + (pending ? " (" + pending + ")" : "");
@@ -8675,7 +8684,7 @@ function renderPoses(){
   box.innerHTML = list.map(function(p){
     var st = poseReady(p) ? "skeleton ready" + (p.model ? " (" + p.model + ")" : "") + " — tap the picture to fix joints"
       : p.none ? "no person found — try a clearer, fuller picture"
-      : p.src ? "waiting for Extract" : "no pose data";
+      : p.thumb ? "waiting for Extract" : "no picture — remove and add again";
     var th = p.thumb ? '<img src="' + p.thumb + '">' : "";
     var sk = poseReady(p) && p.w && p.h
       ? '<img class="skel" src="' + poseSkeleton(p, 96, Math.max(1, Math.round(96 * p.h / p.w)), true) + '">' : "";
@@ -8700,16 +8709,33 @@ $("poses-file").onchange = function(){
   var files = Array.prototype.slice.call(this.files || []);
   this.value = "";
   if (!files.length) return;
-  var left = files.length;
-  files.forEach(function(f, i){
+  var left = files.length, added = 0, failedSave = 0, unreadable = 0;
+  function finish(){
+    renderPoses();
+    /* the save's own toast (with the size) stands when nothing got in;
+       otherwise say what happened, not what was attempted */
+    if (added) toast(added + " added" + (failedSave ? ", " + failedSave + " didn't fit in storage" : "") +
+                     " — tap Extract poses");
+    else if (unreadable && !failedSave) toast("Couldn't read " + (unreadable === 1 ? "that picture" : "those pictures"));
+    L("img", "poses: add — " + added + " added, " + failedSave + " failed to save, " + unreadable + " unreadable", true);
+  }
+  files.forEach(function(f){
+    var done = false;
+    var one = function(ok, why){
+      if (done) return; done = true;
+      if (ok) added++; else if (why === "save") failedSave++; else unreadable++;
+      if (--left === 0) finish();
+    };
+    /* readChatPhoto only toasts on a bad file; count it so the tally adds up */
+    var guard = setTimeout(function(){ one(false, "read"); }, 15000);
     readChatPhoto(f, function(src){
       poseThumb(src, function(thumb, w, h){
-        if (thumb) {
-          poses().push({id: picId(), name: "Pose " + (poses().length + 1), tags: "", mature: false,
-            src: src, thumb: thumb, w: w, h: h, ts: Date.now()});
-          if (!save()) { poses().pop(); toast("Couldn't save — storage is full"); }
-        }
-        if (--left === 0) { renderPoses(); toast(files.length + " added — tap Extract poses"); }
+        clearTimeout(guard);
+        if (!thumb) { one(false, "read"); return; }
+        poses().push({id: picId(), name: "Pose " + (poses().length + 1), tags: "", mature: false,
+          thumb: thumb, w: w, h: h, ts: Date.now()});
+        if (!save()) { poses().pop(); one(false, "save"); return; }
+        one(true);
       });
     });
   });
