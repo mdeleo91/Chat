@@ -917,6 +917,9 @@
         <img id="pe-img" style="width:100%;display:block" alt="">
         <canvas id="pe-cv" style="position:absolute;left:0;top:0;touch-action:none"></canvas>
       </div>
+      <div class="field"><label>HANDS AND FEET — drawn in full when the reader saw them; they move with their wrist or ankle</label>
+        <div id="pe-extra" style="padding-top:4px"></div>
+        <div class="phint">Switch one off when the reader misread it — a hand drawn wrong steers wrong, no hand leaves it to the prompt.</div></div>
       <div class="field"><label>JOINTS — right and left are the person's own</label>
         <div id="pe-chips" style="padding-top:4px"></div>
         <div class="srvbtns" style="margin-top:6px"><button class="use" id="pe-mirror">Mirror left ↔ right</button></div>
@@ -1046,7 +1049,7 @@ window.addEventListener("unhandledrejection", function(e){
 /* ================= platform & version ================= */
 /* the one place the version lives for the web build; the APK passes its
    own in the query string from BuildVersion */
-var APP_VN = "0.71.0";
+var APP_VN = "0.72.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -8649,11 +8652,66 @@ function poseSkeleton(p, W, H, clear){
   cv.width = W; cv.height = H;
   var g = cv.getContext("2d");
   if (!clear) { g.fillStyle = "#000"; g.fillRect(0, 0, W, H); }
-  drawSkeleton(g, poseOp(p), W, H, Math.max(2, Math.round(4 * Math.min(W, H) / 512)));
+  drawSkeleton(g, poseOp(p), W, H, Math.max(2, Math.round(4 * Math.min(W, H) / 512)), -1, p);
   try { return cv.toDataURL("image/png"); } catch (e) { return ""; }
 }
-function drawSkeleton(g, pts, W, H, stick, hot){
+/* the hand as OpenPose draws it: twenty edges from the wrist out along
+   each finger, hue stepping round the wheel, blue dots on the joints */
+var HAND_EDGES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],
+                  [0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20]];
+function hsvRgb(h){
+  var i = Math.floor(h * 6), f = h * 6 - i, q = Math.round(255 * (1 - f)), t = Math.round(255 * f);
+  return [[255, t, 0], [q, 255, 0], [0, 255, t], [0, q, 255], [t, 0, 255], [255, 0, q]][i % 6];
+}
+function poseExtras(p){
+  var hide = p.hide || {};
+  return {
+    hl: p.hands && p.hands.l && !hide.hl ? p.hands.l : null,
+    hr: p.hands && p.hands.r && !hide.hr ? p.hands.r : null,
+    fl: p.feet && p.feet.l && !hide.fl ? p.feet.l : null,
+    fr: p.feet && p.feet.r && !hide.fr ? p.feet.r : null
+  };
+}
+function drawSkeleton(g, pts, W, H, stick, hot, p){
   g.lineCap = "round";
+  if (p) {
+    var ex = poseExtras(p);
+    /* feet: ankle to heel, ankle to big toe, big toe to small toe, in the
+       ankle's own colour — an extension of the leg, the way Body-25 draws it */
+    [["fl", 13], ["fr", 10]].forEach(function(f){
+      var foot = ex[f[0]], ank = pts[f[1]];
+      if (!foot) return;
+      var c = OP_COLORS[f[1]], big = foot[0], small = foot[1], heel = foot[2];
+      g.strokeStyle = "rgb(" + Math.round(c[0] * 0.6) + "," + Math.round(c[1] * 0.6) + "," + Math.round(c[2] * 0.6) + ")";
+      g.lineWidth = stick * 1.5;
+      [[ank, heel], [ank, big], [big, small]].forEach(function(e){
+        if (!e[0] || !e[1]) return;
+        g.beginPath(); g.moveTo(e[0][0] * W, e[0][1] * H); g.lineTo(e[1][0] * W, e[1][1] * H); g.stroke();
+      });
+      g.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      foot.forEach(function(q){
+        if (!q) return;
+        g.beginPath(); g.arc(q[0] * W, q[1] * H, stick * 0.75, 0, Math.PI * 2); g.fill();
+      });
+    });
+    ["hl", "hr"].forEach(function(hk){
+      var hand = ex[hk];
+      if (!hand) return;
+      g.lineWidth = Math.max(1, stick / 2);
+      HAND_EDGES.forEach(function(e, i){
+        var a = hand[e[0]], b = hand[e[1]];
+        if (!a || !b) return;
+        var c = hsvRgb(i / HAND_EDGES.length);
+        g.strokeStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+        g.beginPath(); g.moveTo(a[0] * W, a[1] * H); g.lineTo(b[0] * W, b[1] * H); g.stroke();
+      });
+      g.fillStyle = "rgb(0,0,255)";
+      hand.forEach(function(q){
+        if (!q) return;
+        g.beginPath(); g.arc(q[0] * W, q[1] * H, Math.max(1.5, stick / 2), 0, Math.PI * 2); g.fill();
+      });
+    });
+  }
   OP_LIMBS.forEach(function(l, i){
     var a = pts[l[0]], b = pts[l[1]];
     if (!a || !b) return;
@@ -8707,7 +8765,7 @@ function posePending(p){ return !!(p && p.thumb && !poseReady(p) && !p.none); }
    a picture in, eighteen joints out in the OpenPose order — so the pictures
    go straight from the phone to the pod and nothing is written anywhere.
    It deletes itself when told, or after twenty idle minutes. */
-var POSE_SERVER_PY = "import json, base64, io, os, sys, threading, time, urllib.request\nfrom http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\nimport numpy as np\nfrom PIL import Image\n# Two readers. RTMW (the DWPose line, whole-body, trained on HumanArt too)\n# handles lying and foreshortened bodies that MediaPipe guesses at; MediaPipe\n# stays as the fallback if the model download fails. Both answer in the\n# OpenPose 18-point order the ControlNet reads, normalised to the picture.\nWB = None\ntry:\n    from rtmlib import Wholebody\n    WB = Wholebody(mode=\"performance\", backend=\"onnxruntime\", device=\"cpu\")\n    print(\"rtmw ready\", flush=True)\nexcept Exception as e:\n    print(\"rtmw unavailable:\", str(e)[:200], flush=True)\nMP = None\ntry:\n    import mediapipe as mp\n    MP = mp.solutions.pose.Pose(static_image_mode=True, model_complexity=2, min_detection_confidence=0.25)\n    print(\"mediapipe ready\", flush=True)\nexcept Exception as e:\n    print(\"mediapipe unavailable:\", str(e)[:200], flush=True)\nLAST = [time.time()]\ndef selfdel():\n    k, p = os.environ.get(\"RUNPOD_API_KEY\"), os.environ.get(\"RUNPOD_POD_ID\")\n    if not (k and p): return\n    try:\n        r = urllib.request.Request(\"https://rest.runpod.io/v1/pods/\" + p, method=\"DELETE\",\n            headers={\"Authorization\": \"Bearer \" + k})\n        urllib.request.urlopen(r, timeout=30)\n    except Exception as e: print(\"selfdel\", e, flush=True)\ndef idle():\n    while True:\n        time.sleep(30)\n        if time.time() - LAST[0] > 20 * 60:\n            print(\"idle - deleting pod\", flush=True); selfdel(); os._exit(0)\n# COCO body 17 -> OpenPose 18 (neck is made from the shoulders)\nCOCO2OP = [0, -1, 6, 8, 10, 5, 7, 9, 12, 14, 16, 11, 13, 15, 2, 1, 4, 3]\n# MediaPipe 33 -> OpenPose 18\nMP2OP = [0, -1, 12, 14, 16, 11, 13, 15, 24, 26, 28, 23, 25, 27, 5, 2, 8, 7]\ndef to_op(get, w, h, thr):\n    \"\"\"get(i) -> (x, y, conf) in pixels for a source index; builds the 18 list\"\"\"\n    def pt(i):\n        if i < 0: return None\n        q = get(i)\n        if q is None or q[2] < thr: return None\n        return [round(q[0] / w, 4), round(q[1] / h, 4), round(float(q[2]), 3)]\n    return pt\ndef rtmw(im):\n    img = np.ascontiguousarray(np.asarray(im)[:, :, ::-1])   # rtmlib wants BGR\n    kps, scores = WB(img)\n    if kps is None or len(kps) == 0: return None\n    # the most confident body wins, weighted by how much of the frame it fills\n    best, bi = -1, 0\n    for i in range(len(kps)):\n        b = kps[i][:17]; s = float(scores[i][:17].mean())\n        area = float((b[:, 0].max() - b[:, 0].min()) * (b[:, 1].max() - b[:, 1].min()))\n        v = s * (1 + area / (im.size[0] * im.size[1]))\n        if v > best: best, bi = v, i\n    k, sc = kps[bi], scores[bi]\n    src = {i: (float(k[i][0]), float(k[i][1]), float(sc[i])) for i in range(17)}\n    pt = to_op(lambda i: src.get(i), im.size[0], im.size[1], 0.3)\n    out = [pt(i) for i in COCO2OP]\n    ls, rs = src[5], src[6]\n    out[1] = ([round((ls[0] + rs[0]) / 2 / im.size[0], 4), round((ls[1] + rs[1]) / 2 / im.size[1], 4),\n               round(min(ls[2], rs[2]), 3)] if min(ls[2], rs[2]) >= 0.3 else None)\n    return out\ndef mediapipe_read(im):\n    r = MP.process(np.asarray(im))\n    if not r.pose_landmarks: return None\n    lm = r.pose_landmarks.landmark\n    w, h = im.size\n    src = lambda i: (lm[i].x * w, lm[i].y * h, lm[i].visibility)\n    pt = to_op(src, w, h, 0.5)\n    out = [pt(i) for i in MP2OP]\n    ls, rs = src(11), src(12)\n    out[1] = ([round((ls[0] + rs[0]) / 2 / w, 4), round((ls[1] + rs[1]) / 2 / h, 4),\n               round(min(ls[2], rs[2]), 3)] if min(ls[2], rs[2]) >= 0.5 else None)\n    return out\ndef landmarks(b64):\n    im = Image.open(io.BytesIO(base64.b64decode(b64))).convert(\"RGB\")\n    w, h = im.size\n    if WB is not None:\n        try:\n            pts = rtmw(im)\n            if pts and sum(1 for p in pts if p) >= 4:\n                return {\"w\": w, \"h\": h, \"fmt\": \"op18\", \"pts\": pts, \"model\": \"rtmw\"}\n        except Exception as e:\n            print(\"rtmw failed:\", str(e)[:200], flush=True)\n    if MP is not None:\n        pts = mediapipe_read(im)\n        if pts and sum(1 for p in pts if p) >= 4:\n            return {\"w\": w, \"h\": h, \"fmt\": \"op18\", \"pts\": pts, \"model\": \"mediapipe\"}\n    return {\"w\": w, \"h\": h, \"fmt\": \"op18\", \"pts\": None, \"model\": \"rtmw\" if WB is not None else \"mediapipe\"}\nclass H(BaseHTTPRequestHandler):\n    def _cors(self):\n        self.send_header(\"Access-Control-Allow-Origin\", \"*\")\n        self.send_header(\"Access-Control-Allow-Headers\", \"*\")\n        self.send_header(\"Access-Control-Allow-Methods\", \"GET, POST, OPTIONS\")\n    def _json(self, code, obj):\n        b = json.dumps(obj).encode()\n        self.send_response(code); self._cors()\n        self.send_header(\"Content-Type\", \"application/json\")\n        self.send_header(\"Content-Length\", str(len(b))); self.end_headers(); self.wfile.write(b)\n    def do_OPTIONS(self):\n        self.send_response(204); self._cors(); self.end_headers()\n    def do_GET(self):\n        LAST[0] = time.time(); self._json(200, {\"ok\": True, \"model\": \"rtmw\" if WB is not None else (\"mediapipe\" if MP is not None else \"none\")})\n    def do_POST(self):\n        LAST[0] = time.time()\n        n = int(self.headers.get(\"Content-Length\") or 0)\n        body = self.rfile.read(n) if n else b\"\"\n        if self.path.startswith(\"/done\"):\n            self._json(200, {\"bye\": True}); threading.Thread(target=lambda: (time.sleep(1), selfdel(), os._exit(0))).start(); return\n        try:\n            j = json.loads(body or b\"{}\")\n            self._json(200, landmarks(j[\"image\"]))\n        except Exception as e:\n            self._json(400, {\"error\": str(e)[:200]})\n    def log_message(self, *a): pass\nthreading.Thread(target=idle, daemon=True).start()\nprint(\"ready\", flush=True)\nThreadingHTTPServer((\"0.0.0.0\", int(os.environ.get(\"PORT\", \"8000\"))), H).serve_forever()";
+var POSE_SERVER_PY = "import json, base64, io, os, sys, threading, time, urllib.request\nfrom http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\nimport numpy as np\nfrom PIL import Image\n# Two readers. RTMW (the DWPose line, whole-body, trained on HumanArt too)\n# handles lying and foreshortened bodies that MediaPipe guesses at; MediaPipe\n# stays as the fallback if the model download fails. Both answer in the\n# OpenPose 18-point order the ControlNet reads, normalised to the picture.\nWB = None\ntry:\n    from rtmlib import Wholebody\n    WB = Wholebody(mode=\"performance\", backend=\"onnxruntime\", device=\"cpu\")\n    print(\"rtmw ready\", flush=True)\nexcept Exception as e:\n    print(\"rtmw unavailable:\", str(e)[:200], flush=True)\nMP = None\ntry:\n    import mediapipe as mp\n    MP = mp.solutions.pose.Pose(static_image_mode=True, model_complexity=2, min_detection_confidence=0.25)\n    print(\"mediapipe ready\", flush=True)\nexcept Exception as e:\n    print(\"mediapipe unavailable:\", str(e)[:200], flush=True)\nLAST = [time.time()]\ndef selfdel():\n    k, p = os.environ.get(\"RUNPOD_API_KEY\"), os.environ.get(\"RUNPOD_POD_ID\")\n    if not (k and p): return\n    try:\n        r = urllib.request.Request(\"https://rest.runpod.io/v1/pods/\" + p, method=\"DELETE\",\n            headers={\"Authorization\": \"Bearer \" + k})\n        urllib.request.urlopen(r, timeout=30)\n    except Exception as e: print(\"selfdel\", e, flush=True)\ndef idle():\n    while True:\n        time.sleep(30)\n        if time.time() - LAST[0] > 20 * 60:\n            print(\"idle - deleting pod\", flush=True); selfdel(); os._exit(0)\n# COCO body 17 -> OpenPose 18 (neck is made from the shoulders)\nCOCO2OP = [0, -1, 6, 8, 10, 5, 7, 9, 12, 14, 16, 11, 13, 15, 2, 1, 4, 3]\n# MediaPipe 33 -> OpenPose 18\nMP2OP = [0, -1, 12, 14, 16, 11, 13, 15, 24, 26, 28, 23, 25, 27, 5, 2, 8, 7]\ndef to_op(get, w, h, thr):\n    \"\"\"get(i) -> (x, y, conf) in pixels for a source index; builds the 18 list\"\"\"\n    def pt(i):\n        if i < 0: return None\n        q = get(i)\n        if q is None or q[2] < thr: return None\n        return [round(q[0] / w, 4), round(q[1] / h, 4), round(float(q[2]), 3)]\n    return pt\ndef rtmw(im):\n    img = np.ascontiguousarray(np.asarray(im)[:, :, ::-1])   # rtmlib wants BGR\n    kps, scores = WB(img)\n    if kps is None or len(kps) == 0: return None\n    # the most confident body wins, weighted by how much of the frame it fills\n    best, bi = -1, 0\n    for i in range(len(kps)):\n        b = kps[i][:17]; s = float(scores[i][:17].mean())\n        area = float((b[:, 0].max() - b[:, 0].min()) * (b[:, 1].max() - b[:, 1].min()))\n        v = s * (1 + area / (im.size[0] * im.size[1]))\n        if v > best: best, bi = v, i\n    k, sc = kps[bi], scores[bi]\n    w, h = im.size\n    src = {i: (float(k[i][0]), float(k[i][1]), float(sc[i])) for i in range(len(k))}\n    pt = to_op(lambda i: src.get(i), w, h, 0.3)\n    out = [pt(i) for i in COCO2OP]\n    ls, rs = src[5], src[6]\n    out[1] = ([round((ls[0] + rs[0]) / 2 / w, 4), round((ls[1] + rs[1]) / 2 / h, 4),\n               round(min(ls[2], rs[2]), 3)] if min(ls[2], rs[2]) >= 0.3 else None)\n    # COCO-WholeBody: 17-19 left foot (big toe, small toe, heel), 20-22 right;\n    # 91-111 left hand, 112-132 right hand, each wrist first then thumb to pinky\n    extra = {\"feet\": None, \"hands\": None}\n    if len(k) >= 133:\n        feet = {\"l\": [pt(i) for i in (17, 18, 19)], \"r\": [pt(i) for i in (20, 21, 22)]}\n        hands = {\"l\": [pt(91 + i) for i in range(21)], \"r\": [pt(112 + i) for i in range(21)]}\n        # a hand with fewer than five sure points is noise, not a hand\n        for side in (\"l\", \"r\"):\n            if sum(1 for q in hands[side] if q) < 5: hands[side] = None\n            if sum(1 for q in feet[side] if q) < 2: feet[side] = None\n        extra = {\"feet\": feet, \"hands\": hands}\n    return out, extra\ndef mediapipe_read(im):\n    r = MP.process(np.asarray(im))\n    if not r.pose_landmarks: return None\n    lm = r.pose_landmarks.landmark\n    w, h = im.size\n    src = lambda i: (lm[i].x * w, lm[i].y * h, lm[i].visibility)\n    pt = to_op(src, w, h, 0.5)\n    out = [pt(i) for i in MP2OP]\n    ls, rs = src(11), src(12)\n    out[1] = ([round((ls[0] + rs[0]) / 2 / w, 4), round((ls[1] + rs[1]) / 2 / h, 4),\n               round(min(ls[2], rs[2]), 3)] if min(ls[2], rs[2]) >= 0.5 else None)\n    # MediaPipe has heel and toe tip per foot (29/31 left, 30/32 right), no hands\n    feet = {\"l\": [pt(31), None, pt(29)], \"r\": [pt(32), None, pt(30)]}\n    for side in (\"l\", \"r\"):\n        if sum(1 for q in feet[side] if q) < 2: feet[side] = None\n    return out, {\"feet\": feet, \"hands\": None}\ndef landmarks(b64):\n    im = Image.open(io.BytesIO(base64.b64decode(b64))).convert(\"RGB\")\n    w, h = im.size\n    if WB is not None:\n        try:\n            r = rtmw(im)\n            if r and sum(1 for p in r[0] if p) >= 4:\n                return {\"w\": w, \"h\": h, \"fmt\": \"op18\", \"pts\": r[0], \"feet\": r[1][\"feet\"], \"hands\": r[1][\"hands\"], \"model\": \"rtmw\"}\n        except Exception as e:\n            print(\"rtmw failed:\", str(e)[:200], flush=True)\n    if MP is not None:\n        r = mediapipe_read(im)\n        if r and sum(1 for p in r[0] if p) >= 4:\n            return {\"w\": w, \"h\": h, \"fmt\": \"op18\", \"pts\": r[0], \"feet\": r[1][\"feet\"], \"hands\": r[1][\"hands\"], \"model\": \"mediapipe\"}\n    return {\"w\": w, \"h\": h, \"fmt\": \"op18\", \"pts\": None, \"model\": \"rtmw\" if WB is not None else \"mediapipe\"}\nclass H(BaseHTTPRequestHandler):\n    def _cors(self):\n        self.send_header(\"Access-Control-Allow-Origin\", \"*\")\n        self.send_header(\"Access-Control-Allow-Headers\", \"*\")\n        self.send_header(\"Access-Control-Allow-Methods\", \"GET, POST, OPTIONS\")\n    def _json(self, code, obj):\n        b = json.dumps(obj).encode()\n        self.send_response(code); self._cors()\n        self.send_header(\"Content-Type\", \"application/json\")\n        self.send_header(\"Content-Length\", str(len(b))); self.end_headers(); self.wfile.write(b)\n    def do_OPTIONS(self):\n        self.send_response(204); self._cors(); self.end_headers()\n    def do_GET(self):\n        LAST[0] = time.time(); self._json(200, {\"ok\": True, \"model\": \"rtmw\" if WB is not None else (\"mediapipe\" if MP is not None else \"none\")})\n    def do_POST(self):\n        LAST[0] = time.time()\n        n = int(self.headers.get(\"Content-Length\") or 0)\n        body = self.rfile.read(n) if n else b\"\"\n        if self.path.startswith(\"/done\"):\n            self._json(200, {\"bye\": True}); threading.Thread(target=lambda: (time.sleep(1), selfdel(), os._exit(0))).start(); return\n        try:\n            j = json.loads(body or b\"{}\")\n            self._json(200, landmarks(j[\"image\"]))\n        except Exception as e:\n            self._json(400, {\"error\": str(e)[:200]})\n    def log_message(self, *a): pass\nthreading.Thread(target=idle, daemon=True).start()\nprint(\"ready\", flush=True)\nThreadingHTTPServer((\"0.0.0.0\", int(os.environ.get(\"PORT\", \"8000\"))), H).serve_forever()";
 function poseExtractScript(){
   return 'apt-get update -qq >/dev/null 2>&1\n' +
          'apt-get install -y -qq libgl1 libglib2.0-0 >/dev/null 2>&1\n' +
@@ -8790,7 +8848,8 @@ async function poseExtract(){
       var j2 = await r2.json();
       if (j2 && j2.pts) {
         if (j2.fmt === "op18") { p.op = j2.pts; delete p.pts; } else { p.pts = j2.pts; delete p.op; }
-        delete p.op0;
+        p.feet = j2.feet || null; p.hands = j2.hands || null;
+        delete p.op0; delete p.x0; delete p.hide;
         p.w = j2.w; p.h = j2.h; p.model = j2.model || ""; delete p.none; done++;
       } else { p.none = true; none++; }
       save(); renderPoses();
@@ -8860,7 +8919,10 @@ function renderPoses(){
     return;
   }
   box.innerHTML = list.map(function(p){
-    var st = poseReady(p) ? "skeleton ready" + (p.model ? " (" + p.model + ")" : "") + " — tap the picture to fix joints"
+    var st = poseReady(p) ? "skeleton ready" + (p.model ? " (" + p.model + ")" : "") +
+        (p.hands || p.feet ? " · hands " + ((p.hands && p.hands.l ? 1 : 0) + (p.hands && p.hands.r ? 1 : 0)) +
+                             " · feet " + ((p.feet && p.feet.l ? 1 : 0) + (p.feet && p.feet.r ? 1 : 0)) : "") +
+        " — tap the picture to fix joints"
       : p.none ? "no person found — try a clearer, fuller picture"
       : p.thumb ? "waiting for Extract" : "no picture — remove and add again";
     var th = p.thumb ? '<img src="' + p.thumb + '">' : "";
@@ -8955,7 +9017,14 @@ function peOp(){
      back to, and lift a legacy entry into the editable form */
   if (!p.op) { p.op = poseOp(p).map(function(q){ return q ? [q[0], q[1], 1] : null; }); delete p.pts; }
   if (!p.op0) p.op0 = JSON.parse(JSON.stringify(p.op));
+  if (!p.x0) p.x0 = JSON.parse(JSON.stringify({hands: p.hands || null, feet: p.feet || null}));
   return p;
+}
+/* a wrist carries its hand, an ankle its foot */
+var OP_CARRIES = {4: ["hands", "r"], 7: ["hands", "l"], 10: ["feet", "r"], 13: ["feet", "l"]};
+function peShift(p, i, dx, dy){
+  var c = OP_CARRIES[i]; if (!c || !p[c[0]] || !p[c[0]][c[1]]) return;
+  p[c[0]][c[1]] = p[c[0]][c[1]].map(function(q){ return q ? [q[0] + dx, q[1] + dy].concat(q.slice(2)) : null; });
 }
 function openPoseEdit(id){
   var p = poseById(id); if (!p) return;
@@ -8984,8 +9053,17 @@ function peDraw(){
   g.clearRect(0, 0, cv.width, cv.height);
   var k = cv.width / PE.W;
   g.setTransform(k, 0, 0, k, 0, 0);
-  drawSkeleton(g, poseOp(p), PE.W, PE.H, Math.max(3, Math.min(7, Math.round(PE.W / 96))), PE.drag);
+  drawSkeleton(g, poseOp(p), PE.W, PE.H, Math.max(3, Math.min(7, Math.round(PE.W / 96))), PE.drag, p);
   var op = poseOp(p);
+  var hide = p.hide || {};
+  $("pe-extra").innerHTML = [["hl", "L hand", p.hands && p.hands.l], ["hr", "R hand", p.hands && p.hands.r],
+                             ["fl", "L foot", p.feet && p.feet.l], ["fr", "R foot", p.feet && p.feet.r]]
+    .map(function(x){
+      var have = !!x[2], on = have && !hide[x[0]];
+      return '<button class="btn ghost pe-x" data-k="' + x[0] + '"' + (have ? "" : " disabled") +
+        ' style="padding:6px 10px;font-size:12px;margin:0 6px 6px 0;' + (on ? "" : "opacity:.45") + '">' +
+        esc(x[1]) + (have ? (on ? "" : " · off") : " · not read") + "</button>";
+    }).join("");
   $("pe-chips").innerHTML = OP_NAMES.map(function(n, i){
     var c = OP_COLORS[i], on = !!op[i];
     return '<button class="btn ghost pe-chip" data-i="' + i + '" style="padding:6px 10px;font-size:12px;margin:0 6px 6px 0;' +
@@ -9018,8 +9096,17 @@ $("pe-cv").onpointerdown = function(e){
 $("pe-cv").onpointermove = function(e){
   if (PE.drag < 0) return;
   var p = peOp(), pt = pePoint(e);
-  p.op[PE.drag] = [Math.round(pt.x / PE.W * 10000) / 10000, Math.round(pt.y / PE.H * 10000) / 10000, 1];
+  var nx = Math.round(pt.x / PE.W * 10000) / 10000, ny = Math.round(pt.y / PE.H * 10000) / 10000;
+  var was = p.op[PE.drag];
+  if (was) peShift(p, PE.drag, nx - was[0], ny - was[1]);
+  p.op[PE.drag] = [nx, ny, 1];
   e.preventDefault(); peDraw();
+};
+$("pe-extra").onclick = function(e){
+  var b = e.target.closest ? e.target.closest(".pe-x") : null; if (!b || b.disabled) return;
+  var p = peOp(); p.hide = p.hide || {};
+  p.hide[b.dataset.k] = !p.hide[b.dataset.k];
+  save(); peDraw();
 };
 $("pe-cv").onpointerup = $("pe-cv").onpointercancel = function(e){
   if (PE.drag < 0) return;
@@ -9039,11 +9126,16 @@ $("pe-chips").onclick = function(e){
 $("pe-mirror").onclick = function(){
   var p = peOp();
   p.op = OP_MIRROR.map(function(j){ return p.op[j] ? p.op[j].slice() : null; });
+  if (p.hands) p.hands = {l: p.hands.r || null, r: p.hands.l || null};
+  if (p.feet) p.feet = {l: p.feet.r || null, r: p.feet.l || null};
+  if (p.hide) p.hide = {hl: !!p.hide.hr, hr: !!p.hide.hl, fl: !!p.hide.fr, fr: !!p.hide.fl};
   save(); peDraw(); toast("Left and right swapped");
 };
 $("pe-reset").onclick = function(){
   var p = poseById(PE.id); if (!p || !p.op0) { toast("Nothing to reset"); return; }
   p.op = JSON.parse(JSON.stringify(p.op0));
+  if (p.x0) { p.hands = JSON.parse(JSON.stringify(p.x0.hands)); p.feet = JSON.parse(JSON.stringify(p.x0.feet)); }
+  delete p.hide;
   save(); peDraw(); toast("Back to what the reader saw");
 };
 $("pe-back").onclick = function(){ hide("v-poseedit"); renderPoses(); };
