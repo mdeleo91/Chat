@@ -891,12 +891,33 @@
     <input type="file" accept="image/*" multiple id="poses-file" style="display:none">
     <div class="rows">
       <div class="field"><label>HOW IT WORKS</label>
-        <div class="phint">Add reference pictures of the poses you want — any person, any body, mature or not; they never leave your own machines. Extract reads each one on a throwaway CPU pod (a few cents, deletes itself) and keeps only the skeleton: a few dozen joint positions, nothing of who was in the picture. Give each pose a name and a line saying what it is — the photo director reads that line to pick a pose for a shot, and the Photo Lab lists them by name. Painting with a pose needs the ControlNet on your volume: install it under Settings → Engines &amp; keys → Your own GPU, and confirm with Diagnostics → Check ControlNet.</div>
+        <div class="phint">Add reference pictures of the poses you want — any person, any body, mature or not; they never leave your own machines. Extract reads each one on a throwaway CPU pod (a few cents, deletes itself) and keeps only the skeleton: eighteen joint positions, nothing of who was in the picture. Tap a picture afterwards to check the joints and drag any the reader got wrong. Give each pose a name and a line saying what it is — the photo director reads that line to pick a pose for a shot, and the Photo Lab lists them by name. Painting with a pose needs the ControlNet on your volume: install it under Settings → Engines &amp; keys → Your own GPU, and confirm with Diagnostics → Check ControlNet.</div>
         <div class="srvbtns" style="margin-top:10px">
           <button class="use" id="poses-extract">Extract poses</button>
           <button class="use" id="poses-describe">Describe untagged</button></div>
         <div id="poses-stat" class="ds" style="padding-top:6px"></div></div>
       <div id="poses-list" style="padding:0 16px"></div>
+      <div style="height:24px"></div>
+    </div>
+  </div>
+
+  <!-- ============ POSE JOINT EDITOR ============ -->
+  <div class="view right" id="v-poseedit">
+    <div class="subhead">
+      <button class="back" id="pe-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
+      <div class="cwrap"><div class="cname" id="pe-title">Pose</div>
+        <div class="cstat">drag a joint · tap a name below to switch it off or on</div></div>
+      <button class="back" id="pe-reset" style="font-size:14px;font-weight:700">Reset</button>
+    </div>
+    <div class="rows">
+      <div style="position:relative;margin:8px 16px;border-radius:14px;overflow:hidden;background:#000">
+        <img id="pe-img" style="width:100%;display:block" alt="">
+        <canvas id="pe-cv" style="position:absolute;left:0;top:0;touch-action:none"></canvas>
+      </div>
+      <div class="field"><label>JOINTS — right and left are the person's own</label>
+        <div id="pe-chips" style="padding-top:4px"></div>
+        <div class="srvbtns" style="margin-top:6px"><button class="use" id="pe-mirror">Mirror left ↔ right</button></div>
+        <div class="phint" style="padding-top:8px">A joint the reader got wrong steers the GPU wrong. Drag it where it belongs. A joint that isn't in the picture — a leg hidden behind the body — should be off, so the ControlNet leaves that part to the prompt. Changes save as you go.</div></div>
       <div style="height:24px"></div>
     </div>
   </div>
@@ -1022,7 +1043,7 @@ window.addEventListener("unhandledrejection", function(e){
 /* ================= platform & version ================= */
 /* the one place the version lives for the web build; the APK passes its
    own in the query string from BuildVersion */
-var APP_VN = "0.66.0";
+var APP_VN = "0.67.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -8409,10 +8430,21 @@ function poseByName(name){
   if (!n) return null;
   return poses().filter(function(p){ return (p.name || "").trim().toLowerCase() === n; })[0] || null;
 }
-function poseReady(p){ return !!(p && p.pts && p.w && p.h); }
-/* OpenPose's 18 COCO keypoints from MediaPipe's 33: nose, neck (made from
-   the shoulders), then right and left shoulder/elbow/wrist, hip/knee/ankle,
-   eyes and ears. Right and left are the person's own, in both systems. */
+function poseReady(p){ return !!(p && (p.op || p.pts) && p.w && p.h); }
+/* a pose is eighteen OpenPose joints — nose, neck, then right and left
+   shoulder/elbow/wrist, hip/knee/ankle, eyes and ears, right and left being
+   the person's own — each [x, y] normalised to the picture, or null when
+   the reader couldn't see it or the editor switched it off. Entries read
+   before the pod answered in that order carry MediaPipe's 33 instead and
+   are converted here on the fly. */
+var OP_NAMES = ["nose", "neck", "R shoulder", "R elbow", "R wrist", "L shoulder", "L elbow", "L wrist",
+                "R hip", "R knee", "R ankle", "L hip", "L knee", "L ankle", "R eye", "L eye", "R ear", "L ear"];
+var OP_MIRROR = [0, 1, 5, 6, 7, 2, 3, 4, 11, 12, 13, 8, 9, 10, 15, 14, 17, 16];
+function poseOp(p){
+  if (p.op) return p.op.map(function(q){ return q ? [q[0], q[1]] : null; });
+  if (p.pts) return poseOpPoints(p.pts);
+  return OP_NAMES.map(function(){ return null; });
+}
 var MP2OP = [0, -1, 12, 14, 16, 11, 13, 15, 24, 26, 28, 23, 25, 27, 5, 2, 8, 7];
 var OP_LIMBS = [[1,2],[1,5],[2,3],[3,4],[5,6],[6,7],[1,8],[8,9],[9,10],[1,11],[11,12],[12,13],
                 [1,0],[0,14],[14,16],[0,15],[15,17]];
@@ -8434,8 +8466,10 @@ function poseSkeleton(p, W, H, clear){
   cv.width = W; cv.height = H;
   var g = cv.getContext("2d");
   if (!clear) { g.fillStyle = "#000"; g.fillRect(0, 0, W, H); }
-  var pts = poseOpPoints(p.pts || []);
-  var stick = Math.max(2, Math.round(Math.min(W, H) / 256 * 4));
+  drawSkeleton(g, poseOp(p), W, H, Math.max(2, Math.round(Math.min(W, H) / 256 * 4)));
+  try { return cv.toDataURL("image/png"); } catch (e) { return ""; }
+}
+function drawSkeleton(g, pts, W, H, stick, hot){
   g.lineCap = "round";
   OP_LIMBS.forEach(function(l, i){
     var a = pts[l[0]], b = pts[l[1]];
@@ -8450,8 +8484,11 @@ function poseSkeleton(p, W, H, clear){
     var c = OP_COLORS[i];
     g.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
     g.beginPath(); g.arc(q[0] * W, q[1] * H, stick, 0, Math.PI * 2); g.fill();
+    if (hot === i) {
+      g.strokeStyle = "#fff"; g.lineWidth = 2;
+      g.beginPath(); g.arc(q[0] * W, q[1] * H, stick + 4, 0, Math.PI * 2); g.stroke();
+    }
   });
-  try { return cv.toDataURL("image/png"); } catch (e) { return ""; }
 }
 /* the output frame for a pose: its own aspect, around a megapixel, in
    multiples of 16 — the same rule the img2img reference uses */
@@ -8463,7 +8500,7 @@ function poseDims(p){
 function poseThumb(src, cb){
   var im = new Image();
   im.onload = function(){
-    var k = Math.min(1, 384 / Math.max(im.naturalWidth, im.naturalHeight));
+    var k = Math.min(1, 512 / Math.max(im.naturalWidth, im.naturalHeight));
     var cv = document.createElement("canvas");
     cv.width = Math.max(1, Math.round(im.naturalWidth * k));
     cv.height = Math.max(1, Math.round(im.naturalHeight * k));
@@ -8475,16 +8512,20 @@ function poseThumb(src, cb){
   im.src = src;
 }
 /* ---- the extraction pod ----
-   MediaPipe on a CPU is a second a picture; the pod exists for the few
-   minutes it takes to install it and read the queue. It serves one tiny
-   HTTP route on RunPod's pod proxy — a picture in, joints out — so the
-   pictures go straight from the phone to the pod and nothing is written
-   anywhere. It deletes itself when told, or after twenty idle minutes. */
-var POSE_SERVER_PY = "import json, base64, io, os, sys, threading, time, urllib.request\nfrom http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\nimport numpy as np\nfrom PIL import Image\nimport mediapipe as mp\nPOSE = mp.solutions.pose.Pose(static_image_mode=True, model_complexity=2, min_detection_confidence=0.25)\nLAST = [time.time()]\ndef selfdel():\n    k, p = os.environ.get(\"RUNPOD_API_KEY\"), os.environ.get(\"RUNPOD_POD_ID\")\n    if not (k and p): return\n    try:\n        r = urllib.request.Request(\"https://rest.runpod.io/v1/pods/\" + p, method=\"DELETE\",\n            headers={\"Authorization\": \"Bearer \" + k})\n        urllib.request.urlopen(r, timeout=30)\n    except Exception as e: print(\"selfdel\", e, flush=True)\ndef idle():\n    while True:\n        time.sleep(30)\n        if time.time() - LAST[0] > 20 * 60:\n            print(\"idle - deleting pod\", flush=True); selfdel(); os._exit(0)\ndef landmarks(b64):\n    im = Image.open(io.BytesIO(base64.b64decode(b64))).convert(\"RGB\")\n    w, h = im.size\n    r = POSE.process(np.asarray(im))\n    if not r.pose_landmarks: return {\"w\": w, \"h\": h, \"pts\": None}\n    pts = [[round(l.x, 4), round(l.y, 4), round(l.visibility, 3)] for l in r.pose_landmarks.landmark]\n    return {\"w\": w, \"h\": h, \"pts\": pts}\nclass H(BaseHTTPRequestHandler):\n    def _cors(self):\n        self.send_header(\"Access-Control-Allow-Origin\", \"*\")\n        self.send_header(\"Access-Control-Allow-Headers\", \"*\")\n        self.send_header(\"Access-Control-Allow-Methods\", \"GET, POST, OPTIONS\")\n    def _json(self, code, obj):\n        b = json.dumps(obj).encode()\n        self.send_response(code); self._cors()\n        self.send_header(\"Content-Type\", \"application/json\")\n        self.send_header(\"Content-Length\", str(len(b))); self.end_headers(); self.wfile.write(b)\n    def do_OPTIONS(self):\n        self.send_response(204); self._cors(); self.end_headers()\n    def do_GET(self):\n        LAST[0] = time.time(); self._json(200, {\"ok\": True})\n    def do_POST(self):\n        LAST[0] = time.time()\n        n = int(self.headers.get(\"Content-Length\") or 0)\n        body = self.rfile.read(n) if n else b\"\"\n        if self.path.startswith(\"/done\"):\n            self._json(200, {\"bye\": True}); threading.Thread(target=lambda: (time.sleep(1), selfdel(), os._exit(0))).start(); return\n        try:\n            j = json.loads(body or b\"{}\")\n            self._json(200, landmarks(j[\"image\"]))\n        except Exception as e:\n            self._json(400, {\"error\": str(e)[:200]})\n    def log_message(self, *a): pass\nthreading.Thread(target=idle, daemon=True).start()\nprint(\"ready\", flush=True)\nThreadingHTTPServer((\"0.0.0.0\", int(os.environ.get(\"PORT\", \"8000\"))), H).serve_forever()";
+   The reader is RTMW, the whole-body model of the DWPose line, trained on
+   HumanArt as well as photographs; it holds up on lying, foreshortened and
+   partly hidden bodies where MediaPipe (kept as the fallback if the model
+   download fails) invents legs from a standing prior. A few seconds a
+   picture on a CPU; the pod exists for the minutes it takes to install
+   and read the queue. It serves one tiny HTTP route on RunPod's pod proxy —
+   a picture in, eighteen joints out in the OpenPose order — so the pictures
+   go straight from the phone to the pod and nothing is written anywhere.
+   It deletes itself when told, or after twenty idle minutes. */
+var POSE_SERVER_PY = "import json, base64, io, os, sys, threading, time, urllib.request\nfrom http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\nimport numpy as np\nfrom PIL import Image\n# Two readers. RTMW (the DWPose line, whole-body, trained on HumanArt too)\n# handles lying and foreshortened bodies that MediaPipe guesses at; MediaPipe\n# stays as the fallback if the model download fails. Both answer in the\n# OpenPose 18-point order the ControlNet reads, normalised to the picture.\nWB = None\ntry:\n    from rtmlib import Wholebody\n    WB = Wholebody(mode=\"performance\", backend=\"onnxruntime\", device=\"cpu\")\n    print(\"rtmw ready\", flush=True)\nexcept Exception as e:\n    print(\"rtmw unavailable:\", str(e)[:200], flush=True)\nMP = None\ntry:\n    import mediapipe as mp\n    MP = mp.solutions.pose.Pose(static_image_mode=True, model_complexity=2, min_detection_confidence=0.25)\n    print(\"mediapipe ready\", flush=True)\nexcept Exception as e:\n    print(\"mediapipe unavailable:\", str(e)[:200], flush=True)\nLAST = [time.time()]\ndef selfdel():\n    k, p = os.environ.get(\"RUNPOD_API_KEY\"), os.environ.get(\"RUNPOD_POD_ID\")\n    if not (k and p): return\n    try:\n        r = urllib.request.Request(\"https://rest.runpod.io/v1/pods/\" + p, method=\"DELETE\",\n            headers={\"Authorization\": \"Bearer \" + k})\n        urllib.request.urlopen(r, timeout=30)\n    except Exception as e: print(\"selfdel\", e, flush=True)\ndef idle():\n    while True:\n        time.sleep(30)\n        if time.time() - LAST[0] > 20 * 60:\n            print(\"idle - deleting pod\", flush=True); selfdel(); os._exit(0)\n# COCO body 17 -> OpenPose 18 (neck is made from the shoulders)\nCOCO2OP = [0, -1, 6, 8, 10, 5, 7, 9, 12, 14, 16, 11, 13, 15, 2, 1, 4, 3]\n# MediaPipe 33 -> OpenPose 18\nMP2OP = [0, -1, 12, 14, 16, 11, 13, 15, 24, 26, 28, 23, 25, 27, 5, 2, 8, 7]\ndef to_op(get, w, h, thr):\n    \"\"\"get(i) -> (x, y, conf) in pixels for a source index; builds the 18 list\"\"\"\n    def pt(i):\n        if i < 0: return None\n        q = get(i)\n        if q is None or q[2] < thr: return None\n        return [round(q[0] / w, 4), round(q[1] / h, 4), round(float(q[2]), 3)]\n    return pt\ndef rtmw(im):\n    img = np.ascontiguousarray(np.asarray(im)[:, :, ::-1])   # rtmlib wants BGR\n    kps, scores = WB(img)\n    if kps is None or len(kps) == 0: return None\n    # the most confident body wins, weighted by how much of the frame it fills\n    best, bi = -1, 0\n    for i in range(len(kps)):\n        b = kps[i][:17]; s = float(scores[i][:17].mean())\n        area = float((b[:, 0].max() - b[:, 0].min()) * (b[:, 1].max() - b[:, 1].min()))\n        v = s * (1 + area / (im.size[0] * im.size[1]))\n        if v > best: best, bi = v, i\n    k, sc = kps[bi], scores[bi]\n    src = {i: (float(k[i][0]), float(k[i][1]), float(sc[i])) for i in range(17)}\n    pt = to_op(lambda i: src.get(i), im.size[0], im.size[1], 0.3)\n    out = [pt(i) for i in COCO2OP]\n    ls, rs = src[5], src[6]\n    out[1] = ([round((ls[0] + rs[0]) / 2 / im.size[0], 4), round((ls[1] + rs[1]) / 2 / im.size[1], 4),\n               round(min(ls[2], rs[2]), 3)] if min(ls[2], rs[2]) >= 0.3 else None)\n    return out\ndef mediapipe_read(im):\n    r = MP.process(np.asarray(im))\n    if not r.pose_landmarks: return None\n    lm = r.pose_landmarks.landmark\n    w, h = im.size\n    src = lambda i: (lm[i].x * w, lm[i].y * h, lm[i].visibility)\n    pt = to_op(src, w, h, 0.5)\n    out = [pt(i) for i in MP2OP]\n    ls, rs = src(11), src(12)\n    out[1] = ([round((ls[0] + rs[0]) / 2 / w, 4), round((ls[1] + rs[1]) / 2 / h, 4),\n               round(min(ls[2], rs[2]), 3)] if min(ls[2], rs[2]) >= 0.5 else None)\n    return out\ndef landmarks(b64):\n    im = Image.open(io.BytesIO(base64.b64decode(b64))).convert(\"RGB\")\n    w, h = im.size\n    if WB is not None:\n        try:\n            pts = rtmw(im)\n            if pts and sum(1 for p in pts if p) >= 4:\n                return {\"w\": w, \"h\": h, \"fmt\": \"op18\", \"pts\": pts, \"model\": \"rtmw\"}\n        except Exception as e:\n            print(\"rtmw failed:\", str(e)[:200], flush=True)\n    if MP is not None:\n        pts = mediapipe_read(im)\n        if pts and sum(1 for p in pts if p) >= 4:\n            return {\"w\": w, \"h\": h, \"fmt\": \"op18\", \"pts\": pts, \"model\": \"mediapipe\"}\n    return {\"w\": w, \"h\": h, \"fmt\": \"op18\", \"pts\": None, \"model\": \"rtmw\" if WB is not None else \"mediapipe\"}\nclass H(BaseHTTPRequestHandler):\n    def _cors(self):\n        self.send_header(\"Access-Control-Allow-Origin\", \"*\")\n        self.send_header(\"Access-Control-Allow-Headers\", \"*\")\n        self.send_header(\"Access-Control-Allow-Methods\", \"GET, POST, OPTIONS\")\n    def _json(self, code, obj):\n        b = json.dumps(obj).encode()\n        self.send_response(code); self._cors()\n        self.send_header(\"Content-Type\", \"application/json\")\n        self.send_header(\"Content-Length\", str(len(b))); self.end_headers(); self.wfile.write(b)\n    def do_OPTIONS(self):\n        self.send_response(204); self._cors(); self.end_headers()\n    def do_GET(self):\n        LAST[0] = time.time(); self._json(200, {\"ok\": True, \"model\": \"rtmw\" if WB is not None else (\"mediapipe\" if MP is not None else \"none\")})\n    def do_POST(self):\n        LAST[0] = time.time()\n        n = int(self.headers.get(\"Content-Length\") or 0)\n        body = self.rfile.read(n) if n else b\"\"\n        if self.path.startswith(\"/done\"):\n            self._json(200, {\"bye\": True}); threading.Thread(target=lambda: (time.sleep(1), selfdel(), os._exit(0))).start(); return\n        try:\n            j = json.loads(body or b\"{}\")\n            self._json(200, landmarks(j[\"image\"]))\n        except Exception as e:\n            self._json(400, {\"error\": str(e)[:200]})\n    def log_message(self, *a): pass\nthreading.Thread(target=idle, daemon=True).start()\nprint(\"ready\", flush=True)\nThreadingHTTPServer((\"0.0.0.0\", int(os.environ.get(\"PORT\", \"8000\"))), H).serve_forever()";
 function poseExtractScript(){
   return 'apt-get update -qq >/dev/null 2>&1\n' +
          'apt-get install -y -qq libgl1 libglib2.0-0 >/dev/null 2>&1\n' +
-         'pip install -q --no-cache-dir "mediapipe==0.10.14" pillow numpy >/dev/null 2>&1\n' +
+         'pip install -q --no-cache-dir rtmlib onnxruntime "mediapipe==0.10.14" pillow numpy >/dev/null 2>&1\n' +
          "cat > /s.py <<'PY'\n" + POSE_SERVER_PY + "\nPY\n" +
          'python3 /s.py\n';
 }
@@ -8494,7 +8535,7 @@ function poseStat(t){
   L("img", "poses: " + t, true, 600);
 }
 async function poseExtract(){
-  var todo = poses().filter(function(p){ return !p.pts && p.src; });
+  var todo = poses().filter(function(p){ return !poseReady(p) && p.src; });
   if (!todo.length) { toast("Nothing waiting — add reference pictures first"); return; }
   if (!(rp().key || "").trim()) { poseStat("Add the RunPod API key under Settings → Engines & keys first."); return; }
   if (POSEX.busy) return;
@@ -8535,7 +8576,15 @@ async function poseExtract(){
     await wait(8000);
     try {
       var r = await fetch(base + "/health", {cache: "no-store"});
-      if (r.ok) { var j = await r.json(); if (j && j.ok) { up = true; break; } }
+      if (r.ok) {
+        var j = await r.json();
+        if (j && j.ok) {
+          up = true;
+          L("img", "poses: reader is " + (j.model || "?") +
+            (j.model === "mediapipe" ? " — RTMW didn't load on the pod; expect rougher legs" : ""), true);
+          break;
+        }
+      }
     } catch (e) {}
     poseStat("Pod " + pid + " is installing the pose reader… " +
       Math.round((Date.now() - t0) / 1000) + "s");
@@ -8553,8 +8602,11 @@ async function poseExtract(){
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({image: p.src.replace(/^data:image\/\w+;base64,/, "")})});
       var j2 = await r2.json();
-      if (j2 && j2.pts) { p.pts = j2.pts; p.w = j2.w; p.h = j2.h; delete p.none; done++; }
-      else { p.none = true; none++; }
+      if (j2 && j2.pts) {
+        if (j2.fmt === "op18") { p.op = j2.pts; delete p.pts; } else { p.pts = j2.pts; delete p.op; }
+        delete p.op0;
+        p.w = j2.w; p.h = j2.h; p.model = j2.model || ""; delete p.none; done++;
+      } else { p.none = true; none++; }
       /* read or not, the picture itself has done its job */
       delete p.src;
       save(); renderPoses();
@@ -8611,7 +8663,7 @@ function renderPoses(){
   var list = poses(), box = $("poses-list");
   $("set-poses-val").textContent = list.length
     ? list.length + " pose" + (list.length === 1 ? "" : "s") : "None yet";
-  var pending = list.filter(function(p){ return !p.pts && p.src; }).length;
+  var pending = list.filter(function(p){ return !poseReady(p) && p.src; }).length;
   var ex = $("poses-extract");
   ex.disabled = POSEX.busy || !pending;
   ex.textContent = POSEX.busy ? "Working…" : "Extract poses" + (pending ? " (" + pending + ")" : "");
@@ -8621,7 +8673,7 @@ function renderPoses(){
     return;
   }
   box.innerHTML = list.map(function(p){
-    var st = poseReady(p) ? "skeleton ready"
+    var st = poseReady(p) ? "skeleton ready" + (p.model ? " (" + p.model + ")" : "") + " — tap the picture to fix joints"
       : p.none ? "no person found — try a clearer, fuller picture"
       : p.src ? "waiting for Extract" : "no pose data";
     var th = p.thumb ? '<img src="' + p.thumb + '">' : "";
@@ -8675,11 +8727,123 @@ $("poses-list").onchange = function(e){
   if (e.target.classList.contains("pz-mat")) { p.mature = e.target.checked; save(); }
 };
 $("poses-list").onclick = function(e){
+  var th = e.target.closest ? e.target.closest(".posethumb") : null;
+  if (th) {
+    var trow = th.closest(".lorarow"), tp = trow && poseById(trow.dataset.id);
+    if (tp && poseReady(tp)) openPoseEdit(tp.id);
+    return;
+  }
   var b = e.target.closest ? e.target.closest(".pz-del") : null; if (!b) return;
   var row = b.closest(".lorarow"), p = row && poseById(row.dataset.id); if (!p) return;
   S.poses = poses().filter(function(x){ return x.id !== p.id; });
   save(); renderPoses();
 };
+/* ================= joint editor =================
+   No reader gets every joint right on the pictures this library is for, and
+   a ControlNet holds the picture to whatever it is given — a leg the reader
+   invented becomes a leg in the photo. So every joint can be dragged where
+   it belongs, switched off when it shouldn't steer anything, and the whole
+   figure mirrored when the reader swapped left and right. */
+var PE = {id: null, drag: -1, W: 0, H: 0};
+function peOp(){
+  var p = poseById(PE.id); if (!p) return null;
+  /* first edit: freeze the reader's answer so Reset has something to go
+     back to, and lift a legacy entry into the editable form */
+  if (!p.op) { p.op = poseOp(p).map(function(q){ return q ? [q[0], q[1], 1] : null; }); delete p.pts; }
+  if (!p.op0) p.op0 = JSON.parse(JSON.stringify(p.op));
+  return p;
+}
+function openPoseEdit(id){
+  var p = poseById(id); if (!p) return;
+  PE.id = id; PE.drag = -1;
+  $("pe-title").textContent = p.name || "Pose";
+  var img = $("pe-img");
+  img.onload = function(){ peLayout(); };
+  img.src = p.thumb || "";
+  show("v-poseedit");
+  setTimeout(peLayout, 50);
+}
+function peLayout(){
+  var img = $("pe-img"), cv = $("pe-cv");
+  var W = img.clientWidth, H = img.clientHeight;
+  if (!W || !H) return;
+  PE.W = W; PE.H = H;
+  var dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  cv.style.width = W + "px"; cv.style.height = H + "px";
+  peDraw();
+}
+function peDraw(){
+  var p = poseById(PE.id), cv = $("pe-cv"); if (!p || !cv.width) return;
+  var g = cv.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, cv.width, cv.height);
+  var k = cv.width / PE.W;
+  g.setTransform(k, 0, 0, k, 0, 0);
+  drawSkeleton(g, poseOp(p), PE.W, PE.H, Math.max(4, Math.round(Math.min(PE.W, PE.H) / 256 * 5)), PE.drag);
+  var op = poseOp(p);
+  $("pe-chips").innerHTML = OP_NAMES.map(function(n, i){
+    var c = OP_COLORS[i], on = !!op[i];
+    return '<button class="btn ghost pe-chip" data-i="' + i + '" style="padding:6px 10px;font-size:12px;margin:0 6px 6px 0;' +
+      (on ? "border-color:rgb(" + c.join(",") + ")" : "opacity:.45") + '">' +
+      '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;background:rgb(' + c.join(",") + ')"></span>' +
+      esc(n) + (on ? "" : " · off") + "</button>";
+  }).join("");
+}
+function peNearest(x, y){
+  var p = poseById(PE.id); if (!p) return -1;
+  var op = poseOp(p), best = -1, bd = 24 * 24;
+  op.forEach(function(q, i){
+    if (!q) return;
+    var dx = q[0] * PE.W - x, dy = q[1] * PE.H - y, d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; best = i; }
+  });
+  return best;
+}
+function pePoint(e){
+  var r = $("pe-cv").getBoundingClientRect();
+  return {x: Math.max(0, Math.min(PE.W, e.clientX - r.left)), y: Math.max(0, Math.min(PE.H, e.clientY - r.top))};
+}
+$("pe-cv").onpointerdown = function(e){
+  var pt = pePoint(e), i = peNearest(pt.x, pt.y);
+  if (i < 0) return;
+  peOp(); PE.drag = i;
+  try { this.setPointerCapture(e.pointerId); } catch (x) {}
+  e.preventDefault(); peDraw();
+};
+$("pe-cv").onpointermove = function(e){
+  if (PE.drag < 0) return;
+  var p = peOp(), pt = pePoint(e);
+  p.op[PE.drag] = [Math.round(pt.x / PE.W * 10000) / 10000, Math.round(pt.y / PE.H * 10000) / 10000, 1];
+  e.preventDefault(); peDraw();
+};
+$("pe-cv").onpointerup = $("pe-cv").onpointercancel = function(e){
+  if (PE.drag < 0) return;
+  PE.drag = -1; save(); peDraw();
+};
+$("pe-chips").onclick = function(e){
+  var b = e.target.closest ? e.target.closest(".pe-chip") : null; if (!b) return;
+  var p = peOp(), i = +b.dataset.i;
+  if (p.op[i]) p.op[i] = null;
+  else {
+    /* switched back on: appear near the neck, or the middle, and be dragged from there */
+    var anchor = p.op[1] || p.op[0] || [0.5, 0.5];
+    p.op[i] = [Math.min(0.98, anchor[0] + 0.06), Math.min(0.98, anchor[1] + 0.06), 1];
+  }
+  save(); peDraw();
+};
+$("pe-mirror").onclick = function(){
+  var p = peOp();
+  p.op = OP_MIRROR.map(function(j){ return p.op[j] ? p.op[j].slice() : null; });
+  save(); peDraw(); toast("Left and right swapped");
+};
+$("pe-reset").onclick = function(){
+  var p = poseById(PE.id); if (!p || !p.op0) { toast("Nothing to reset"); return; }
+  p.op = JSON.parse(JSON.stringify(p.op0));
+  save(); peDraw(); toast("Back to what the reader saw");
+};
+$("pe-back").onclick = function(){ hide("v-poseedit"); renderPoses(); };
+window.addEventListener("resize", function(){ if (PE.id && !$("v-poseedit").classList.contains("right")) peLayout(); });
 /* ================= face pass =================
    A likeness LoRA is judged at the face, and a face in a full-body shot is
    two hundred pixels of a megapixel picture — too small for the sampler to
