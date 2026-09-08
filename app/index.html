@@ -2766,12 +2766,26 @@ function rpRest(method, path, body){
   }
   return via(0);
 }
-/* the sh script both routes share. Finds the loras folder wherever this
-   volume keeps it (worker-comfyui layouts differ), skips files already
-   present — an interrupted run resumes — and downloads to .part first so a
-   half-finished file never sits under a loadable name. */
+/* the sh script both routes share. Checks that /workspace really is the
+   mounted volume, finds the loras folder wherever this volume keeps it
+   (worker-comfyui layouts differ), skips files already present, and
+   downloads to .part first so a half-finished file never sits under a
+   loadable name. */
 function rpInstallScript(missing, selfDelete){
-  var s = 'D=$(find /workspace -maxdepth 4 -type d -name loras 2>/dev/null | head -n 1)\n' +
+  var bye = selfDelete
+    ? 'curl -s -X DELETE -H "Authorization: Bearer $RUNPOD_API_KEY" ' +
+      '"https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID"\nsleep 60\n'
+    : "";
+  /* a pod deployed without the volume still has a /workspace — the
+     container's own overlay disk, a few GB that this script fills in
+     minutes and that vanish with the pod. Refuse unless it is a mount. */
+  var s = 'if ! grep -qs " /workspace " /proc/mounts; then\n' +
+          '  echo "STOP: /workspace is not a mounted network volume on this pod. Attach the ComfyUI volume ' +
+          '(Pods -> Edit -> Network Volume, mount path /workspace) and run this again."\n' +
+          (bye ? bye.replace(/^/gm, "  ") : "") +
+          '  exit 1\n' +
+          'fi\n' +
+          'D=$(find /workspace -maxdepth 4 -type d -name loras 2>/dev/null | head -n 1)\n' +
           '[ -z "$D" ] && D=/workspace/models/loras\n' +
           'M=$(dirname "$D")\n' +
           'echo "models root: $M"\n';
@@ -2780,18 +2794,16 @@ function rpInstallScript(missing, selfDelete){
        diffusion_models / text_encoders / vae for the Kontext set, and
        controlnet for the pose library's ControlNet */
     var f = m.folder || "loras", t = '"$M/' + f + '/' + m.name + '"';
-    /* -C - resumes a .part left behind by an interrupted run, so re-running
-       Install after a timeout continues the big file instead of refetching
-       twelve gigabytes from the top */
+    /* a finished file is skipped; a leftover .part from an interrupted run
+       is thrown away and the download starts clean rather than resuming
+       into a fragment of unknown provenance */
     s += 'mkdir -p "$M/' + f + '"\n' +
-         '[ -s ' + t + ' ] || { curl -fL -C - --retry 3 --retry-connrefused ' +
+         '[ -s ' + t + ' ] || { rm -f ' + t + '.part; curl -fL --retry 3 --retry-connrefused ' +
          '--connect-timeout 30 -o ' + t + '.part "' + withCivitaiToken(m.url) +
          '" && mv ' + t + '.part ' + t + '; } || echo "FAILED ' + m.name + '"\n';
   });
   s += 'du -sh "$M"/* 2>/dev/null\n';
-  if (selfDelete)
-    s += 'curl -s -X DELETE -H "Authorization: Bearer $RUNPOD_API_KEY" ' +
-         '"https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID"\nsleep 60\n';
+  s += bye;
   return s;
 }
 /* is every expected file on the volume? loras and diffusion_models can each
@@ -2994,7 +3006,7 @@ async function rpAutoInstall(out, missing, line){
       }
       if (Date.now() - t0 > deadlineMs) {
         line(Math.round(deadlineMs / 60000) + " minutes — that's long. Deleting the pod; " +
-             "rerunning Install resumes where it left off (finished files are kept).");
+             "rerunning Install skips finished files and starts the unfinished one over.");
         try { await rpRest("DELETE", "/pods/" + pid); } catch(e){}
         break;
       }
@@ -3010,8 +3022,8 @@ async function rpAutoInstall(out, missing, line){
       /* the probe can only see loras and diffusion_models, so a "no" here may
          just mean the file it can see is the one that hasn't arrived */
       line("Not everything is there yet. If the pod was still downloading, give it a " +
-           "few minutes and tap Install again — finished files are skipped, so it " +
-           "resumes rather than starting over.");
+           "few minutes and tap Install again — finished files are skipped; an " +
+           "unfinished one starts over.");
     }
   }
   line("Looking up your network volumes…");
