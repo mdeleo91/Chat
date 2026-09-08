@@ -26,6 +26,14 @@ public class WebChromeClient {
     }
 
     public static abstract class FileChooserParams {
+        public static final int MODE_OPEN = 0;
+        /** The page's input carries the multiple attribute. */
+        public static final int MODE_OPEN_MULTIPLE = 1;
+        public static final int MODE_SAVE = 3;
+
+        /** One of the MODE_ constants above. */
+        public abstract int getMode();
+
         /** Intent that opens the system picker for the page's accept types. */
         public abstract Intent createIntent();
 

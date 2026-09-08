@@ -1,6 +1,7 @@
 package com.pocketai.app;
 
 import android.app.Activity;
+import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
@@ -11,6 +12,7 @@ import android.view.ViewGroup;
 
 import android.view.WindowManager;
 
+import java.util.ArrayList;
 import java.util.List;
 import android.webkit.JavascriptInterface;
 import android.webkit.RenderProcessGoneDetail;
@@ -116,7 +118,18 @@ public class MainActivity extends Activity {
                 try { capture = params.isCaptureEnabled(); } catch (Throwable ignored) { }
                 if (capture && startCamera()) return true;
                 try {
-                    startActivityForResult(params.createIntent(), REQ_FILE);
+                    Intent it = params.createIntent();
+                    // <input type="file" multiple>: the framework's intent may
+                    // or may not carry the multi-select extra depending on the
+                    // WebView build, so it is set here whenever the page asked
+                    // for more than one picture (the Pose library does)
+                    boolean multi = false;
+                    try { multi = params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE; }
+                    catch (Throwable ignored) { }
+                    // Intent.EXTRA_ALLOW_MULTIPLE by value: the constant is API 18,
+                    // newer than the API 16 stub jar this compiles against
+                    if (multi) it.putExtra("android.intent.extra.ALLOW_MULTIPLE", true);
+                    startActivityForResult(it, REQ_FILE);
                     return true;
                 } catch (Exception e) {
                     // no picker on the device — let the page know rather than
@@ -197,13 +210,36 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Hands the chosen image back to the waiting page. */
+    /**
+     * Turns the picker's result into the URI list the page expects. The
+     * framework's FileChooserParams.parseResult reads only the intent's data
+     * URI — and a multi-select picker returns its choices in clipData with
+     * the data URI empty, so parseResult answered null and the page never
+     * heard back: no cards, no toast, nothing logged. clipData first, then
+     * the single data URI, then parseResult as the last word; null on cancel
+     * so the input isn't left waiting.
+     */
+    private static Uri[] pickedUris(int resultCode, Intent data) {
+        if (resultCode != RESULT_OK || data == null) return null;
+        ClipData clip = data.getClipData();
+        if (clip != null && clip.getItemCount() > 0) {
+            List<Uri> uris = new ArrayList<Uri>();
+            for (int i = 0; i < clip.getItemCount(); i++) {
+                Uri u = clip.getItemAt(i).getUri();
+                if (u != null) uris.add(u);
+            }
+            if (!uris.isEmpty()) return uris.toArray(new Uri[uris.size()]);
+        }
+        if (data.getData() != null) return new Uri[]{data.getData()};
+        return WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+    }
+
+    /** Hands the chosen image(s) back to the waiting page. */
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == REQ_FILE) {
             if (filePicker != null) {
-                filePicker.onReceiveValue(
-                        WebChromeClient.FileChooserParams.parseResult(resultCode, data));
+                filePicker.onReceiveValue(pickedUris(resultCode, data));
                 filePicker = null;
             }
             return;
