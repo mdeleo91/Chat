@@ -1043,7 +1043,7 @@ window.addEventListener("unhandledrejection", function(e){
 /* ================= platform & version ================= */
 /* the one place the version lives for the web build; the APK passes its
    own in the query string from BuildVersion */
-var APP_VN = "0.68.0";
+var APP_VN = "0.69.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -1124,21 +1124,178 @@ function load(){
    something big (a gallery photo) can put the state back rather than leave
    it sitting in memory looking saved until the next reload eats it */
 function save(){
-  var json;
-  try { json = JSON.stringify(S); localStorage.setItem(KEY, json); return true; }
+  var r = slimJSON(), ok;
+  try { localStorage.setItem(KEY, r.json); ok = true; }
   catch(e){
-    /* photos are the only thing here big enough to fill the quota — say so,
-       with the size, rather than losing the write silently */
-    var mb = json ? (json.length / 1048576).toFixed(1) + "MB" : "?";
+    /* pictures still travelling to the picture store are the only thing
+       here big enough to fill the quota — say so, with the size, rather
+       than losing the write silently. Once they have landed the next save
+       is slim and goes through. */
+    var mb = (r.json.length / 1048576).toFixed(1) + "MB";
     var full = /quota|exceed/i.test(String(e && e.name || e));
     if (typeof L === "function")
       L("store", "save failed: " + (full ? "storage full" : String(e && e.name || e)) +
-        " — the app holds " + mb + " (chat photos and galleries are the bulk of it)", true);
-    if (typeof toast === "function")
-      toast(full ? "Storage full (" + mb + " in use) — remove some chat photos and try again"
+        " — " + mb + " of text" + (r.fresh.length ? " with " + r.fresh.length + " picture(s) still " +
+        "inline while they move to device storage" : "") + "; pictures in device storage: " +
+        IMGID.size, true);
+    if (typeof toast === "function" && !r.fresh.length)
+      toast(full ? "Storage full (" + mb + " in use) — see Troubleshooting logs"
                  : "Couldn't save to this device");
-    return false;
+    ok = false;
   }
+  if (r.fresh.length) imgStore(r.fresh);
+  else if (ok && IDB_OK) idbSweepLater(r.used);
+  return ok;
+}
+/* ================= picture store =================
+   localStorage is a 5–10MB pocket, and every chat photo, gallery picture,
+   reference photo and pose thumbnail used to live in it as text — a few
+   dozen pictures filled it, and the app then refused to save anything at
+   all. Pictures now go to IndexedDB, which the same WebView lets grow to
+   hundreds of megabytes on the device; only text stays in localStorage.
+   Nothing else in the app knows: S still holds the pictures as data URLs
+   in memory, and the swap happens on the way to disk and back. A picture
+   stays inline in localStorage until its IndexedDB write has finished, so
+   a crash mid-migration loses nothing. */
+var IDB_NAME = "pocketai", IDB_STORE = "img";
+var IDB = null, IDB_OK = null;          // null: not tried yet; false: not available here
+var IMGID = new Map();                  // data URL → id, for every picture already stored
+var IMGPEND = {};                       // id → true while its write is in flight
+var IMG_RE = /^data:image\//;
+function isPic(v){ return typeof v === "string" && v.length > 1024 && IMG_RE.test(v); }
+function slimJSON(){
+  var fresh = [], used = {};
+  var json = JSON.stringify(S, function(k, v){
+    if (!isPic(v)) return v;
+    var id = IMGID.get(v);
+    if (!id) {
+      id = "i-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      IMGID.set(v, id); IMGPEND[id] = true; fresh.push([id, v]);
+    }
+    used[id] = true;
+    return IMGPEND[id] ? v : "idb:" + id;
+  });
+  return {json: json, fresh: fresh, used: used};
+}
+function idbOpen(cb){
+  if (IDB) { cb(IDB); return; }
+  if (IDB_OK === false || !window.indexedDB) { IDB_OK = false; cb(null); return; }
+  var req;
+  try { req = indexedDB.open(IDB_NAME, 1); }
+  catch (e) { IDB_OK = false; L("store", "IndexedDB unavailable: " + String(e && e.message || e), true); cb(null); return; }
+  req.onupgradeneeded = function(){ req.result.createObjectStore(IDB_STORE); };
+  req.onsuccess = function(){ IDB = req.result; IDB_OK = true; cb(IDB); };
+  req.onerror = req.onblocked = function(){
+    IDB_OK = false;
+    L("store", "IndexedDB unavailable: " + (req.error && req.error.name || "blocked") +
+      " — pictures stay in localStorage", true);
+    cb(null);
+  };
+}
+function imgStore(entries){
+  idbOpen(function(db){
+    if (!db) { entries.forEach(function(e){ IMGID.delete(e[1]); delete IMGPEND[e[0]]; }); return; }
+    var tx = db.transaction(IDB_STORE, "readwrite"), st = tx.objectStore(IDB_STORE);
+    entries.forEach(function(e){ st.put(e[1], e[0]); });
+    tx.oncomplete = function(){
+      entries.forEach(function(e){ delete IMGPEND[e[0]]; });
+      /* now that they are on the device, write the text without them */
+      save();
+    };
+    tx.onerror = tx.onabort = function(){
+      L("store", "picture write failed: " + (tx.error && tx.error.name || "?") +
+        " — keeping " + entries.length + " picture(s) inline", true);
+      entries.forEach(function(e){ IMGID.delete(e[1]); delete IMGPEND[e[0]]; });
+    };
+  });
+}
+/* the reverse on load: every "idb:" reference becomes its picture again */
+function inflatePictures(cb){
+  var refs = 0;
+  (function count(o){
+    if (typeof o === "string") { if (o.slice(0, 4) === "idb:") refs++; return; }
+    if (!o || typeof o !== "object") return;
+    Object.keys(o).forEach(function(k){ count(o[k]); });
+  })(S);
+  /* ask for room that the browser will not quietly evict — best effort */
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+  idbOpen(function(db){
+    if (!db) {
+      if (refs) L("store", refs + " picture reference(s) but no picture store — they will show blank", true);
+      cb(); return;
+    }
+    var tx = db.transaction(IDB_STORE, "readonly"), st = tx.objectStore(IDB_STORE);
+    var all = {}, req = st.openCursor();
+    req.onsuccess = function(){
+      var c = req.result;
+      if (c) { all[c.key] = c.value; c.continue(); return; }
+      var missing = 0, found = 0;
+      (function walk(o){
+        if (!o || typeof o !== "object") return;
+        Object.keys(o).forEach(function(k){
+          var v = o[k];
+          if (typeof v === "string") {
+            if (v.slice(0, 4) === "idb:") {
+              var pic = all[v.slice(4)];
+              if (pic) { o[k] = pic; IMGID.set(pic, v.slice(4)); found++; }
+              else { o[k] = ""; missing++; }
+            }
+          } else walk(v);
+        });
+      })(S);
+      Object.keys(all).forEach(function(id){ if (!IMGID.has(all[id])) all[id] = null; });
+      var stray = Object.keys(all).filter(function(id){ return all[id] === null; }).length;
+      L("store", "pictures: " + found + " loaded from device storage" +
+        (missing ? ", " + missing + " MISSING (reference without a picture)" : "") +
+        (stray ? ", " + stray + " unreferenced (swept)" : ""), true);
+      if (stray) idbSweepLater(null);
+      cb();
+    };
+    req.onerror = function(){
+      L("store", "couldn't read the picture store: " + (req.error && req.error.name || "?"), true);
+      cb();
+    };
+  });
+}
+/* pictures removed from the app are removed from the device, a little later */
+var SWEEP_T = null;
+function idbSweepLater(used){
+  clearTimeout(SWEEP_T);
+  SWEEP_T = setTimeout(function(){
+    if (!used) used = slimJSON().used;
+    idbOpen(function(db){
+      if (!db) return;
+      var tx = db.transaction(IDB_STORE, "readwrite"), st = tx.objectStore(IDB_STORE);
+      var req = st.getAllKeys();
+      req.onsuccess = function(){
+        var gone = 0;
+        (req.result || []).forEach(function(id){
+          if (!used[id] && !IMGPEND[id]) { st.delete(id); gone++; }
+        });
+        if (gone) {
+          IMGID.forEach(function(id, pic){ if (!used[id] && !IMGPEND[id]) IMGID.delete(pic); });
+          L("store", "swept " + gone + " picture(s) no longer used", true);
+        }
+      };
+    });
+  }, 4000);
+}
+function idbClear(cb){
+  idbOpen(function(db){
+    if (!db) { cb(); return; }
+    var tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).clear();
+    tx.oncomplete = tx.onerror = tx.onabort = function(){ cb(); };
+  });
+}
+/* what the store holds, for the Troubleshooting card */
+function storageBrief(){
+  var text = 0; try { text = (localStorage.getItem(KEY) || "").length; } catch (e) {}
+  var pics = 0, bytes = 0;
+  IMGID.forEach(function(id, pic){ pics++; bytes += pic.length; });
+  return "Storage: text " + Math.round(text / 1024) + "KB in localStorage · " + pics +
+    " picture" + (pics === 1 ? "" : "s") + ", " + (bytes * 0.75 / 1048576).toFixed(1) +
+    "MB in device storage" + (IDB_OK === false ? " (unavailable here — pictures stay in localStorage)" : "");
 }
 
 /* ================= theming ================= */
@@ -9787,6 +9944,7 @@ function renderLogCard(){
     '<button class="btn ghost" id="log-clear" style="padding:9px 18px;font-size:13.5px">' +
       '<span class="msr" style="font-size:16px">delete_sweep</span> Clear</button></div>' +
     '<div class="ds" style="padding-top:8px">Logs stay on this device. Attach them when reporting a problem.</div>' +
+    '<div class="ds" style="padding-top:8px">' + esc(storageBrief()) + '</div>' +
     (rpVisionReady()
       ? '<div class="ds" style="padding-top:12px"><b>Stuck vision jobs.</b> Photo-reads still waiting for a ' +
         'GPU can pile up on the RunPod vision endpoint and run ahead of the live one — if reads keep ' +
@@ -9856,6 +10014,11 @@ function renderThemes(){
 
 /* ================= boot ================= */
 load();
+applyTheme();
+/* the state is text now; the pictures come from the device store, and
+   nothing that shows them runs until they are back */
+inflatePictures(bootState);
+function bootState(){
 if (!S.seeded) { S.chars = CAST.slice(); S.seeded = true; save(); }
 else {
   S.chars = S.chars.map(function(ch){
@@ -9925,6 +10088,8 @@ if (S.onboarded) { $("v-ob").classList.add("right"); }
 if (window.matchMedia) {
   var mq = window.matchMedia("(prefers-color-scheme: dark)");
   if (mq.addEventListener) mq.addEventListener("change", function(){ if (S.mode==="system") { applyTheme(); } });
+}
+window.BOOTED = true;
 }
 
 /* ================= events ================= */
@@ -10153,8 +10318,9 @@ for (var mi=0; mi<mcards.length; mi++) (function(mc){
 $("set-logs").onclick = function(){ $("logcard").classList.toggle("on"); renderLogCard(); };
 $("set-update").onclick = doUpdateFlow;
 $("set-wipe").onclick = function(){
-  if (confirm("Erase ALL data on this device? Chats, characters and memories will be gone for good.")) {
-    localStorage.removeItem(KEY); location.reload();
+  if (confirm("Erase ALL data on this device? Chats, characters, memories and pictures will be gone for good.")) {
+    localStorage.removeItem(KEY);
+    idbClear(function(){ location.reload(); });
   }
 };
 </script>
