@@ -2716,19 +2716,55 @@ function rpFilterLoras(lf){
    already talks to; if the browser can't call it, the identical script is
    one Copy button away from any pod terminal. */
 var RP_REST = "https://rest.runpod.io/v1";
+/* rest.runpod.io never answers the CORS preflight a browser sends before a
+   request that carries an Authorization header, so from a web page every
+   management call died as "Failed to fetch" with nothing to diagnose. The
+   site now hosts a relay at /api/runpod that forwards each call, key and
+   all, and returns the upstream answer verbatim — the key rides the request
+   and is never stored. The Android app loads from file:// with universal
+   access and can call RunPod directly, so it does, with the relay as its
+   fallback if that ever stops working. */
+var RP_RELAY = "https://chat-nine-psi-68.vercel.app/api/runpod";
+function rpRestBases(){
+  if (/^https?:$/.test(location.protocol)) return [location.origin + "/api/runpod"];
+  return [RP_REST, RP_RELAY];
+}
 function rpRest(method, path, body){
-  return fetch(RP_REST + path, {
-    method: method,
-    headers: {"Content-Type": "application/json",
-              "Authorization": "Bearer " + rp().key.trim()},
-    body: body ? JSON.stringify(body) : undefined
-  }).then(function(r){
-    if (r.status === 404) return {gone: true};
-    return r.text().then(function(t){
-      if (!r.ok) throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0, 300) : ""));
-      try { return t ? JSON.parse(t) : null; } catch(e){ return null; }
+  var bases = rpRestBases();
+  function via(i){
+    var base = bases[i];
+    return fetch(base + path, {
+      method: method,
+      headers: {"Content-Type": "application/json",
+                "Authorization": "Bearer " + rp().key.trim()},
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function(r){
+      if (r.status === 404) return {gone: true};
+      return r.text().then(function(t){
+        if (!r.ok) {
+          var j = null; try { j = JSON.parse(t); } catch(e){}
+          var msg = j && (j.error || j.message) ? String(j.error || j.message) : t;
+          throw new Error("HTTP " + r.status + " from " + base.replace(/^https?:\/\//, "") +
+            (msg ? " — " + String(msg).slice(0, 300) : ""));
+        }
+        try { return t ? JSON.parse(t) : null; } catch(e){ return null; }
+      });
+    }).catch(function(e){
+      var m = String(e && e.message || e);
+      /* a TypeError never reached anything — no status, no body. Try the
+         next route if there is one; otherwise say which route failed. */
+      if (!/^HTTP /.test(m)) {
+        if (i + 1 < bases.length) {
+          L("img", "runpod management: " + base + " didn't answer (" + m.slice(0, 80) +
+            ") — trying " + bases[i + 1], true);
+          return via(i + 1);
+        }
+        throw new Error("no answer from " + base.replace(/^https?:\/\//, "") + " (" + m.slice(0, 120) + ")");
+      }
+      throw e;
     });
-  });
+  }
+  return via(0);
 }
 /* the sh script both routes share. Finds the loras folder wherever this
    volume keeps it (worker-comfyui layouts differ), skips files already
@@ -2982,9 +3018,10 @@ async function rpAutoInstall(out, missing, line){
   var vols;
   try { vols = await rpRest("GET", "/networkvolumes"); }
   catch(e){
-    line("✗ The management API didn't answer from the browser: " + String(e && e.message || e));
-    line("Some setups block it (CORS) — use Copy script instead: paste it into a terminal " +
-         "of any pod that has the volume attached.");
+    line("✗ Couldn't list the network volumes: " + String(e && e.message || e));
+    line("If that is a 401 the API key is wrong; if nothing answered, the relay on the site may " +
+         "be down — Copy script still works: paste it into a terminal of any pod that has the " +
+         "volume attached.");
     return;
   }
   var arr = Array.isArray(vols) ? vols : ((vols && vols.networkVolumes) || []);
