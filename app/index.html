@@ -876,7 +876,7 @@
       <div class="field"><label>LORAS — checked ones ride at the strength shown; WHEN keywords don't apply here</label>
         <div id="lab-loras"></div>
         <label class="phint" style="display:flex;align-items:center;gap:8px;padding-top:10px;cursor:pointer">
-          <input type="checkbox" id="lab-face" checked> second pass on the face (Your GPU, one identity LoRA ticked, a character chosen — starts from the setting under Your own GPU)</label></div>
+          <input type="checkbox" id="lab-face" checked> second pass on the face (Your GPU, one identity LoRA ticked, a character chosen — starts from the setting under Your own GPU). A ticked LoRA marked "detail pass" runs on its own part the same way, after the face.</label></div>
       <div id="lab-stat" class="ds" style="padding-top:4px"></div>
       <div id="lab-out"></div>
       <div style="height:24px"></div>
@@ -1046,7 +1046,7 @@ window.addEventListener("unhandledrejection", function(e){
 /* ================= platform & version ================= */
 /* the one place the version lives for the web build; the APK passes its
    own in the query string from BuildVersion */
-var APP_VN = "0.70.0";
+var APP_VN = "0.71.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -1654,6 +1654,9 @@ function lorasFor(ch, desc, isMature, picked, maxN, quiet, cast){
   pool.forEach(function(e){
     var l = e.l, path = (l.path || "").trim();
     if (!path) return;
+    /* a detail LoRA works on its own patch after the paint, never on the
+       whole picture — that is the stacking that melted anatomy */
+    if ((l.region || "").trim()) return;
     var nm = ((l.name || "").trim() || path.split("/").pop().split("?")[0]).toLowerCase();
     var kws = (l.when || "").split(",")
       .map(function(k){ return k.trim().toLowerCase(); }).filter(Boolean);
@@ -2049,6 +2052,8 @@ function loraRowsHTML(list){
       '<input class="srvinput lr-when" placeholder="always" value="' + esc(l.when || "") + '"></div></div>' +
       '<span class="lbl">TRIGGER WORDS — sent along when this LoRA loads</span>' +
       '<input class="srvinput lr-add" placeholder="none" value="' + esc(l.add || "") + '">' +
+      '<span class="lbl">DETAIL PASS — a body part this LoRA sharpens on a second pass, first word is the part, the rest are words that call for it (e.g. feet, foot, toes, soles); empty = rides the main paint</span>' +
+      '<input class="srvinput lr-region" placeholder="none" value="' + esc(l.region || "") + '">' +
       '</div>';
   });
   h += '<button class="use lora-add" style="margin-top:10px">Add LoRA</button>';
@@ -2084,6 +2089,7 @@ function wireLoraList(root, list, onChange){
     else if (e.target.classList.contains("lr-scale")) l.scale = parseFloat(e.target.value) || null;
     else if (e.target.classList.contains("lr-when")) l.when = e.target.value;
     else if (e.target.classList.contains("lr-add")) l.add = e.target.value;
+    else if (e.target.classList.contains("lr-region")) l.region = e.target.value.trim();
     else return;
     onChange(false);
   });
@@ -3318,6 +3324,7 @@ function runpodImage(desc, ch, isSelfie, cid, cb, onFail, picked, inFrame, cast,
        LoRA(s) that rode, at their configured strength, and who it is */
     var idl = loras.filter(function(l){ var i = lf.loras.indexOf(l); return i >= 0 && lf.ids[i]; });
     RPCTX[cid] = {ch: ch, idLoras: idl, inFrame: inFrame, desc: desc, mat: mat,
+      regions: detailRegions(desc, ch, cast),
       look: (ch && ch.look || "").trim(),
       trig: [(fal().trigger || "").trim()].concat(loras.map(function(l){
         var i = lf.loras.indexOf(l); return i >= 0 && lf.ids[i] ? (lf.addl || [])[i] || "" : "";
@@ -5348,6 +5355,7 @@ function directPhoto(convo, ch, desc, isSelfie, isMature, cb){
   var castChars = photoCast(convo, ch);
   var catalog = [];
   function catAdd(l, owner){
+    if ((l.region || "").trim()) return;   // detail LoRAs aren't the director's to pick
     var name = (l.name || "").trim() || (l.path || "").split("/").pop().split("?")[0];
     if (name) catalog.push({name: name, when: (l.when || "").trim() || "always", owner: owner});
   }
@@ -9040,6 +9048,29 @@ $("pe-reset").onclick = function(){
 };
 $("pe-back").onclick = function(){ hide("v-poseedit"); renderPoses(); };
 window.addEventListener("resize", function(){ if (PE.id && !$("v-poseedit").classList.contains("right")) peLayout(); });
+/* ---- detail LoRAs ----
+   "feet, foot, toes, soles" on a LoRA row means: this LoRA sharpens the
+   feet, on a second pass over just the feet, whenever the picture's
+   description says any of those words. The first word is what the vision
+   model is asked to find. */
+function detailRegions(desc, ch, cast){
+  var t = (desc || "").toLowerCase(), out = [], seen = {};
+  var pool = fal().loras.slice();
+  if (ch) pool = pool.concat(chLoraList(ch));
+  (cast || []).forEach(function(oc){ if (oc && oc !== ch) pool = pool.concat(chLoraList(oc)); });
+  pool.forEach(function(l){
+    var words = (l.region || "").split(",").map(function(w){ return w.trim().toLowerCase(); }).filter(Boolean);
+    var path = (l.path || "").trim();
+    if (!words.length || !path || !/^https?:\/\//i.test(path)) return;
+    var name = words[0];
+    if (!words.some(function(w){ return t.indexOf(w) >= 0; })) return;
+    var r = seen[name];
+    if (!r) { r = seen[name] = {name: name, loras: [], adds: []}; out.push(r); }
+    r.loras.push({path: withCivitaiToken(path), scale: l.scale ? Math.min(4, Math.max(0, l.scale)) : 1});
+    if ((l.add || "").trim()) r.adds.push(l.add.trim());
+  });
+  return out;
+}
 /* ================= face pass =================
    A likeness LoRA is judged at the face, and a face in a full-body shot is
    two hundred pixels of a megapixel picture — too small for the sampler to
@@ -9055,8 +9086,6 @@ function faceRefineWhy(ctx){
   if (!ctx.idLoras || !ctx.idLoras.length) return "no identity LoRA rode this picture";
   if (ctx.idLoras.length > 1) return "two identity LoRAs on one picture — whose face?";
   if (ctx.inFrame === false || faceOutOfFrame(ctx.desc || "")) return "the face isn't in shot";
-  if (!(rpVisionReady() || (glmReady() && !ctx.mat)))
-    return ctx.mat ? "no RunPod vision endpoint to find the face on an 18+ picture" : "no vision model to find the face";
   return null;
 }
 /* one picture, one question, whichever vision model may see it */
@@ -9090,12 +9119,12 @@ function toJpegFull(dataUrl, q, cb){
   im.onerror = function(){ cb(null); };
   im.src = dataUrl;
 }
-/* where the face is, in the picture's own pixels. The copy sent to the
-   vision model is at most 980 on a side with both sides multiples of 28,
-   which is a size Qwen's processor passes through unchanged — so the
-   pixel coordinates it answers with are the sent image's own. Z.ai answers
-   on a 0–1000 grid instead. */
-function faceBox(dataUrl, mature, cb){
+/* where the parts are, in the picture's own pixels, one question for all
+   of them. The copy sent to the vision model is at most 980 on a side with
+   both sides multiples of 28, which is a size Qwen's processor passes
+   through unchanged — so the pixel coordinates it answers with are the sent
+   image's own. Z.ai answers on a 0–1000 grid instead. */
+function partBoxes(dataUrl, parts, mature, cb){
   var im = new Image();
   im.onload = function(){
     var W = im.naturalWidth, H = im.naturalHeight;
@@ -9106,32 +9135,44 @@ function faceBox(dataUrl, mature, cb){
     cv.getContext("2d").drawImage(im, 0, 0, sw, sh);
     var small; try { small = cv.toDataURL("image/jpeg", 0.85); } catch (e) { cb(null); return; }
     var useRp = rpVisionReady() && (mature || !glmReady());
-    var ask = "Find the face of the main person in this picture. Reply with ONLY this JSON and " +
-      "nothing else: {\"face\": [x1, y1, x2, y2]} — " +
-      (useRp ? "the box in pixel coordinates of this image, which is " + sw + " wide and " + sh + " tall"
-             : "the box with coordinates scaled to a 0–1000 grid") +
-      ". If no face is visible reply {\"face\": null}.";
-    visionAsk(small, ask, 80, useRp, function(t){
-      if (!t) { L("img", "face pass: the vision model didn't answer", true); cb(null); return; }
-      var s = String(t), i = s.indexOf("face");
-      var nums = (i >= 0 ? s.slice(i) : s).match(/\d+(?:\.\d+)?/g);
-      if (!nums || nums.length < 4) { L("img", "face pass: no box in “" + s.slice(0, 80) + "”", true); cb(null); return; }
-      var n = nums.slice(0, 4).map(parseFloat);
-      var grid = !useRp || n[2] > sw || n[3] > sh;   // a 0–1000 answer from a pixel question
-      var fx = grid ? W / 1000 : W / sw, fy = grid ? H / 1000 : H / sh;
-      var box = {x: Math.round(n[0] * fx), y: Math.round(n[1] * fy),
-                 w: Math.round((n[2] - n[0]) * fx), h: Math.round((n[3] - n[1]) * fy)};
-      L("img", "face pass: model answered [" + n.join(", ") + "] read as " +
-        (grid ? "a 0–1000 grid" : "pixels of the " + sw + "×" + sh + " copy it was sent") +
-        " → x" + box.x + " y" + box.y + " w" + box.w + " h" + box.h + " in the " + W + "×" + H +
-        " picture (" + (useRp ? "RunPod vision" : "Z.ai vision") + ")", true);
-      /* sanity: a face is a face-sized thing somewhere inside the picture */
-      if (box.w < W * 0.03 || box.h < H * 0.03 || box.w > W * 0.7 || box.h > H * 0.7 ||
-          box.x < 0 || box.y < 0 || box.x + box.w > W || box.y + box.h > H) {
-        L("img", "face pass: that box doesn't look like a face in a " + W + "×" + H + " picture — skipped", true);
-        cb(null); return;
-      }
-      cb(box);
+    var what = parts.map(function(p){
+      return p === "face" ? "\"face\" (the main person's face)" : "\"" + p + "\" (the main person's " + p + ", all of them in one box)";
+    }).join(", ");
+    var shape = "{" + parts.map(function(p){ return "\"" + p + "\": [x1, y1, x2, y2]"; }).join(", ") + "}";
+    var ask = "Find these in the picture: " + what + ". Reply with ONLY this JSON and nothing else: " +
+      shape + " — " +
+      (useRp ? "each box in pixel coordinates of this image, which is " + sw + " wide and " + sh + " tall"
+             : "each box with coordinates scaled to a 0–1000 grid") +
+      ". Use null for anything not visible.";
+    visionAsk(small, ask, 40 + 40 * parts.length, useRp, function(t){
+      if (!t) { L("img", "detail pass: the vision model didn't answer", true); cb(null); return; }
+      var out = {}, s = String(t);
+      parts.forEach(function(p){
+        var m = s.match(new RegExp("\"" + p + "\"\\s*:\\s*\\[([^\\]]*)\\]"));
+        var nums = m ? (m[1].match(/\d+(?:\.\d+)?/g) || []) : null;
+        if (!nums || nums.length < 4) {
+          L("img", "detail pass: no box for " + p + " in “" + s.slice(0, 80) + "”", true);
+          out[p] = null; return;
+        }
+        var n = nums.slice(0, 4).map(parseFloat);
+        var grid = !useRp || n[2] > sw || n[3] > sh;   // a 0–1000 answer from a pixel question
+        var fx = grid ? W / 1000 : W / sw, fy = grid ? H / 1000 : H / sh;
+        var box = {x: Math.round(n[0] * fx), y: Math.round(n[1] * fy),
+                   w: Math.round((n[2] - n[0]) * fx), h: Math.round((n[3] - n[1]) * fy)};
+        L("img", "detail pass: " + p + " answered [" + n.join(", ") + "] read as " +
+          (grid ? "a 0–1000 grid" : "pixels of the " + sw + "×" + sh + " copy it was sent") +
+          " → x" + box.x + " y" + box.y + " w" + box.w + " h" + box.h + " in the " + W + "×" + H +
+          " picture (" + (useRp ? "RunPod vision" : "Z.ai vision") + ")", true);
+        /* sanity: a part is a part-sized thing somewhere inside the picture */
+        var maxShare = p === "face" ? 0.7 : 0.95, minShare = p === "face" ? 0.03 : 0.02;
+        if (box.w < W * minShare || box.h < H * minShare || box.w > W * maxShare || box.h > H * maxShare ||
+            box.x < 0 || box.y < 0 || box.x + box.w > W || box.y + box.h > H) {
+          L("img", "detail pass: that box doesn't look like " + p + " in a " + W + "×" + H + " picture — skipped", true);
+          out[p] = null; return;
+        }
+        out[p] = box;
+      });
+      cb(out);
     });
   };
   im.onerror = function(){ cb(null); };
@@ -9147,7 +9188,17 @@ function faceCropBox(box, W, H){
   x = Math.max(0, Math.min(W - side, x)); y = Math.max(0, Math.min(H - side, y));
   return {x: Math.floor(x / 8) * 8, y: Math.floor(y / 8) * 8, w: side, h: side};
 }
-function buildFaceWorkflow(imgName, crop, loras, prompt){
+/* a part keeps its own shape: the box padded by half again each way */
+function partCropBox(box, W, H){
+  var w = Math.max(256, Math.round(box.w * 1.5)), h = Math.max(256, Math.round(box.h * 1.5));
+  w = Math.min(w, W); h = Math.min(h, H);
+  w = Math.floor(w / 8) * 8; h = Math.floor(h / 8) * 8;
+  var x = Math.round(box.x + box.w / 2 - w / 2), y = Math.round(box.y + box.h / 2 - h / 2);
+  x = Math.max(0, Math.min(W - w, x)); y = Math.max(0, Math.min(H - h, y));
+  return {x: Math.floor(x / 8) * 8, y: Math.floor(y / 8) * 8, w: w, h: h};
+}
+/* crop, blow up to a full canvas, repaint lightly, shrink back, feather in */
+function buildDetailWorkflow(imgName, crop, loras, prompt, denoise){
   var wf = {
     "1": {class_type: "CheckpointLoaderSimple", inputs: {ckpt_name: "flux1-dev-fp8.safetensors"}}
   };
@@ -9160,22 +9211,22 @@ function buildFaceWorkflow(imgName, crop, loras, prompt){
     modelRef = [String(id), 0]; clipRef = [String(id), 1];
     id++;
   });
-  /* the crop is blown up to a full canvas so the sampler has real pixels to
-     spend on the face, and never scaled down — a crop already that big is
-     sampled at its own size */
-  var S1 = crop.w >= 1024 ? Math.round(crop.w / 16) * 16 : 1024;
-  var feather = Math.max(8, Math.round(crop.w * 0.12));
+  /* the crop is blown up so its long side is a full canvas, and never
+     scaled down — a crop already that big is sampled at its own size */
+  var k = Math.max(1, 1024 / Math.max(crop.w, crop.h));
+  var UW = Math.round(crop.w * k / 16) * 16, UH = Math.round(crop.h * k / 16) * 16;
+  var feather = Math.max(8, Math.round(Math.min(crop.w, crop.h) * 0.12));
   wf["3"] = {class_type: "CLIPTextEncode", inputs: {text: prompt, clip: clipRef}};
   wf["4"] = {class_type: "CLIPTextEncode", inputs: {text: "", clip: clipRef}};
   wf["20"] = {class_type: "LoadImage", inputs: {image: imgName}};
   wf["21"] = {class_type: "ImageCrop", inputs: {image: ["20", 0], width: crop.w, height: crop.h, x: crop.x, y: crop.y}};
   wf["22"] = {class_type: "ImageScale", inputs: {image: ["21", 0], upscale_method: "lanczos",
-    width: S1, height: S1, crop: "disabled"}};
+    width: UW, height: UH, crop: "disabled"}};
   wf["23"] = {class_type: "VAEEncode", inputs: {pixels: ["22", 0], vae: ["1", 2]}};
   wf["6"] = {class_type: "KSampler", inputs: {
     model: modelRef, positive: ["3", 0], negative: ["4", 0], latent_image: ["23", 0],
     seed: Math.floor(Math.random() * 1e9), steps: 20, cfg: 1,
-    sampler_name: "euler", scheduler: "simple", denoise: 0.45
+    sampler_name: "euler", scheduler: "simple", denoise: denoise
   }};
   wf["7"] = {class_type: "VAEDecode", inputs: {samples: ["6", 0], vae: ["1", 2]}};
   wf["24"] = {class_type: "ImageScale", inputs: {image: ["7", 0], upscale_method: "lanczos",
@@ -9185,36 +9236,65 @@ function buildFaceWorkflow(imgName, crop, loras, prompt){
     right: feather, bottom: feather}};
   wf["27"] = {class_type: "ImageCompositeMasked", inputs: {destination: ["20", 0], source: ["24", 0],
     x: crop.x, y: crop.y, resize_source: false, mask: ["26", 0]}};
-  wf["8"] = {class_type: "SaveImage", inputs: {images: ["27", 0], filename_prefix: "face"}};
+  wf["8"] = {class_type: "SaveImage", inputs: {images: ["27", 0], filename_prefix: "detail"}};
   return wf;
 }
-/* b64 in, b64 out — the same picture if anything along the way says no */
+function buildFaceWorkflow(imgName, crop, loras, prompt){
+  return buildDetailWorkflow(imgName, crop, loras, prompt, 0.45);
+}
+/* b64 in, b64 out — the same picture if anything along the way says no.
+   The face first, with the identity LoRA; then each detail region with its
+   own LoRA, each pass working on the picture the previous one left. */
 function faceRefine(b64, ctx, cb){
-  var why = faceRefineWhy(ctx);
-  if (why) { L("img", "face pass skipped — " + why, true); cb(b64); return; }
+  if (!ctx) { cb(b64); return; }
+  var faceWhy = faceRefineWhy(ctx);
+  var regions = ctx.regions || [];
+  if (faceWhy) L("img", "face pass skipped — " + faceWhy, true);
+  if (faceWhy && !regions.length) { cb(b64); return; }
+  if (!(rpVisionReady() || (glmReady() && !ctx.mat))) {
+    L("img", "detail pass skipped — " + (ctx.mat ? "no RunPod vision endpoint to find parts on an 18+ picture" : "no vision model"), true);
+    cb(b64); return;
+  }
   var stage = ctx.stage || function(){};
+  var passes = [];
+  if (!faceWhy) passes.push({name: "face", loras: ctx.idLoras, denoise: 0.45, prompt:
+    "Close-up photo of the same person's face and hair, sharp focus, natural skin texture, the " +
+    "same expression, head angle, lighting and colours as the picture around it." +
+    (ctx.look ? "\n\nThe person shown: " + ctx.look : "") + (ctx.trig ? "\n" + ctx.trig : "")});
+  regions.forEach(function(r){
+    passes.push({name: r.name, loras: r.loras, denoise: 0.5, prompt:
+      "Close-up photo of the same person's " + r.name + ", anatomically correct with natural " +
+      "proportions, sharp focus, natural skin texture, the same skin tone, lighting and colours " +
+      "as the picture around it." + (r.adds.length ? "\n" + r.adds.join("\n") : "")});
+  });
   toJpegFull("data:image/png;base64," + b64, 0.92, function(jpg, W, H){
     if (!jpg) { cb(b64); return; }
-    stage("finding the face");
-    faceBox(jpg, ctx.mat, function(box){
-      if (!box) { cb(b64); return; }
-      var crop = faceCropBox(box, W, H);
-      var prompt = "Close-up photo of the same person's face and hair, sharp focus, natural skin " +
-        "texture, the same expression, head angle, lighting and colours as the picture around it." +
-        (ctx.look ? "\n\nThe person shown: " + ctx.look : "") +
-        (ctx.trig ? "\n" + ctx.trig : "");
-      var name = "face_" + Date.now() + ".jpg";
-      var wf = buildFaceWorkflow(name, crop, ctx.idLoras, prompt);
-      L("img", "face pass: face " + box.w + "×" + box.h + " at " + box.x + "," + box.y +
-        " → crop " + crop.w + " at " + crop.x + "," + crop.y + " of " + W + "×" + H +
-        " · lora " + ctx.idLoras.map(function(l){ return rpLoraName(l.path) + "@" + (l.scale || 1); }).join(","), true);
-      stage("second pass on the face");
-      var kb = rpRunGraph(wf, [{name: name, image: jpg}], function(out, err){
-        if (!out) { L("img", "face pass failed — " + String(err).slice(0, 200) + " — keeping the first pass", true); cb(b64); return; }
-        L("img", "face pass ok — " + W + "×" + H + ", face patch " + crop.w + "px at " + crop.x + "," + crop.y + " blended back", true);
-        cb(out);
-      }, stage);
-      L("img", "face pass job " + kb + "KB", true);
+    stage("finding the " + passes.map(function(p){ return p.name; }).join(" and "));
+    partBoxes(jpg, passes.map(function(p){ return p.name; }), ctx.mat, function(boxes){
+      if (!boxes) { cb(b64); return; }
+      var cur = b64, curJpg = jpg;
+      (function next(i){
+        if (i >= passes.length) { cb(cur); return; }
+        var ps = passes[i], box = boxes[ps.name];
+        if (!box) { next(i + 1); return; }
+        var crop = ps.name === "face" ? faceCropBox(box, W, H) : partCropBox(box, W, H);
+        var name = ps.name + "_" + Date.now() + ".jpg";
+        var wf = buildDetailWorkflow(name, crop, ps.loras, ps.prompt, ps.denoise);
+        L("img", ps.name + " pass: " + box.w + "×" + box.h + " at " + box.x + "," + box.y +
+          " → crop " + crop.w + "×" + crop.h + " at " + crop.x + "," + crop.y + " of " + W + "×" + H +
+          " · denoise " + ps.denoise + " · lora " +
+          (ps.loras.map(function(l){ return rpLoraName(l.path) + "@" + (l.scale || 1); }).join(",") || "none"), true);
+        stage("second pass on the " + ps.name);
+        var kb = rpRunGraph(wf, [{name: name, image: curJpg}], function(out, err){
+          if (!out) { L("img", ps.name + " pass failed — " + String(err).slice(0, 200) + " — keeping the picture as it was", true); next(i + 1); return; }
+          L("img", ps.name + " pass ok — " + W + "×" + H + ", patch " + crop.w + "×" + crop.h + " at " + crop.x + "," + crop.y + " blended back", true);
+          cur = out;
+          /* the next pass works on this result */
+          if (i + 1 < passes.length) toJpegFull("data:image/png;base64," + out, 0.92, function(j2){ curJpg = j2 || curJpg; next(i + 1); });
+          else next(i + 1);
+        }, stage);
+        L("img", ps.name + " pass job " + kb + "KB", true);
+      })(0);
     });
   });
 }
@@ -9395,7 +9475,8 @@ function renderLabLoras(){
       '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
       esc((x.l.name || "").trim() || rpLoraName(x.l.path)) +
       ' <span style="color:var(--mist);font-size:12px">· ' + esc(x.where) +
-      (x.l.when ? " · when: " + esc(x.l.when) : "") + "</span></span>" +
+      ((x.l.region || "").trim() ? " · detail pass: " + esc(x.l.region.split(",")[0].trim())
+                                 : (x.l.when ? " · when: " + esc(x.l.when) : "")) + "</span></span>" +
       '<input class="srvinput lab-sc" inputmode="decimal" style="width:64px;flex-shrink:0" value="' + s.scale + '">' +
       "</div></div>";
   });
@@ -9526,15 +9607,30 @@ function labGo(){
   }
   /* the face pass wants exactly one identity LoRA: one that sits on the
      chosen character's card, or came out of the face trainer */
-  var idl = [];
-  if (ch) allLoras().forEach(function(x){
+  var idl = [], regs = [], regSeen = {};
+  allLoras().forEach(function(x){
     var s = LAB.sel[labLoraKey(x)];
-    if (s && s.on && (x.where === ch.name || x.l.face) && /^https?:\/\//i.test((x.l.path || "").trim()))
+    if (!s || !s.on || !/^https?:\/\//i.test((x.l.path || "").trim())) return;
+    var words = (x.l.region || "").split(",").map(function(w){ return w.trim().toLowerCase(); }).filter(Boolean);
+    if (words.length) {
+      /* ticked detail LoRAs run on their patch regardless of the prompt —
+         the tick is the request */
+      var r = regSeen[words[0]];
+      if (!r) { r = regSeen[words[0]] = {name: words[0], loras: [], adds: []}; regs.push(r); }
+      r.loras.push({path: withCivitaiToken(x.l.path.trim()), scale: Math.min(4, Math.max(0, s.scale || 1))});
+      if ((x.l.add || "").trim()) r.adds.push(x.l.add.trim());
+      return;
+    }
+    if (ch && (x.where === ch.name || x.l.face))
       idl.push({path: withCivitaiToken(x.l.path.trim()), scale: Math.min(4, Math.max(0, s.scale || 1)),
                 add: (x.l.add || "").trim()});
   });
-  var faceCtx = LAB.face && LAB.engine === "rp" && !labSwapMode()
-    ? {ch: ch, idLoras: idl, inFrame: true, desc: prompt, mat: mature,
+  /* and they never ride the main paint */
+  loras = loras.filter(function(l){
+    return !allLoras().some(function(x){ return (x.l.region || "").trim() && withCivitaiToken((x.l.path || "").trim()) === l.path; });
+  });
+  var faceCtx = LAB.engine === "rp" && !labSwapMode() && (LAB.face || regs.length)
+    ? {ch: ch, idLoras: LAB.face ? idl : [], inFrame: true, desc: prompt, mat: mature, regions: regs,
        look: ch && $("lab-anchor").checked ? (ch.look || "").trim() : "",
        trig: [(fal().trigger || "").trim()].concat(idl.map(function(l){ return l.add; })).filter(Boolean).join("\n"),
        stage: function(t){ $("lab-stat").textContent = t; }}
@@ -9544,7 +9640,8 @@ function labGo(){
       : cn ? " library pose “" + libPose.name + "” " + cn.w + "×" + cn.h + " grip=" + cn.strength + " mode=" + cn.type
       : LAB.pose ? " pose-ref " + LAB.pose.w + "×" + LAB.pose.h + " denoise=" + LAB.denoise
                  : " aspect=" + LAB.aspect) +
-    (faceCtx ? " face-pass" : "") +
+    (faceCtx && LAB.face ? " face-pass" : "") +
+    (regs.length ? " detail-pass:" + regs.map(function(r){ return r.name; }).join("+") : "") +
     (mature ? " 18+" : "") + " loras=" + (labSwapMode() ? "n/a" : (loras.length || "none")) +
     " ↓\n" + prompt, true, 5000);
   var eng = LAB.engine;
