@@ -1040,7 +1040,7 @@ window.addEventListener("unhandledrejection", function(e){
 /* ================= platform & version ================= */
 /* the one place the version lives for the web build; the APK passes its
    own in the query string from BuildVersion */
-var APP_VN = "0.77.0";
+var APP_VN = "0.78.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -2715,6 +2715,41 @@ function editFiles(){
   ];
 }
 function editReady(ch){ return !!(rp().edit && ch && (ch.refimgs || []).length); }
+/* what the retired Kontext feature left on the volume — 17GB that the edit
+   model needs back. Nothing else in the app loads these files. */
+var KONTEXT_LEFTOVERS = [
+  {folder: "diffusion_models", name: "flux1-dev-kontext_fp8_scaled.safetensors", gb: 11.9},
+  {folder: "text_encoders", name: "t5xxl_fp8_e4m3fn_scaled.safetensors", gb: 5.2},
+  {folder: "text_encoders", name: "clip_l.safetensors", gb: 0.25},
+  {folder: "vae", name: "ae.safetensors", gb: 0.33}
+];
+function rpRemoveScript(files, selfDelete){
+  var bye = selfDelete
+    ? 'curl -s -X DELETE -H "Authorization: Bearer $RUNPOD_API_KEY" ' +
+      '"https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID"\nsleep 60\n'
+    : "";
+  var s = 'if ! grep -qs " /workspace " /proc/mounts; then\n' +
+          '  echo "STOP: /workspace is not a mounted network volume on this pod."\n' +
+          (bye ? bye.replace(/^/gm, "  ") : "") + '  exit 1\nfi\n' +
+          'D=$(find /workspace -maxdepth 4 -type d -name loras 2>/dev/null | head -n 1)\n' +
+          '[ -z "$D" ] && D=/workspace/models/loras\n' +
+          'M=$(dirname "$D")\n' +
+          'echo "models root: $M"\n';
+  files.forEach(function(f){
+    var t = '"$M/' + f.folder + '/' + f.name + '"';
+    s += 'rm -f ' + t + ' ' + t + '.part && echo "removed ' + f.name + '"\n';
+  });
+  s += 'df -h /workspace 2>/dev/null; du -sh "$M"/* 2>/dev/null\n' + bye;
+  return s;
+}
+/* gone when the model folders no longer list any of them */
+function kontextGone(cb){
+  rpModelProbe(function(r){
+    if (!r.unet) { cb(false); return; }
+    var lists = {diffusion_models: r.unet, text_encoders: r.clip, vae: r.vae};
+    cb(KONTEXT_LEFTOVERS.every(function(f){ var l = lists[f.folder]; return !l || l.indexOf(f.name) < 0; }));
+  });
+}
 /* which way a pose is used: its own choice, else the default, else
    whichever engine is installed */
 function poseHow(p){
@@ -3195,19 +3230,23 @@ async function rpInstallLoras(out){
 /* the two install routes for a set of missing files, appended to any
    container — the settings flow and each LoRA-health Fix button share it,
    so classes rather than ids: several offers can sit on one screen */
-function rpInstallOffer(out, missing){
+/* opts (optional) turn the installer into a general volume job: script(selfDelete)
+   builds the shell, verify(cb) says when the volume is as wanted, verb names
+   the button, done is the closing line */
+function rpInstallOffer(out, missing, opts){
+  opts = opts || {};
   function line(t){
     if (out) out.innerHTML += esc(t) + "<br>";
     L("img", "lorainstall: " + t, true, 1200);
   }
   var act = document.createElement("div");
   act.className = "srvbtns"; act.style.marginTop = "8px";
-  act.innerHTML = '<button class="use rp-inst-auto">Install (temp CPU pod)</button>' +
+  act.innerHTML = '<button class="use rp-inst-auto">' + esc(opts.verb || "Install") + ' (temp CPU pod)</button>' +
                   '<button class="use rp-inst-copy">Copy script</button>';
   out.appendChild(act);
   act.querySelector(".rp-inst-copy").onclick = function(){
     var txt = "# Run in any RunPod pod/terminal with the ComfyUI network volume mounted " +
-              "at /workspace\n" + rpInstallScript(missing, false);
+              "at /workspace\n" + (opts.script ? opts.script(false) : rpInstallScript(missing, false));
     (navigator.clipboard ? navigator.clipboard.writeText(txt)
                          : Promise.reject(new Error("no clipboard")))
       .then(function(){ toast("Install script copied"); },
@@ -3218,10 +3257,12 @@ function rpInstallOffer(out, missing){
   };
   act.querySelector(".rp-inst-auto").onclick = function(){
     act.remove();
-    rpAutoInstall(out, missing, line);
+    rpAutoInstall(out, missing, line, opts);
   };
 }
-async function rpAutoInstall(out, missing, line){
+async function rpAutoInstall(out, missing, line, opts){
+  opts = opts || {};
+  var verify = opts.verify || function(cb){ rpVolumeHas(missing, cb); };
   async function deploy(vol){
     line('Renting a small CPU pod with "' + (vol.name || vol.id) + '" attached…');
     var pod;
@@ -3236,7 +3277,7 @@ async function rpAutoInstall(out, missing, line){
         containerDiskInGb: 5,
         networkVolumeId: vol.id,
         volumeMountPath: "/workspace",
-        dockerEntrypoint: ["/bin/sh", "-c", rpInstallScript(missing, true)],
+        dockerEntrypoint: ["/bin/sh", "-c", opts.script ? opts.script(true) : rpInstallScript(missing, true)],
         env: {RUNPOD_API_KEY: rp().key.trim()}
       });
     } catch(e){
@@ -3249,10 +3290,11 @@ async function rpAutoInstall(out, missing, line){
       line("✗ Pod came back without an id — raw: " + JSON.stringify(pod).slice(0, 200));
       return;
     }
-    line("Pod " + pid + " is downloading " + missing.length + " file(s); it deletes itself " +
-         "when done. A few cents. Around " +
-         Math.max(1, Math.round(missing.reduce(function(a, m){ return a + (m.gb || 0.2); }, 0))) +
-         "GB, so give it a few minutes — this line updates when it finishes.");
+    line("Pod " + pid + " is " + (opts.verb ? opts.verb.toLowerCase() + "ing" : "downloading") + " " +
+         missing.length + " file(s); it deletes itself when done. A few cents." +
+         (opts.script ? "" : " Around " +
+           Math.max(1, Math.round(missing.reduce(function(a, m){ return a + (m.gb || 0.2); }, 0))) +
+           "GB, so give it a few minutes") + " — this line updates when it finishes.");
     var cancel = document.createElement("button");
     cancel.className = "use"; cancel.textContent = "Cancel & delete pod";
     cancel.style.marginTop = "6px";
@@ -3268,8 +3310,8 @@ async function rpAutoInstall(out, missing, line){
         });
     };
     /* 100MB of LoRA and 30GB of edit model are not the same wait */
-    var totalGb = missing.reduce(function(a, m){ return a + (m.gb || 0.2); }, 0);
-    var deadlineMs = Math.min(45, Math.max(12, Math.round(12 + totalGb * 2))) * 60000;
+    var totalGb = opts.script ? 0 : missing.reduce(function(a, m){ return a + (m.gb || 0.2); }, 0);
+    var deadlineMs = (opts.script ? 6 : Math.min(45, Math.max(12, Math.round(12 + totalGb * 2)))) * 60000;
     var t0 = Date.now(), ticks = 0, goneSeen = 0;
     while (!stopped) {
       await new Promise(function(r){ setTimeout(r, 10000); });
@@ -3292,7 +3334,7 @@ async function rpAutoInstall(out, missing, line){
          ComfyUI endpoint whether everything has landed; when it has, delete
          the pod from here instead of waiting out the clock. */
       if (rpReady() && ticks % 6 === 0) {
-        var landed = await new Promise(function(res){ rpVolumeHas(missing, res); });
+        var landed = await new Promise(function(res){ verify(res); });
         if (landed) {
           line("Everything is on the volume — deleting the pod.");
           try { await rpRest("DELETE", "/pods/" + pid); } catch(e){}
@@ -3301,7 +3343,8 @@ async function rpAutoInstall(out, missing, line){
       }
       if (Date.now() - t0 > deadlineMs) {
         line(Math.round(deadlineMs / 60000) + " minutes — that's long. Deleting the pod; " +
-             "rerunning Install skips finished files and starts the unfinished one over.");
+             (opts.script ? "run it again if the volume isn't as expected." :
+              "rerunning Install skips finished files and starts the unfinished one over."));
         try { await rpRest("DELETE", "/pods/" + pid); } catch(e){}
         break;
       }
@@ -3309,10 +3352,12 @@ async function rpAutoInstall(out, missing, line){
     if (stopped) return;
     cancel.remove();
     line("Pod gone — re-checking the volume…");
-    var landed = await new Promise(function(res){ rpVolumeHas(missing, res); });
+    var landed = await new Promise(function(res){ verify(res); });
     if (landed) {
-      line("✓ Everything landed. Diagnostics can confirm it: Check edit model, Check ControlNet, " +
-           "or LoRA health.");
+      line(opts.done || ("✓ Everything landed. Diagnostics can confirm it: Check edit model, Check ControlNet, " +
+           "or LoRA health."));
+    } else if (opts.script) {
+      line("The volume isn't as expected yet — if the pod was still working, wait a minute and check again.");
     } else {
       /* the probe can only see loras and diffusion_models, so a "no" here may
          just mean the file it can see is the one that hasn't arrived */
@@ -5994,13 +6039,15 @@ function rpSectionHTML(){
   h += '<div class="srvbtns" style="margin-top:10px">' +
        '<button class="use" id="rp-lora-install">Install LoRAs to volume</button>' +
        '<button class="use" id="rp-edit-install">Install edit model</button>' +
-       '<button class="use" id="rp-cn-install">Install ControlNet</button></div>';
+       '<button class="use" id="rp-cn-install">Install ControlNet</button>' +
+       '<button class="use" id="rp-kontext-free">Free Kontext space</button></div>';
   h += '<div class="ds" style="padding-top:6px">Install LoRAs puts every configured LoRA the volume ' +
        'is missing onto it. The edit model (Qwen-Image-Edit, about 30GB, once) is what Reference ' +
        'needs; the ControlNet (about 6.6GB, once) is what Skeleton needs. Each rents a tiny CPU pod ' +
        'for a few minutes (a few cents, deletes itself) or copies the same script for pasting into ' +
        'a pod terminal. Make sure the volume has the room first — RunPod lets a volume grow under ' +
-       'Storage. Check what is there under Diagnostics.</div>';
+       'Storage, and Free Kontext space removes the 17GB the retired subject-swap left behind. ' +
+       'Check what is there under Diagnostics.</div>';
   h += '<div id="rp-install-out" class="ds" style="padding-top:6px"></div>';
   h += '<div class="ds" style="padding:12px 0 4px">Vision endpoint (optional) — a second RunPod ' +
        'endpoint (vLLM quick-deploy) that reads the photos you send during mature conversations, ' +
@@ -6071,6 +6118,21 @@ function wireFalUI(card){
       "GB) onto the volume. Files already there are skipped, so this is safe to re-run. " +
       "The big one takes a while — and the volume needs the room.<br>";
     rpInstallOffer(out, files);
+  };
+  var kf = card.querySelector("#rp-kontext-free");
+  if (kf) kf.onclick = function(){
+    var out = card.querySelector("#rp-install-out");
+    out.innerHTML = "";
+    if (!rpReady()) { out.textContent = "Add the RunPod endpoint ID and API key above first."; return; }
+    out.innerHTML = "Removing the four Kontext files from the volume (about 17GB): " +
+      KONTEXT_LEFTOVERS.map(function(f){ return esc(f.name); }).join(", ") +
+      ". Nothing else in the app uses them. Files that aren't there are skipped.<br>";
+    rpInstallOffer(out, KONTEXT_LEFTOVERS, {
+      verb: "Remove",
+      script: function(selfDelete){ return rpRemoveScript(KONTEXT_LEFTOVERS, selfDelete); },
+      verify: kontextGone,
+      done: "✓ The Kontext files are gone from the volume."
+    });
   };
   var ph = card.querySelector("#rp-posehow");
   if (ph) labChips(ph, [{v: "", label: "Auto"}, {v: "ref", label: "Reference"}, {v: "skel", label: "Skeleton"}],
