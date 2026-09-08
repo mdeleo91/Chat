@@ -909,7 +909,7 @@
     <div class="subhead">
       <button class="back" id="pe-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
       <div class="cwrap"><div class="cname" id="pe-title">Pose</div>
-        <div class="cstat">drag a joint · tap a name below to switch it off or on</div></div>
+        <div class="cstat">drag a joint · tap one to select it</div></div>
       <button class="back" id="pe-reset" style="font-size:14px;font-weight:700">Reset</button>
     </div>
     <div class="rows">
@@ -917,13 +917,11 @@
         <img id="pe-img" style="width:100%;display:block" alt="">
         <canvas id="pe-cv" style="position:absolute;left:0;top:0;touch-action:none"></canvas>
       </div>
-      <div class="field"><label>HANDS AND FEET — drawn in full when the reader saw them; they move with their wrist or ankle</label>
-        <div id="pe-extra" style="padding-top:4px"></div>
-        <div class="phint">Switch one off when the reader misread it — a hand drawn wrong steers wrong, no hand leaves it to the prompt.</div></div>
-      <div class="field"><label>JOINTS — right and left are the person's own</label>
-        <div id="pe-chips" style="padding-top:4px"></div>
-        <div class="srvbtns" style="margin-top:6px"><button class="use" id="pe-mirror">Mirror left ↔ right</button></div>
-        <div class="phint" style="padding-top:8px">A joint the reader got wrong steers the GPU wrong. Drag it where it belongs. A joint that isn't in the picture — a leg hidden behind the body — should be off, so the ControlNet leaves that part to the prompt. Changes save as you go.</div></div>
+      <div class="field" style="margin-top:0">
+        <div id="pe-sel" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:34px"></div>
+        <div id="pe-off" style="padding-top:6px"></div>
+        <div id="pe-extra" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:8px"></div>
+        <div class="phint" style="padding-top:8px">Hands and feet follow their wrist or ankle; drag the fingertip or big toe to turn or resize one. Off means the ControlNet leaves that part to the prompt. Changes save as you go.</div></div>
       <div style="height:24px"></div>
     </div>
   </div>
@@ -1049,7 +1047,7 @@ window.addEventListener("unhandledrejection", function(e){
 /* ================= platform & version ================= */
 /* the one place the version lives for the web build; the APK passes its
    own in the query string from BuildVersion */
-var APP_VN = "0.72.0";
+var APP_VN = "0.73.0";
 var Q = {};
 location.search.replace(/^\?/, "").split("&").forEach(function(kv){
   var p = kv.split("="); if (p[0]) Q[decodeURIComponent(p[0])] = decodeURIComponent(p[1]||"");
@@ -9009,8 +9007,23 @@ $("poses-list").onclick = function(e){
    a ControlNet holds the picture to whatever it is given — a leg the reader
    invented becomes a leg in the photo. So every joint can be dragged where
    it belongs, switched off when it shouldn't steer anything, and the whole
-   figure mirrored when the reader swapped left and right. */
-var PE = {id: null, drag: -1, W: 0, H: 0};
+   figure mirrored when the reader swapped left and right. A hand or foot
+   the reader missed can be added from a template and turned to fit. */
+var PE = {id: null, drag: null, sel: null, W: 0, H: 0, moved: false};
+/* the four extras: key, name, the body joint that anchors them, the joint
+   the anchor hangs from (for a sensible default size and direction), the
+   store they live in, and the point that serves as their handle */
+var PE_EXTRAS = {
+  hl: {name: "L hand", anchor: 7, from: 6, store: "hands", side: "l", tip: 12},
+  hr: {name: "R hand", anchor: 4, from: 3, store: "hands", side: "r", tip: 12},
+  fl: {name: "L foot", anchor: 13, from: 12, store: "feet", side: "l", tip: 0},
+  fr: {name: "R foot", anchor: 10, from: 9, store: "feet", side: "r", tip: 0}
+};
+/* templates in a local frame: anchor at the origin, the tip at (0, 1) */
+var HAND_TPL = [[0,0],[-0.22,0.2],[-0.4,0.38],[-0.52,0.52],[-0.6,0.64],[-0.22,0.55],[-0.27,0.75],[-0.3,0.9],
+  [-0.32,1.02],[-0.05,0.57],[-0.06,0.8],[-0.07,0.96],[0,1],[0.12,0.55],[0.15,0.77],[0.17,0.92],[0.19,1.04],
+  [0.28,0.5],[0.34,0.66],[0.38,0.78],[0.42,0.88]];
+var FOOT_TPL = [[0,1],[0.32,0.88],[0.05,-0.22]];
 function peOp(){
   var p = poseById(PE.id); if (!p) return null;
   /* first edit: freeze the reader's answer so Reset has something to go
@@ -9020,15 +9033,54 @@ function peOp(){
   if (!p.x0) p.x0 = JSON.parse(JSON.stringify({hands: p.hands || null, feet: p.feet || null}));
   return p;
 }
-/* a wrist carries its hand, an ankle its foot */
-var OP_CARRIES = {4: ["hands", "r"], 7: ["hands", "l"], 10: ["feet", "r"], 13: ["feet", "l"]};
-function peShift(p, i, dx, dy){
-  var c = OP_CARRIES[i]; if (!c || !p[c[0]] || !p[c[0]][c[1]]) return;
-  p[c[0]][c[1]] = p[c[0]][c[1]].map(function(q){ return q ? [q[0] + dx, q[1] + dy].concat(q.slice(2)) : null; });
+function peExtra(p, k){
+  var d = PE_EXTRAS[k]; return p[d.store] && p[d.store][d.side] ? p[d.store][d.side] : null;
+}
+function peSetExtra(p, k, pts){
+  var d = PE_EXTRAS[k]; p[d.store] = p[d.store] || {l: null, r: null}; p[d.store][d.side] = pts;
+}
+/* place a template hand or foot at its anchor, pointing on from the limb
+   above it, about half that limb's length */
+function peAddExtra(k){
+  var p = peOp(), d = PE_EXTRAS[k];
+  var anchor = p.op[d.anchor];
+  if (!anchor) { toast("Switch the " + OP_NAMES[d.anchor] + " on and place it first"); return; }
+  var from = p.op[d.from];
+  var dx = from ? anchor[0] - from[0] : 0, dy = from ? anchor[1] - from[1] : 0.1;
+  var len = Math.sqrt(dx * dx + dy * dy) || 0.1;
+  var ux = dx / len, uy = dy / len;
+  var size = Math.max(0.04, len * (d.store === "hands" ? 0.55 : 0.45));
+  var tpl = d.store === "hands" ? HAND_TPL : FOOT_TPL;
+  var flip = (d.side === "l") ? -1 : 1;   // thumb / small toe on the outside
+  var pts = tpl.map(function(t){
+    var lx = t[0] * flip, ly = t[1];
+    /* local y runs along the limb, local x across it */
+    return [Math.round((anchor[0] + (ux * ly - uy * lx) * size) * 10000) / 10000,
+            Math.round((anchor[1] + (uy * ly + ux * lx) * size) * 10000) / 10000, 1];
+  });
+  peSetExtra(p, k, pts);
+  p.hide = p.hide || {}; p.hide[k] = false;
+  PE.sel = k;
+  save(); peDraw();
+}
+function peFlipExtra(k){
+  var p = peOp(), d = PE_EXTRAS[k], pts = peExtra(p, k), anchor = p.op[d.anchor];
+  if (!pts || !anchor) return;
+  var tip = pts[d.tip]; if (!tip) return;
+  var ax = tip[0] - anchor[0], ay = tip[1] - anchor[1], n = ax * ax + ay * ay || 1;
+  peSetExtra(p, k, pts.map(function(q){
+    if (!q) return null;
+    var vx = q[0] - anchor[0], vy = q[1] - anchor[1];
+    var t = (vx * ax + vy * ay) / n;
+    var px = ax * t, py = ay * t;   // projection onto the axis; reflect across it
+    return [Math.round((anchor[0] + 2 * px - vx) * 10000) / 10000,
+            Math.round((anchor[1] + 2 * py - vy) * 10000) / 10000].concat(q.slice(2));
+  }));
+  save(); peDraw();
 }
 function openPoseEdit(id){
   var p = poseById(id); if (!p) return;
-  PE.id = id; PE.drag = -1;
+  PE.id = id; PE.drag = null; PE.sel = null;
   $("pe-title").textContent = p.name || "Pose";
   var img = $("pe-img");
   img.onload = function(){ peLayout(); };
@@ -9053,32 +9105,68 @@ function peDraw(){
   g.clearRect(0, 0, cv.width, cv.height);
   var k = cv.width / PE.W;
   g.setTransform(k, 0, 0, k, 0, 0);
-  drawSkeleton(g, poseOp(p), PE.W, PE.H, Math.max(3, Math.min(7, Math.round(PE.W / 96))), PE.drag, p);
-  var op = poseOp(p);
-  var hide = p.hide || {};
-  $("pe-extra").innerHTML = [["hl", "L hand", p.hands && p.hands.l], ["hr", "R hand", p.hands && p.hands.r],
-                             ["fl", "L foot", p.feet && p.feet.l], ["fr", "R foot", p.feet && p.feet.r]]
-    .map(function(x){
-      var have = !!x[2], on = have && !hide[x[0]];
-      return '<button class="btn ghost pe-x" data-k="' + x[0] + '"' + (have ? "" : " disabled") +
-        ' style="padding:6px 10px;font-size:12px;margin:0 6px 6px 0;' + (on ? "" : "opacity:.45") + '">' +
-        esc(x[1]) + (have ? (on ? "" : " · off") : " · not read") + "</button>";
-    }).join("");
-  $("pe-chips").innerHTML = OP_NAMES.map(function(n, i){
-    var c = OP_COLORS[i], on = !!op[i];
-    return '<button class="btn ghost pe-chip" data-i="' + i + '" style="padding:6px 10px;font-size:12px;margin:0 6px 6px 0;' +
-      (on ? "border-color:rgb(" + c.join(",") + ")" : "opacity:.45") + '">' +
-      '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;background:rgb(' + c.join(",") + ')"></span>' +
-      esc(n) + (on ? "" : " · off") + "</button>";
+  g.globalAlpha = 0.85;
+  var stick = Math.max(2, Math.min(4, Math.round(PE.W / 180)));
+  drawSkeleton(g, poseOp(p), PE.W, PE.H, stick, typeof PE.sel === "number" ? PE.sel : -1, p);
+  /* handles on the extras: a ring on the fingertip or big toe */
+  g.globalAlpha = 1;
+  Object.keys(PE_EXTRAS).forEach(function(k){
+    var d = PE_EXTRAS[k], pts = peExtra(p, k);
+    if (!pts || (p.hide && p.hide[k])) return;
+    var t = pts[d.tip]; if (!t) return;
+    g.strokeStyle = PE.sel === k ? "#fff" : "rgba(255,255,255,.7)"; g.lineWidth = 2;
+    g.beginPath(); g.arc(t[0] * PE.W, t[1] * PE.H, stick + 5, 0, Math.PI * 2); g.stroke();
+  });
+  var op = poseOp(p), hide = p.hide || {};
+  /* the selection row: what is picked, and what can be done to it */
+  var sel = $("pe-sel"), h = "";
+  if (typeof PE.sel === "number") {
+    var c = OP_COLORS[PE.sel];
+    h = '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:rgb(' + c.join(",") + ')"></span>' +
+        '<span style="font-weight:600">' + esc(OP_NAMES[PE.sel]) + "</span>" +
+        '<button class="btn ghost" id="pe-off-btn" style="padding:6px 12px;font-size:12px">Switch off</button>';
+  } else if (PE.sel && PE_EXTRAS[PE.sel]) {
+    h = '<span style="font-weight:600">' + esc(PE_EXTRAS[PE.sel].name) + "</span>" +
+        '<button class="btn ghost" id="pe-off-btn" style="padding:6px 12px;font-size:12px">Switch off</button>' +
+        '<button class="btn ghost" id="pe-flip-btn" style="padding:6px 12px;font-size:12px">Flip ' +
+        (PE_EXTRAS[PE.sel].store === "hands" ? "thumb" : "toes") + " side</button>";
+  } else {
+    h = '<span class="phint">Tap a joint on the picture to select it.</span>';
+  }
+  h += '<span style="flex:1"></span><button class="btn ghost" id="pe-mirror" style="padding:6px 12px;font-size:12px">Mirror L ↔ R</button>';
+  sel.innerHTML = h;
+  /* only what is off is listed — everything else is on the picture */
+  var offs = OP_NAMES.map(function(n, i){ return op[i] ? null : i; }).filter(function(i){ return i !== null; });
+  $("pe-off").innerHTML = offs.length
+    ? '<span class="phint">Off — tap to restore: </span>' + offs.map(function(i){
+        var c = OP_COLORS[i];
+        return '<button class="btn ghost pe-on" data-i="' + i + '" style="padding:4px 9px;font-size:11.5px;margin:0 4px 4px 0;opacity:.7">' +
+          '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;background:rgb(' + c.join(",") + ')"></span>' +
+          esc(OP_NAMES[i]) + "</button>";
+      }).join("")
+    : "";
+  $("pe-extra").innerHTML = Object.keys(PE_EXTRAS).map(function(k){
+    var d = PE_EXTRAS[k], have = !!peExtra(p, k), on = have && !hide[k];
+    return '<button class="btn ghost pe-x" data-k="' + k + '" style="padding:5px 10px;font-size:12px;' +
+      (on ? (PE.sel === k ? "border-color:var(--acc);" : "") : "opacity:.55;") + '">' +
+      esc(d.name) + (have ? (on ? "" : " · off") : " · add") + "</button>";
   }).join("");
 }
+/* nearest thing under the finger: a body joint, or an extra's handle */
 function peNearest(x, y){
-  var p = poseById(PE.id); if (!p) return -1;
-  var op = poseOp(p), best = -1, bd = 24 * 24;
-  op.forEach(function(q, i){
+  var p = poseById(PE.id); if (!p) return null;
+  var best = null, bd = 26 * 26;
+  poseOp(p).forEach(function(q, i){
     if (!q) return;
     var dx = q[0] * PE.W - x, dy = q[1] * PE.H - y, d = dx * dx + dy * dy;
     if (d < bd) { bd = d; best = i; }
+  });
+  Object.keys(PE_EXTRAS).forEach(function(k){
+    var d = PE_EXTRAS[k], pts = peExtra(p, k);
+    if (!pts || (p.hide && p.hide[k])) return;
+    var t = pts[d.tip]; if (!t) return;
+    var dx = t[0] * PE.W - x, dy = t[1] * PE.H - y, dd = dx * dx + dy * dy;
+    if (dd <= bd) { bd = dd; best = k; }   // the handle wins a tie with the joint under it
   });
   return best;
 }
@@ -9086,56 +9174,93 @@ function pePoint(e){
   var r = $("pe-cv").getBoundingClientRect();
   return {x: Math.max(0, Math.min(PE.W, e.clientX - r.left)), y: Math.max(0, Math.min(PE.H, e.clientY - r.top))};
 }
+/* a wrist carries its hand, an ankle its foot */
+var OP_CARRIES = {4: "hr", 7: "hl", 10: "fr", 13: "fl"};
+function peShift(p, i, dx, dy){
+  var k = OP_CARRIES[i], pts = k && peExtra(p, k); if (!pts) return;
+  peSetExtra(p, k, pts.map(function(q){ return q ? [q[0] + dx, q[1] + dy].concat(q.slice(2)) : null; }));
+}
+/* dragging a handle turns and resizes the whole extra about its anchor */
+function peTurn(p, k, nx, ny){
+  var d = PE_EXTRAS[k], pts = peExtra(p, k), anchor = p.op[d.anchor];
+  if (!pts) return;
+  var tip = pts[d.tip]; if (!tip) return;
+  if (!anchor) { var ddx = nx - tip[0], ddy = ny - tip[1];
+    peSetExtra(p, k, pts.map(function(q){ return q ? [q[0] + ddx, q[1] + ddy].concat(q.slice(2)) : null; })); return; }
+  var ox = tip[0] - anchor[0], oy = tip[1] - anchor[1], vx = nx - anchor[0], vy = ny - anchor[1];
+  var ol = Math.sqrt(ox * ox + oy * oy) || 1e-6, nl = Math.sqrt(vx * vx + vy * vy);
+  if (nl < 0.01) return;
+  var sc = nl / ol, ang = Math.atan2(vy, vx) - Math.atan2(oy, ox), cs = Math.cos(ang), sn = Math.sin(ang);
+  peSetExtra(p, k, pts.map(function(q){
+    if (!q) return null;
+    var rx = q[0] - anchor[0], ry = q[1] - anchor[1];
+    return [Math.round((anchor[0] + (rx * cs - ry * sn) * sc) * 10000) / 10000,
+            Math.round((anchor[1] + (rx * sn + ry * cs) * sc) * 10000) / 10000].concat(q.slice(2));
+  }));
+}
 $("pe-cv").onpointerdown = function(e){
   var pt = pePoint(e), i = peNearest(pt.x, pt.y);
-  if (i < 0) return;
-  peOp(); PE.drag = i;
+  PE.moved = false;
+  if (i === null) { PE.sel = null; peDraw(); return; }
+  peOp(); PE.drag = i; PE.sel = i;
   try { this.setPointerCapture(e.pointerId); } catch (x) {}
   e.preventDefault(); peDraw();
 };
 $("pe-cv").onpointermove = function(e){
-  if (PE.drag < 0) return;
+  if (PE.drag === null) return;
   var p = peOp(), pt = pePoint(e);
   var nx = Math.round(pt.x / PE.W * 10000) / 10000, ny = Math.round(pt.y / PE.H * 10000) / 10000;
-  var was = p.op[PE.drag];
-  if (was) peShift(p, PE.drag, nx - was[0], ny - was[1]);
-  p.op[PE.drag] = [nx, ny, 1];
+  PE.moved = true;
+  if (typeof PE.drag === "number") {
+    var was = p.op[PE.drag];
+    if (was) peShift(p, PE.drag, nx - was[0], ny - was[1]);
+    p.op[PE.drag] = [nx, ny, 1];
+  } else peTurn(p, PE.drag, nx, ny);
   e.preventDefault(); peDraw();
 };
-$("pe-extra").onclick = function(e){
-  var b = e.target.closest ? e.target.closest(".pe-x") : null; if (!b || b.disabled) return;
-  var p = peOp(); p.hide = p.hide || {};
-  p.hide[b.dataset.k] = !p.hide[b.dataset.k];
-  save(); peDraw();
-};
 $("pe-cv").onpointerup = $("pe-cv").onpointercancel = function(e){
-  if (PE.drag < 0) return;
-  PE.drag = -1; save(); peDraw();
+  if (PE.drag === null) return;
+  PE.drag = null; if (PE.moved) save(); peDraw();
 };
-$("pe-chips").onclick = function(e){
-  var b = e.target.closest ? e.target.closest(".pe-chip") : null; if (!b) return;
-  var p = peOp(), i = +b.dataset.i;
-  if (p.op[i]) p.op[i] = null;
-  else {
-    /* switched back on: appear near the neck, or the middle, and be dragged from there */
-    var anchor = p.op[1] || p.op[0] || [0.5, 0.5];
-    p.op[i] = [Math.min(0.98, anchor[0] + 0.06), Math.min(0.98, anchor[1] + 0.06), 1];
-  }
-  save(); peDraw();
-};
-$("pe-mirror").onclick = function(){
+$("pe-sel").onclick = function(e){
+  var t = e.target.closest ? e.target.closest("button") : null; if (!t) return;
   var p = peOp();
-  p.op = OP_MIRROR.map(function(j){ return p.op[j] ? p.op[j].slice() : null; });
-  if (p.hands) p.hands = {l: p.hands.r || null, r: p.hands.l || null};
-  if (p.feet) p.feet = {l: p.feet.r || null, r: p.feet.l || null};
-  if (p.hide) p.hide = {hl: !!p.hide.hr, hr: !!p.hide.hl, fl: !!p.hide.fr, fr: !!p.hide.fl};
-  save(); peDraw(); toast("Left and right swapped");
+  if (t.id === "pe-mirror") {
+    p.op = OP_MIRROR.map(function(j){ return p.op[j] ? p.op[j].slice() : null; });
+    if (p.hands) p.hands = {l: p.hands.r || null, r: p.hands.l || null};
+    if (p.feet) p.feet = {l: p.feet.r || null, r: p.feet.l || null};
+    if (p.hide) p.hide = {hl: !!p.hide.hr, hr: !!p.hide.hl, fl: !!p.hide.fr, fr: !!p.hide.fl};
+    PE.sel = null; save(); peDraw(); toast("Left and right swapped"); return;
+  }
+  if (t.id === "pe-off-btn") {
+    if (typeof PE.sel === "number") p.op[PE.sel] = null;
+    else if (PE.sel) { p.hide = p.hide || {}; p.hide[PE.sel] = true; }
+    PE.sel = null; save(); peDraw(); return;
+  }
+  if (t.id === "pe-flip-btn" && PE.sel && PE_EXTRAS[PE.sel]) peFlipExtra(PE.sel);
+};
+$("pe-off").onclick = function(e){
+  var b = e.target.closest ? e.target.closest(".pe-on") : null; if (!b) return;
+  var p = peOp(), i = +b.dataset.i;
+  /* switched back on: appear near the neck, or the middle, and be dragged from there */
+  var anchor = p.op[1] || p.op[0] || [0.5, 0.5];
+  p.op[i] = [Math.min(0.98, anchor[0] + 0.06), Math.min(0.98, anchor[1] + 0.06), 1];
+  PE.sel = i; save(); peDraw();
+};
+$("pe-extra").onclick = function(e){
+  var b = e.target.closest ? e.target.closest(".pe-x") : null; if (!b) return;
+  var p = peOp(), k = b.dataset.k;
+  if (!peExtra(p, k)) { peAddExtra(k); return; }
+  p.hide = p.hide || {};
+  if (p.hide[k]) { p.hide[k] = false; PE.sel = k; }
+  else PE.sel = (PE.sel === k) ? null : k;
+  save(); peDraw();
 };
 $("pe-reset").onclick = function(){
   var p = poseById(PE.id); if (!p || !p.op0) { toast("Nothing to reset"); return; }
   p.op = JSON.parse(JSON.stringify(p.op0));
   if (p.x0) { p.hands = JSON.parse(JSON.stringify(p.x0.hands)); p.feet = JSON.parse(JSON.stringify(p.x0.feet)); }
-  delete p.hide;
+  delete p.hide; PE.sel = null;
   save(); peDraw(); toast("Back to what the reader saw");
 };
 $("pe-back").onclick = function(){ hide("v-poseedit"); renderPoses(); };
