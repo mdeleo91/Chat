@@ -3117,14 +3117,21 @@ function rpInstallScript(missing, selfDelete){
     /* entries carry their own model folder — loras for LoRA files,
        diffusion_models / text_encoders / vae for the edit model, and
        controlnet for the pose library's ControlNet */
-    var f = m.folder || "loras", t = '"$M/' + f + '/' + m.name + '"';
+    var f = m.folder || "loras";
     /* a finished file is skipped; a leftover .part from an interrupted run
        is thrown away and the download starts clean rather than resuming
-       into a fragment of unknown provenance */
+       into a fragment of unknown provenance. Each file gets its own short
+       lines rather than one long one — a web terminal's paste can split a
+       long single line mid-quote and strand the shell on a continuation
+       prompt, which a long folder name (text_encoders, diffusion_models)
+       repeated three or four times in one line was long enough to hit. */
     s += 'mkdir -p "$M/' + f + '"\n' +
-         '[ -s ' + t + ' ] || { rm -f ' + t + '.part; curl -fL --retry 3 --retry-connrefused ' +
-         '--connect-timeout 30 -o ' + t + '.part "' + withCivitaiToken(m.url) +
-         '" && mv ' + t + '.part ' + t + '; } || echo "FAILED ' + m.name + '"\n';
+         'F="$M/' + f + '/' + m.name + '"\n' +
+         'if [ ! -s "$F" ]; then\n' +
+         '  rm -f "$F.part"\n' +
+         '  curl -fL --retry 3 --retry-connrefused --connect-timeout 30 -o "$F.part" "' +
+         withCivitaiToken(m.url) + '" && mv "$F.part" "$F" || echo "FAILED ' + m.name + '"\n' +
+         'fi\n';
   });
   s += 'du -sh "$M"/* 2>/dev/null\n';
   s += bye;

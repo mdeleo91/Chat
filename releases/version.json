@@ -1,6 +1,6 @@
 {
-  "versionCode": 167,
-  "versionName": "0.79.1",
+  "versionCode": 168,
+  "versionName": "0.79.2",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "The edit model install was failing every time, on any volume size, however long the pod was given — the VAE and text encoder URLs pointed at the Qwen-Image-Edit repo, which only repackages the diffusion model; those two files only exist in the base Qwen-Image repo it was built from, so both 404ed. Fixed to pull each file from the repo that actually has it."
+  "notes": "Copy script's pasted install line for a file under a long folder name (text_encoders, diffusion_models), repeated three or four times in one line, was long enough that a web terminal's paste split it mid-quote and stranded the shell on a continuation prompt waiting for input that never finished arriving. Each file's download is now several short lines built around one shell variable instead of one long one — the same line that stalled dropped from 620 characters to 281."
 }
