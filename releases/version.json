@@ -1,6 +1,6 @@
 {
-  "versionCode": 166,
-  "versionName": "0.79.0",
+  "versionCode": 167,
+  "versionName": "0.79.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "The installer shows its progress. A 30GB download on a CPU pod takes anywhere from five to forty minutes depending on the link, and the only sign of life was a line that said to give it a few minutes; now one line is rewritten as it goes, with how long it has been running and a tick beside each file as the volume reports it landed, and the intro says the honest range and that the line only moves while the app is on screen, because a phone pauses a backgrounded app. When the phone's direct route to RunPod's management API stops answering mid-job, the app now says so once and leads with the site's relay for the next ten minutes instead of failing over on every poll and logging each time. The removal check explains that a running worker lists its folders from a cache, so a file just removed can still show until a new worker boots. And the pod line no longer says \"removeing\"."
+  "notes": "The edit model install was failing every time, on any volume size, however long the pod was given — the VAE and text encoder URLs pointed at the Qwen-Image-Edit repo, which only repackages the diffusion model; those two files only exist in the base Qwen-Image repo it was built from, so both 404ed. Fixed to pull each file from the repo that actually has it."
 }

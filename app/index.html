@@ -2705,12 +2705,18 @@ function appendDetailPass(wf, img, ps, base){
 var EDIT_UNET = "qwen_image_edit_2509_fp8_e4m3fn.safetensors";
 var EDIT_CLIP = "qwen_2.5_vl_7b_fp8_scaled.safetensors";
 var EDIT_VAE = "qwen_image_vae.safetensors";
+/* the diffusion model is repackaged in the Edit repo, but its VAE and text
+   encoder are not duplicated there — they only exist in the base Qwen-Image
+   repo the Edit model was built from. Pointing all three at the Edit repo
+   404s on the last two; this had every install fail regardless of volume
+   space or how long the pod was given. */
 var EDIT_HF = "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/";
+var EDIT_HF_BASE = "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/";
 /* smallest first, so the arrival of the big one proves the rest landed */
 function editFiles(){
   return [
-    {folder: "vae", name: EDIT_VAE, url: EDIT_HF + "vae/" + EDIT_VAE, gb: 0.25, label: EDIT_VAE + " → vae"},
-    {folder: "text_encoders", name: EDIT_CLIP, url: EDIT_HF + "text_encoders/" + EDIT_CLIP, gb: 9.4, label: EDIT_CLIP + " → text_encoders"},
+    {folder: "vae", name: EDIT_VAE, url: EDIT_HF_BASE + "vae/" + EDIT_VAE, gb: 0.25, label: EDIT_VAE + " → vae"},
+    {folder: "text_encoders", name: EDIT_CLIP, url: EDIT_HF_BASE + "text_encoders/" + EDIT_CLIP, gb: 9.4, label: EDIT_CLIP + " → text_encoders"},
     {folder: "diffusion_models", name: EDIT_UNET, url: EDIT_HF + "diffusion_models/" + EDIT_UNET, gb: 20.4, label: EDIT_UNET + " → diffusion_models"}
   ];
 }
