@@ -2811,10 +2811,12 @@ function rpEditNodesProbe(cb){
 /* the instruction. Image 1 is her, image 2 the pose, image 3 her again
    when a second reference is on hand. */
 function editInstruction(nRefs, extra){
-  var t = "Put the woman from image 1" + (nRefs > 2 ? " (she is also shown in image 3)" : "") +
-    " into image 2. Give her exactly the pose, body position, hands, feet, camera angle, framing, " +
-    "lighting and setting of image 2. Keep her face, hair, skin and body exactly as they are in " +
-    "image 1. The result is one photograph of her alone; nobody from image 2 remains in it.";
+  var t = "Image 1 shows a woman." + (nRefs > 2 ? " Image 3 shows her again, from another angle." : "") +
+    " Image 2 shows a different woman, in a pose, whose identity must not appear in the result. " +
+    "Take only the pose, body position, hands, feet, camera angle, framing, lighting and setting " +
+    "from image 2 — discard everything about who image 2's woman is. Redraw the woman from image 1, " +
+    "with her own face, hair colour and style, skin tone and body, into that pose. The result is one " +
+    "photograph of the image 1 woman alone; none of image 2's woman — not her face, not her hair — remains in it.";
   return (extra || "").trim() ? t + "\n" + extra.trim() : t;
 }
 function buildEditWorkflow(prompt, refs, outW, outH){
@@ -2833,8 +2835,12 @@ function buildEditWorkflow(prompt, refs, outW, outH){
   wf["21"] = {class_type: "TextEncodeQwenImageEditPlus", inputs: neg};
   wf["22"] = {class_type: "ModelSamplingAuraFlow", inputs: {model: ["1", 0], shift: 3.0}};
   wf["23"] = {class_type: "EmptySD3LatentImage", inputs: {width: outW, height: outH, batch_size: 1}};
+  /* 2.5 let the pose photo's own person come through nearly untouched instead
+     of the identity in image 1 — 4 pushes the model to actually follow the
+     instruction rather than default to reproducing the more visually
+     dominant input */
   wf["24"] = {class_type: "KSampler", inputs: {model: ["22", 0], positive: ["20", 0], negative: ["21", 0],
-    latent_image: ["23", 0], seed: Math.floor(Math.random() * 1e9), steps: 20, cfg: 2.5,
+    latent_image: ["23", 0], seed: Math.floor(Math.random() * 1e9), steps: 20, cfg: 4,
     sampler_name: "euler", scheduler: "simple", denoise: 1}};
   wf["25"] = {class_type: "VAEDecode", inputs: {samples: ["24", 0], vae: ["3", 0]}};
   wf["26"] = {class_type: "SaveImage", inputs: {images: ["25", 0], filename_prefix: "edit"}};
@@ -9762,9 +9768,14 @@ function buildFaceWorkflow(imgName, crop, loras, prompt){
 function detailPassList(ctx){
   var faceWhy = faceRefineWhy(ctx), passes = [];
   if (faceWhy) L("img", "face pass skipped — " + faceWhy, true);
-  else passes.push({name: "face", loras: ctx.idLoras, denoise: 0.45, prompt:
-    "Close-up photo of the same person's face and hair, sharp focus, natural skin texture, the " +
-    "same expression, head angle, lighting and colours as the picture around it." +
+  /* 0.45 was too light to pull the face back to the identity LoRA when the
+     base picture (especially a reference edit that under-transferred) had
+     already baked in a different face — 0.6 gives the LoRA more room to
+     actually overwrite it rather than just polish it */
+  else passes.push({name: "face", loras: ctx.idLoras, denoise: 0.6, prompt:
+    "Close-up photo of her face and hair, sharp focus, natural skin texture, matching the " +
+    "expression, head angle, lighting and colours of the picture around it — but her own face, " +
+    "not whoever's face is there now." +
     (ctx.look ? "\n\nThe person shown: " + ctx.look : "") + (ctx.trig ? "\n" + ctx.trig : "")});
   (ctx.regions || []).forEach(function(r){
     passes.push({name: r.name, loras: r.loras, denoise: 0.5, prompt:
