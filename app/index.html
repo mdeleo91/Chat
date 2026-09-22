@@ -2811,12 +2811,17 @@ function rpEditNodesProbe(cb){
 /* the instruction. Image 1 is her, image 2 the pose, image 3 her again
    when a second reference is on hand. */
 function editInstruction(nRefs, extra){
-  var t = "Image 1 shows a woman." + (nRefs > 2 ? " Image 3 shows her again, from another angle." : "") +
-    " Image 2 shows a different woman, in a pose, whose identity must not appear in the result. " +
-    "Take only the pose, body position, hands, feet, camera angle, framing, lighting and setting " +
-    "from image 2 — discard everything about who image 2's woman is. Redraw the woman from image 1, " +
-    "with her own face, hair colour and style, skin tone and body, into that pose. The result is one " +
-    "photograph of the image 1 woman alone; none of image 2's woman — not her face, not her hair — remains in it.";
+  /* not "take the pose and invent a scene" — a face-and-body swap onto an
+     unchanged photograph. Leaving room for the model to redraw the setting
+     or outfit is exactly what produced a generic living room and a stray
+     extra hand instead of the reference photo itself. */
+  var t = "Image 2 is the exact photograph to reproduce, unchanged — same framing, same crop, " +
+    "same background, same clothing, same lighting, same camera angle, same everything else in it. " +
+    "The only change: the woman in image 2 is replaced with the woman from image 1" +
+    (nRefs > 2 ? " (shown again in image 3, from another angle)" : "") + " — her face, her hair " +
+    "colour and style, her skin tone, her body — as if she were the one actually photographed there. " +
+    "Do not invent a new background, outfit or setting; copy image 2's precisely, in every detail " +
+    "except who the woman is.";
   return (extra || "").trim() ? t + "\n" + extra.trim() : t;
 }
 function buildEditWorkflow(prompt, refs, outW, outH){

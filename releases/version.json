@@ -1,6 +1,6 @@
 {
-  "versionCode": 169,
-  "versionName": "0.79.3",
+  "versionCode": 170,
+  "versionName": "0.79.4",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "The reference edit's first real test: it put the pose photo's own woman into the result almost untouched instead of the character's identity, and the face pass afterward — 0.45 denoise on a small crop — wasn't strong enough to pull it back. The instruction to the edit model now spells out that image 2's woman must not appear at all, not just that image 1's should; its sampler's CFG goes from 2.5 to 4 so it actually follows that instead of defaulting to whichever input looks most like a photograph; and the face pass denoise goes from 0.45 to 0.6 so the identity LoRA has room to overwrite a wrong face rather than just polish it."
+  "notes": "The identity fix worked — the character's own face came through this time — but the edit model was still treating the pose photo as loose inspiration: it redrew the background and outfit into something generic, and along the way hallucinated a stray extra hand. That's not what a pose reference is for — it's a photograph to reproduce exactly, with only the person swapped. The instruction now says so plainly: same framing, background, clothing, lighting, camera angle as the reference photo, unchanged, down to every detail except who's in it."
 }
