@@ -1,6 +1,6 @@
 {
-  "versionCode": 173,
-  "versionName": "0.80.2",
+  "versionCode": 174,
+  "versionName": "0.80.3",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Fixed: opening a saved character's profile and tapping Edit looked like it did nothing — the button pressed, but no screen appeared. The new Profiles row's own back button reused the id \"prof-back\", already used by the character profile screen's back button; ids must be unique, so whichever wiring ran later silently took over the wrong button, leaving the profile screen's own back button broken. Once that screen couldn't close itself, it stayed sitting on top of whatever opened next — including the edit screen Edit does open, just hidden underneath. Gave the Profiles panel's back button its own id."
+  "notes": "The real fix this time, actually reproduced and verified before shipping: opening the profile of a brand-new character (one with no greeting written yet) threw a ReferenceError and aborted before the profile screen ever appeared — a `voicesOf` helper was called in two places to pick a tone for an auto-generated greeting, but was never written. A character with an explicit greeting, or one of the built-in cast, never hit that path, which is why this only showed up on freshly created characters. Added the missing function and confirmed, end to end in a real browser: create a character, open its profile, tap Edit — all work now."
 }

@@ -6705,6 +6705,15 @@ var VOICES = [
   {id:"curious",  re:/\b(curious|inquisitive|analytical|nerdy|geeky|thoughtful|philosophical|probing|obsessed)\b/},
   {id:"bright",   re:/\b(energetic|excitable|enthusiastic|upbeat|bubbly|cheerful|optimistic|hyper|bouncy)\b/}
 ];
+/* which of VOICES a character's own words match — personality and style
+   only, not description or anything else, since those describe what they
+   react to rather than how they sound. Can come back empty (a brand new
+   character with nothing written yet); every caller already treats that
+   as "no particular voice" rather than an error. */
+function voicesOf(ch){
+  var text = ((ch && ch.pers) || "") + " " + ((ch && ch.style) || "");
+  return VOICES.filter(function(v){ return v.re.test(text); }).map(function(v){ return v.id; });
+}
 function personaDriven(ch){ return !!(ch && (ch.custom || ch.edited)); }
 function expandContractions(s){
   return s.replace(/\bI'm\b/g,"I am").replace(/\bcan't\b/gi,"cannot").replace(/\bdon't\b/gi,"do not")
