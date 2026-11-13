@@ -1,6 +1,6 @@
 {
-  "versionCode": 171,
-  "versionName": "0.80.0",
+  "versionCode": 172,
+  "versionName": "0.80.1",
   "apkUrl": "https://chat-nine-psi-68.vercel.app/releases/PocketAI.apk",
-  "notes": "Profiles: Settings → Profiles lets one device hold several completely separate worlds — each with its own characters, conversations, memories, pictures and persona, with no bleed between them. Engines & keys, theme and wallpaper stay shared, since those belong to the device rather than to any one profile. Everyone's existing data becomes their first profile automatically; nothing moves or needs re-entering."
+  "notes": "Builds 167 through 171 bumped this file's numbers but never rebuilt the APK itself, which bundles the app as a baked-in asset rather than loading it live — so Check for updates correctly offered a download each time, but installing it left the app on whatever build last actually went through android/build.sh. This build is the real one: it carries everything since, including Profiles, the edit-model install fixes, and the reference-edit instruction rewrite. Also fixed the Profiles row's icon, which silently fell back to raw text (\"switch_account\") because the app's offline icon font is a hand-picked subset that didn't include it yet."
 }
