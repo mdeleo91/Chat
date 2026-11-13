@@ -543,6 +543,9 @@
       <div class="rows">
         <div class="setcard"><span class="em msr" style="color:var(--acc-deep)">chat_bubble</span>
           <div><b>Chat</b><span id="set-sub"></span></div></div>
+        <div class="sechead">PROFILES</div>
+        <button class="srow" id="set-profiles"><span class="ic msr">switch_account</span><span class="lbl">Profiles</span>
+          <span class="val" id="set-profiles-val"></span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
         <div class="sechead">YOU</div>
         <button class="srow" id="set-me"><span class="ic msr">account_circle</span><span class="lbl">Your persona</span>
           <span class="val" id="set-me-val"></span><span class="chev msr" style="font-size:20px">chevron_right</span></button>
@@ -957,6 +960,22 @@
     </div>
   </div>
 
+  <!-- ============ PROFILES ============ -->
+  <div class="view right" id="v-profiles">
+    <div class="subhead">
+      <button class="back" id="prof-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
+      <div class="cwrap"><div class="cname">Profiles</div></div>
+    </div>
+    <div class="rows">
+      <div class="sechead">SWITCH PROFILE</div>
+      <div id="profrows"></div>
+      <button class="srow" id="prof-new"><span class="ic msr">add</span><span class="lbl">New profile</span></button>
+      <div class="note">Each profile has its own characters, conversations, memories, pictures and
+        persona — fully separate from the others, right down to needing its own welcome tour.
+        Engines &amp; keys, theme and wallpaper are shared across every profile on this device.</div>
+    </div>
+  </div>
+
   <!-- ============ ONBOARDING ============ -->
   <div class="view" id="v-ob">
     <div>
@@ -1067,7 +1086,34 @@ function fetchManifest(cb, err){
 }
 
 /* ================= state ================= */
+/* Profiles: one device can hold several siloed "who you are and who you
+   talk to" sets — switching characters, conversations, memories and the
+   persona you play, while engine connections (keys, endpoints) stay shared
+   since those belong to the device's owner, not to any one profile. Each
+   profile is its own localStorage blob; KEY itself holds only the account
+   shell (the profile list, which one is active, and the shared engine
+   settings). ("profile" was already the name of the in-app persona object
+   below — S.profile — so the switchable thing is called a workspace in code
+   to avoid colliding with it, and just "profile" in anything the user sees.) */
 var KEY = "pocketai.v1";
+var AKEYS = ["rp","fal","glm","mode","accent","wall","theme","workspaces","activeWorkspace"];
+var PKEYS = ["chars","msgs","mems","memts","groups","gseeded","gopen2","gal","sums","scenes",
+             "modes","lens","clock","removed","adult","seeded","onboarded","profile","poses","kin1","cast2"];
+function wsKey(id){ return KEY + ".ws." + id; }
+/* a fresh picture id is stamped with its profile so pictures from different
+   profiles can share one IndexedDB store without ever colliding or being
+   swept as "unused" by the wrong one. The profile created by migrating an
+   existing install keeps its pictures unprefixed — exactly the ids already
+   on disk — so nothing needs to be copied or renamed to ship this. */
+function wsPicPrefix(id){
+  var w = (S.workspaces || []).filter(function(x){ return x.id === id; })[0];
+  return (w && w.legacy) ? "" : id + "/";
+}
+function picMine(key, prefix){ return prefix ? key.indexOf(prefix) === 0 : key.indexOf("/") < 0; }
+function saveAccount(){
+  var acct = {}; AKEYS.forEach(function(k){ if (S[k] !== undefined) acct[k] = S[k]; });
+  try { localStorage.setItem(KEY, JSON.stringify(acct)); return true; } catch(e){ return false; }
+}
 var S = null;
 /* legacy emoji avatars → Material Symbols icon names */
 var EMOJI2ICON = {"🕵️":"person_search","🧙":"auto_fix_high","🤖":"smart_toy","🦊":"pets",
@@ -1076,8 +1122,28 @@ var EMOJI2ICON = {"🕵️":"person_search","🧙":"auto_fix_high","🤖":"smart
   "🍳":"skillet","💪":"fitness_center","📜":"history_edu","🌙":"self_improvement","🏰":"castle"};
 var REACT2ICON = {"❤️":"favorite","😂":"mood","🔥":"local_fire_department","👍":"thumb_up","✨":"auto_awesome"};
 function load(){
-  try { S = JSON.parse(localStorage.getItem(KEY)); } catch(e){ S = null; }
-  if (!S) S = { chars:[], msgs:{}, mems:{}, profile:{}, seeded:false };
+  var acct = null;
+  try { acct = JSON.parse(localStorage.getItem(KEY)); } catch(e){ acct = null; }
+  /* first run on this device, or an install from before profiles existed —
+     either way everything so far sat in one blob under KEY. Split it once
+     into the account shell and this device's first profile, so an existing
+     user keeps everything exactly as it was, just switchable from here on. */
+  if (!acct || !acct.workspaces || !acct.workspaces.length) {
+    var legacy = acct || {};
+    var wsId = "w" + Date.now().toString(36);
+    var ws = {}; PKEYS.forEach(function(k){ if (legacy[k] !== undefined) ws[k] = legacy[k]; });
+    var fresh = {}; AKEYS.forEach(function(k){ if (legacy[k] !== undefined) fresh[k] = legacy[k]; });
+    fresh.workspaces = [{id: wsId, name: "Profile 1", legacy: true}];
+    fresh.activeWorkspace = wsId;
+    try { localStorage.setItem(wsKey(wsId), JSON.stringify(ws)); } catch(e){}
+    try { localStorage.setItem(KEY, JSON.stringify(fresh)); } catch(e){}
+    acct = fresh;
+  }
+  var wsraw = null;
+  try { wsraw = JSON.parse(localStorage.getItem(wsKey(acct.activeWorkspace))); } catch(e){ wsraw = null; }
+  S = Object.assign({}, acct, wsraw || {});
+  if (!S.chars) S.chars = []; if (!S.msgs) S.msgs = {}; if (!S.mems) S.mems = {};
+  if (!S.profile) S.profile = {}; if (S.seeded === undefined) S.seeded = false;
   if (S.onboarded === undefined) S.onboarded = !!S.seeded;  // existing users skip onboarding
   if (!S.mode)   S.mode   = S.theme === "dark" ? "dark" : "light";
   if (!S.accent) S.accent = "green";
@@ -1122,7 +1188,7 @@ function load(){
    it sitting in memory looking saved until the next reload eats it */
 function save(){
   var r = slimJSON(), ok;
-  try { localStorage.setItem(KEY, r.json); ok = true; }
+  try { localStorage.setItem(wsKey(S.activeWorkspace), r.json); saveAccount(); ok = true; }
   catch(e){
     /* pictures still travelling to the picture store are the only thing
        here big enough to fill the quota — say so, with the size, rather
@@ -1162,11 +1228,13 @@ var IMG_RE = /^data:image\//;
 function isPic(v){ return typeof v === "string" && v.length > 1024 && IMG_RE.test(v); }
 function slimJSON(){
   var fresh = [], used = {};
-  var json = JSON.stringify(S, function(k, v){
+  var prefix = wsPicPrefix(S.activeWorkspace);
+  var wsOnly = {}; PKEYS.forEach(function(k){ if (S[k] !== undefined) wsOnly[k] = S[k]; });
+  var json = JSON.stringify(wsOnly, function(k, v){
     if (!isPic(v)) return v;
     var id = IMGID.get(v);
     if (!id) {
-      id = "i-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      id = prefix + "i-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
       IMGID.set(v, id); IMGPEND[id] = true; fresh.push([id, v]);
     }
     used[id] = true;
@@ -1208,6 +1276,7 @@ function imgStore(entries){
 }
 /* the reverse on load: every "idb:" reference becomes its picture again */
 function inflatePictures(cb){
+  var prefix = wsPicPrefix(S.activeWorkspace);
   var refs = 0;
   (function count(o){
     if (typeof o === "string") { if (o.slice(0, 4) === "idb:") refs++; return; }
@@ -1222,10 +1291,16 @@ function inflatePictures(cb){
       cb(); return;
     }
     var tx = db.transaction(IDB_STORE, "readonly"), st = tx.objectStore(IDB_STORE);
-    var all = {}, req = st.openCursor();
+    /* a profile with its own prefix reads only its own range; the migrated
+       profile's unprefixed ids need a full scan, filtered to skip anything
+       a newer, prefixed profile put in the same store */
+    var all = {}, req = prefix ? st.openCursor(IDBKeyRange.bound(prefix, prefix + "￿")) : st.openCursor();
     req.onsuccess = function(){
       var c = req.result;
-      if (c) { all[c.key] = c.value; c.continue(); return; }
+      if (c) {
+        if (picMine(c.key, prefix)) all[c.key] = c.value;
+        c.continue(); return;
+      }
       var missing = 0, found = 0;
       (function walk(o){
         if (!o || typeof o !== "object") return;
@@ -1258,6 +1333,7 @@ function inflatePictures(cb){
 var SWEEP_T = null;
 function idbSweepLater(used){
   clearTimeout(SWEEP_T);
+  var prefix = wsPicPrefix(S.activeWorkspace);
   SWEEP_T = setTimeout(function(){
     if (!used) used = slimJSON().used;
     idbOpen(function(db){
@@ -1267,10 +1343,11 @@ function idbSweepLater(used){
       req.onsuccess = function(){
         var gone = 0;
         (req.result || []).forEach(function(id){
+          if (!picMine(id, prefix)) return;   // never touch another profile's pictures
           if (!used[id] && !IMGPEND[id]) { st.delete(id); gone++; }
         });
         if (gone) {
-          IMGID.forEach(function(id, pic){ if (!used[id] && !IMGPEND[id]) IMGID.delete(pic); });
+          IMGID.forEach(function(id, pic){ if (picMine(id, prefix) && !used[id] && !IMGPEND[id]) IMGID.delete(pic); });
           L("store", "swept " + gone + " picture(s) no longer used", true);
         }
       };
@@ -1287,12 +1364,15 @@ function idbClear(cb){
 }
 /* what the store holds, for the Troubleshooting card */
 function storageBrief(){
-  var text = 0; try { text = (localStorage.getItem(KEY) || "").length; } catch (e) {}
+  var text = 0;
+  try { text += (localStorage.getItem(KEY) || "").length; } catch (e) {}
+  try { text += (localStorage.getItem(wsKey(S.activeWorkspace)) || "").length; } catch (e) {}
   var pics = 0, bytes = 0;
   IMGID.forEach(function(id, pic){ pics++; bytes += pic.length; });
-  return "Storage: text " + Math.round(text / 1024) + "KB in localStorage · " + pics +
+  return "Storage: text " + Math.round(text / 1024) + "KB in localStorage (this profile) · " + pics +
     " picture" + (pics === 1 ? "" : "s") + ", " + (bytes * 0.75 / 1048576).toFixed(1) +
-    "MB in device storage" + (IDB_OK === false ? " (unavailable here — pictures stay in localStorage)" : "");
+    "MB in device storage" + (IDB_OK === false ? " (unavailable here — pictures stay in localStorage)" : "") +
+    (((S.workspaces || []).length > 1) ? " · " + S.workspaces.length + " profiles on this device" : "");
 }
 
 /* ================= theming ================= */
@@ -10544,6 +10624,9 @@ function openTimelineSheet(){
 function initSettings(){
   $("set-sub").textContent = "v" + MY_VN + " · " + (IS_APK ? "Android app" : "web version") +
     " · everything is stored locally";
+  var curWs = (S.workspaces || []).filter(function(x){ return x.id === S.activeWorkspace; })[0];
+  $("set-profiles-val").textContent = (curWs ? curWs.name : "Profile 1") +
+    ((S.workspaces || []).length > 1 ? " · " + S.workspaces.length + " total" : "");
   $("set-model-val").textContent = friendlyModel();
   $("set-timeline-val").textContent = storyStamp();
   $("set-poses-val").textContent = poses().length
@@ -11006,9 +11089,101 @@ for (var mi=0; mi<mcards.length; mi++) (function(mc){
 })(mcards[mi]);
 $("set-logs").onclick = function(){ $("logcard").classList.toggle("on"); renderLogCard(); };
 $("set-update").onclick = doUpdateFlow;
+/* ---- profiles ----
+   Switching means loading a different blob entirely, and half this app
+   keeps its own caches derived from whatever S used to be (IMGID chief
+   among them) — rebuilding every one of those by hand is exactly the kind
+   of thing that quietly misses one and bites later. A reload re-runs the
+   same boot sequence every launch already goes through, against the new
+   profile's data, so nothing needs to know it happened. */
+function switchWorkspace(id){
+  if (id === S.activeWorkspace) return;
+  save();
+  S.activeWorkspace = id;
+  saveAccount();
+  location.reload();
+}
+function createWorkspace(name){
+  var id = "w" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  S.workspaces = (S.workspaces || []).concat([{id: id, name: (name || "").trim() || "New profile"}]);
+  saveAccount();
+  switchWorkspace(id);
+}
+function renameWorkspace(id, name){
+  var w = (S.workspaces || []).filter(function(x){ return x.id === id; })[0];
+  if (!w) return;
+  w.name = name;
+  saveAccount();
+  renderProfiles();
+}
+function deleteWorkspace(id){
+  if ((S.workspaces || []).length <= 1) { toast("Can't delete your only profile"); return; }
+  var w = (S.workspaces || []).filter(function(x){ return x.id === id; })[0];
+  if (!confirm('Delete the profile "' + (w ? w.name : "this profile") +
+      '"? Its characters, conversations, memories and pictures are gone for good.')) return;
+  var wasActive = id === S.activeWorkspace;
+  try { localStorage.removeItem(wsKey(id)); } catch(e){}
+  var prefix = wsPicPrefix(id);
+  idbOpen(function(db){
+    if (db) {
+      var tx = db.transaction(IDB_STORE, "readwrite"), st = tx.objectStore(IDB_STORE);
+      var req = st.getAllKeys();
+      req.onsuccess = function(){
+        (req.result || []).forEach(function(k){ if (picMine(k, prefix)) st.delete(k); });
+      };
+    }
+    S.workspaces = (S.workspaces || []).filter(function(x){ return x.id !== id; });
+    if (wasActive) {
+      S.activeWorkspace = S.workspaces[0].id;
+      saveAccount();
+      location.reload();
+    } else {
+      saveAccount();
+      renderProfiles();
+    }
+  });
+}
+function renderProfiles(){
+  var wrap = $("profrows"); if (!wrap) return;
+  wrap.innerHTML = "";
+  (S.workspaces || []).forEach(function(w){
+    var isActive = w.id === S.activeWorkspace;
+    var row = document.createElement("div");
+    row.style.cssText = "padding:10px 0;border-bottom:1px solid var(--line)";
+    row.innerHTML = '<div style="font-weight:600">' + (isActive ? "✓ " : "") + esc(w.name || "Profile") +
+      (isActive ? ' <span style="opacity:.6;font-weight:400">· current</span>' : "") + "</div>";
+    var btns = document.createElement("div"); btns.className = "srvbtns";
+    if (!isActive) {
+      var sw = document.createElement("button"); sw.className = "use"; sw.textContent = "Switch to this profile";
+      sw.onclick = function(){ switchWorkspace(w.id); };
+      btns.appendChild(sw);
+    }
+    var rn = document.createElement("button"); rn.className = "use"; rn.textContent = "Rename";
+    rn.onclick = function(){
+      var nm = prompt("Rename this profile", w.name || "");
+      if (nm && nm.trim()) renameWorkspace(w.id, nm.trim());
+    };
+    btns.appendChild(rn);
+    if ((S.workspaces || []).length > 1) {
+      var del = document.createElement("button"); del.className = "use"; del.style.background = "#DC2626";
+      del.textContent = "Delete"; del.onclick = function(){ deleteWorkspace(w.id); };
+      btns.appendChild(del);
+    }
+    row.appendChild(btns);
+    wrap.appendChild(row);
+  });
+}
+$("set-profiles").onclick = function(){ renderProfiles(); show("v-profiles"); };
+$("prof-back").onclick = function(){ hide("v-profiles"); initSettings(); };
+$("prof-new").onclick = function(){
+  var nm = prompt("Name this new profile", "");
+  if (nm !== null) createWorkspace(nm);
+};
 $("set-wipe").onclick = function(){
-  if (confirm("Erase ALL data on this device? Chats, characters, memories and pictures will be gone for good.")) {
-    localStorage.removeItem(KEY);
+  if (confirm("Erase ALL data on this device? Every profile — chats, characters, memories and pictures — will be gone for good.")) {
+    Object.keys(localStorage).forEach(function(k){
+      if (k === KEY || k.indexOf(KEY + ".ws.") === 0) localStorage.removeItem(k);
+    });
     idbClear(function(){ location.reload(); });
   }
 };
