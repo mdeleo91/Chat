@@ -963,7 +963,7 @@
   <!-- ============ PROFILES ============ -->
   <div class="view right" id="v-profiles">
     <div class="subhead">
-      <button class="back" id="prof-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
+      <button class="back" id="profiles-back"><span class="msr" style="font-size:22px">arrow_back_ios_new</span></button>
       <div class="cwrap"><div class="cname">Profiles</div></div>
     </div>
     <div class="rows">
@@ -11174,7 +11174,7 @@ function renderProfiles(){
   });
 }
 $("set-profiles").onclick = function(){ renderProfiles(); show("v-profiles"); };
-$("prof-back").onclick = function(){ hide("v-profiles"); initSettings(); };
+$("profiles-back").onclick = function(){ hide("v-profiles"); initSettings(); };
 $("prof-new").onclick = function(){
   var nm = prompt("Name this new profile", "");
   if (nm !== null) createWorkspace(nm);
